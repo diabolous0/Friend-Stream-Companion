@@ -1,4 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { applyCodecPreference, applyVideoBitrate } from "@/lib/media";
+import type { VideoCodec } from "@/lib/settings";
+
+interface ShareConfig {
+  displayConstraints?: MediaStreamConstraints;
+  codec?: VideoCodec;
+  bitrate?: number;
+}
+
+interface VoiceConfig {
+  audioConstraints?: MediaTrackConstraints | boolean;
+  gain?: number;
+}
 
 export function useWebRTC(
   wsSend: (message: any) => void,
@@ -13,7 +26,11 @@ export function useWebRTC(
 
   const screenPCsRef = useRef<Record<number, RTCPeerConnection>>({});
   const audioPCsRef = useRef<Record<number, RTCPeerConnection>>({});
+  const localStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const micRawStreamRef = useRef<MediaStream | null>(null);
+  const micCtxRef = useRef<AudioContext | null>(null);
+  const videoCfgRef = useRef<{ codec: VideoCodec; bitrate: number }>({ codec: "auto", bitrate: 0 });
   const wsSendRef = useRef(wsSend);
   wsSendRef.current = wsSend;
 
@@ -37,15 +54,19 @@ export function useWebRTC(
       };
       if (localStream) {
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        applyCodecPreference(pc, videoCfgRef.current.codec);
       }
       screenPCsRef.current[userId] = pc;
     }
     return screenPCsRef.current[userId];
   }, [localStream]);
 
-  const startSharing = useCallback(async (_roomId: number) => {
+  const startSharing = useCallback(async (_roomId: number, config?: ShareConfig) => {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      videoCfgRef.current = { codec: config?.codec ?? "auto", bitrate: config?.bitrate ?? 0 };
+      const constraints = config?.displayConstraints ?? { video: true, audio: true };
+      const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      localStreamRef.current = stream;
       setLocalStream(stream);
       setIsSharing(true);
       onStreamStart?.();
@@ -58,11 +79,12 @@ export function useWebRTC(
   const stopSharing = useCallback(() => {
     Object.values(screenPCsRef.current).forEach(pc => pc.close());
     screenPCsRef.current = {};
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); setLocalStream(null); }
+    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
+    setLocalStream(null);
     setIsSharing(false);
     setRemoteStreams({});
     onStreamStop?.();
-  }, [localStream, onStreamStop]);
+  }, [onStreamStop]);
 
   const handleOffer = useCallback(async (from: number, sdp: string) => {
     const pc = getScreenPC(from);
@@ -84,8 +106,10 @@ export function useWebRTC(
 
   const sendOffer = useCallback(async (to: number) => {
     const pc = getScreenPC(to);
+    applyCodecPreference(pc, videoCfgRef.current.codec);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    await applyVideoBitrate(pc, videoCfgRef.current.bitrate);
     wsSendRef.current({ type: "stream_offer", to, sdp: offer.sdp });
   }, [getScreenPC]);
 
@@ -113,24 +137,49 @@ export function useWebRTC(
     return audioPCsRef.current[userId];
   }, []);
 
-  const joinVoice = useCallback(async (): Promise<MediaStream | null> => {
+  const joinVoice = useCallback(async (config?: VoiceConfig): Promise<MediaStream | null> => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      micStreamRef.current = stream;
+      const audio = config?.audioConstraints ?? true;
+      const raw = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+      const gain = config?.gain ?? 100;
+      let outStream = raw;
+      if (gain !== 100) {
+        try {
+          const ctx = new AudioContext();
+          const src = ctx.createMediaStreamSource(raw);
+          const gainNode = ctx.createGain();
+          gainNode.gain.value = gain / 100;
+          const dest = ctx.createMediaStreamDestination();
+          src.connect(gainNode);
+          gainNode.connect(dest);
+          micCtxRef.current = ctx;
+          micRawStreamRef.current = raw;
+          outStream = dest.stream;
+        } catch {
+          outStream = raw;
+        }
+      }
+      micStreamRef.current = outStream;
       setIsInVoice(true);
-      return stream;
+      return outStream;
     } catch {
       return null;
     }
   }, []);
 
-  const leaveVoice = useCallback(() => {
+  const teardownMic = useCallback(() => {
     if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    if (micRawStreamRef.current) { micRawStreamRef.current.getTracks().forEach(t => t.stop()); micRawStreamRef.current = null; }
+    if (micCtxRef.current) { micCtxRef.current.close().catch(() => {}); micCtxRef.current = null; }
+  }, []);
+
+  const leaveVoice = useCallback(() => {
+    teardownMic();
     Object.values(audioPCsRef.current).forEach(pc => pc.close());
     audioPCsRef.current = {};
     setRemoteAudioStreams({});
     setIsInVoice(false);
-  }, []);
+  }, [teardownMic]);
 
   const sendAudioOffer = useCallback(async (to: number) => {
     const pc = getAudioPC(to);
@@ -162,14 +211,14 @@ export function useWebRTC(
     screenPCsRef.current = {};
     Object.values(audioPCsRef.current).forEach(pc => pc.close());
     audioPCsRef.current = {};
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
-    if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
+    teardownMic();
     setLocalStream(null);
     setIsSharing(false);
     setIsInVoice(false);
     setRemoteStreams({});
     setRemoteAudioStreams({});
-  }, [localStream]);
+  }, [teardownMic]);
 
   return {
     localStream, remoteStreams, remoteAudioStreams,

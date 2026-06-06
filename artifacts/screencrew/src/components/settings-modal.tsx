@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut } from "lucide-react";
-import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize } from "@/lib/settings";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic } from "lucide-react";
+import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize, type VideoQuality, type VideoCodec } from "@/lib/settings";
+import { VIDEO_QUALITY_LABELS, VIDEO_BITRATE_OPTIONS } from "@/lib/media";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Hotkey helpers ────────────────────────────────────────────────────────────
@@ -115,6 +116,85 @@ function Divider() {
   return <div className="border-t border-border/20 my-4" />;
 }
 
+function Field({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <p className="text-sm font-medium text-foreground">{label}</p>
+        {description && <p className="text-xs text-muted-foreground/60 mt-0.5">{description}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Segmented<T extends string | number>({ value, options, onChange }: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {options.map(o => (
+        <button key={String(o.value)} onClick={() => onChange(o.value)}
+          className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${value === o.value
+            ? "bg-primary/15 text-primary border border-primary/30"
+            : "text-muted-foreground/50 border border-border/30 hover:text-muted-foreground"}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MicDevicePicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        if (active) setDevices(all.filter(d => d.kind === "audioinput"));
+      } catch { /* enumeration unavailable */ }
+    };
+    void load();
+    navigator.mediaDevices.addEventListener?.("devicechange", load);
+    return () => {
+      active = false;
+      navigator.mediaDevices.removeEventListener?.("devicechange", load);
+    };
+  }, []);
+
+  const unlabeled = devices.length > 0 && devices.every(d => !d.label);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="relative">
+        <Mic className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <select value={value} onChange={e => onChange(e.target.value)}
+          className="w-full h-9 pl-9 pr-3 rounded-xl bg-muted/25 border border-transparent text-sm text-foreground outline-none focus:border-primary/30 appearance-none cursor-pointer">
+          <option value="">System default</option>
+          {devices.map((d, i) => (
+            <option key={d.deviceId || i} value={d.deviceId}>
+              {d.label || `Microphone ${i + 1}`}
+            </option>
+          ))}
+        </select>
+      </div>
+      {unlabeled && (
+        <p className="text-[10px] text-muted-foreground/40">Join voice once to let your browser reveal device names.</p>
+      )}
+    </div>
+  );
+}
+
+const VIDEO_QUALITY_OPTIONS: { value: VideoQuality; label: string }[] =
+  (["auto", "1080p60", "1080p30", "720p30", "480p30"] as VideoQuality[]).map(v => ({ value: v, label: VIDEO_QUALITY_LABELS[v] }));
+
+const VIDEO_CODEC_OPTIONS: { value: VideoCodec; label: string }[] =
+  (["auto", "VP9", "VP8", "H264", "AV1"] as VideoCodec[]).map(v => ({ value: v, label: v === "auto" ? "Auto" : v }));
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
@@ -186,7 +266,7 @@ export function SettingsModal({
             {[
               { key: "appearance", label: "Look" },
               { key: "chat", label: "Chat" },
-              { key: "audio", label: "Audio" },
+              { key: "audio", label: "Media" },
               { key: "overlay", label: "Overlay" },
               { key: "export", label: "Share" },
             ].map(t => (
@@ -374,12 +454,60 @@ export function SettingsModal({
             </Section>
           </TabsContent>
 
-          {/* ── Audio ── */}
+          {/* ── Media ── */}
           <TabsContent value="audio" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
             <Section title="Sounds">
               <Row label="Sound effects" description="Join, message, reaction sounds">
                 <Toggle checked={settings.soundEnabled} onToggle={() => set("soundEnabled", !settings.soundEnabled)} />
               </Row>
+            </Section>
+
+            <Divider />
+
+            <Section title="Microphone">
+              <Field label="Input device" description="Which mic to use for voice">
+                <MicDevicePicker value={settings.micDeviceId} onChange={id => set("micDeviceId", id)} />
+              </Field>
+              <Row label="Mic volume" description="Boost or lower your input gain">
+                <div className="flex items-center gap-3">
+                  <input type="range" min={0} max={200} step={5}
+                    value={settings.micGain}
+                    onChange={e => set("micGain", Number(e.target.value))}
+                    className="w-24 accent-primary h-1 rounded-full" />
+                  <span className="text-xs text-muted-foreground/70 w-10 text-right">{settings.micGain}%</span>
+                </div>
+              </Row>
+              <Row label="Echo cancellation" description="Remove speaker echo">
+                <Toggle checked={settings.echoCancellation} onToggle={() => set("echoCancellation", !settings.echoCancellation)} />
+              </Row>
+              <Row label="Noise suppression" description="Filter background noise">
+                <Toggle checked={settings.noiseSuppression} onToggle={() => set("noiseSuppression", !settings.noiseSuppression)} />
+              </Row>
+              <Row label="Auto gain" description="Auto-level your volume">
+                <Toggle checked={settings.autoGainControl} onToggle={() => set("autoGainControl", !settings.autoGainControl)} />
+              </Row>
+              <p className="text-[10px] text-muted-foreground/40">Mic changes apply next time you join voice.</p>
+            </Section>
+
+            <Divider />
+
+            <Section title="Screen Share">
+              <Field label="Quality" description="Resolution &amp; frame rate cap">
+                <Segmented value={settings.videoQuality} options={VIDEO_QUALITY_OPTIONS}
+                  onChange={v => set("videoQuality", v)} />
+              </Field>
+              <Field label="Codec" description="Preferred video codec (if supported)">
+                <Segmented value={settings.videoCodec} options={VIDEO_CODEC_OPTIONS}
+                  onChange={v => set("videoCodec", v)} />
+              </Field>
+              <Field label="Max bitrate" description="Upload bandwidth ceiling">
+                <Segmented value={settings.videoBitrate} options={VIDEO_BITRATE_OPTIONS}
+                  onChange={v => set("videoBitrate", v)} />
+              </Field>
+              <Row label="Share system audio" description="Include tab/desktop sound">
+                <Toggle checked={settings.shareSystemAudio} onToggle={() => set("shareSystemAudio", !settings.shareSystemAudio)} />
+              </Row>
+              <p className="text-[10px] text-muted-foreground/40">Video settings apply next time you start sharing.</p>
             </Section>
           </TabsContent>
 

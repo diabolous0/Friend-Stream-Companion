@@ -5,6 +5,8 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 export type UITheme = "lynx" | "classic";
 export type AccentPreset = "cyan" | "blue" | "purple" | "green" | "orange" | "pink" | "red";
 export type FontSize = "sm" | "md" | "lg";
+export type VideoQuality = "auto" | "1080p60" | "1080p30" | "720p30" | "480p30";
+export type VideoCodec = "auto" | "VP9" | "VP8" | "H264" | "AV1";
 
 export const ACCENT_COLORS: Record<AccentPreset, { hsl: string; hex: string; label: string }> = {
   cyan:   { hsl: "189 100% 50%", hex: "#00e5ff", label: "Cyan"   },
@@ -32,6 +34,17 @@ export interface AppSettings {
 
   // Audio
   soundEnabled: boolean;
+  micDeviceId: string;          // "" = system default
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+  micGain: number;              // 0–200 (%)
+
+  // Video (screen share)
+  videoQuality: VideoQuality;
+  videoCodec: VideoCodec;
+  videoBitrate: number;         // kbps, 0 = auto
+  shareSystemAudio: boolean;
 
   // Overlay
   overlayHotkey: string;  // KeyboardEvent.code or "Mod+Code", e.g. "Insert", "Shift+F2"
@@ -47,6 +60,15 @@ const DEFAULT: AppSettings = {
   showTimestamps: true,
   compactMessages: false,
   soundEnabled: true,
+  micDeviceId: "",
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  micGain: 100,
+  videoQuality: "auto",
+  videoCodec: "auto",
+  videoBitrate: 0,
+  shareSystemAudio: true,
   chatPopout: false,
   chatPopoutPos: { x: 360, y: 80 },
   overlayHotkey: "Insert",

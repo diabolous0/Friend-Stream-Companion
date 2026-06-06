@@ -1,2 +1,3 @@
 - [Object-storage attachments](object-storage-attachments.md) — chat uploads use authed request-url → PUT → finalize(public ACL); downloads enforce ACL so `<img>`/`<a>` (no auth header) only see finalized/public objects.
 - [Read receipts over WebSocket](read-receipts-signaling.md) — validate `read` messageId belongs to room + monotonic atomic GREATEST update; client-supplied read position must be server-validated.
+- [WebRTC stream teardown via refs](webrtc-media-teardown.md) — stop/cleanup/onended must read the live MediaStream from a ref, not state, or stale closures leak tracks; media settings flow (constraints, GainNode, codec/bitrate).

@@ -4,12 +4,14 @@ interface UseVoiceActivityOptions {
   onSpeakingChange: (speaking: boolean) => void;
   threshold?: number;
   silenceDelay?: number;
+  audioConstraints?: MediaTrackConstraints | boolean;
 }
 
 export function useVoiceActivity({
   onSpeakingChange,
   threshold = 15,
   silenceDelay = 600,
+  audioConstraints = true,
 }: UseVoiceActivityOptions) {
   const [isActive, setIsActive] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -22,10 +24,15 @@ export function useVoiceActivity({
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSpeakingRef = useRef(false);
   const onSpeakingChangeRef = useRef(onSpeakingChange);
+  const audioConstraintsRef = useRef(audioConstraints);
 
   useEffect(() => {
     onSpeakingChangeRef.current = onSpeakingChange;
   }, [onSpeakingChange]);
+
+  useEffect(() => {
+    audioConstraintsRef.current = audioConstraints;
+  }, [audioConstraints]);
 
   const stopDetection = useCallback(() => {
     if (animFrameRef.current) {
@@ -53,7 +60,7 @@ export function useVoiceActivity({
 
   const startDetection = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraintsRef.current, video: false });
       streamRef.current = stream;
       setHasPermission(true);
 

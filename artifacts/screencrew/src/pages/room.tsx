@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import {
   useGetRoom, getGetRoomQueryKey,
@@ -29,6 +29,7 @@ import {
   Paperclip, Loader2,
 } from "lucide-react";
 import { useSettings } from "@/lib/settings";
+import { buildAudioConstraints, buildDisplayConstraints } from "@/lib/media";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
@@ -246,8 +247,14 @@ export default function Room() {
     sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current, inVoice: false });
   }, []);
 
+  const audioConstraints = useMemo(
+    () => buildAudioConstraints(settings),
+    [settings.micDeviceId, settings.echoCancellation, settings.noiseSuppression, settings.autoGainControl],
+  );
+
   const { isActive: micActive, startDetection, stopDetection } = useVoiceActivity({
     onSpeakingChange: handleSpeakingChange, threshold: 12, silenceDelay: 500,
+    audioConstraints,
   });
 
   const toggleMic = useCallback(async () => {
@@ -372,7 +379,11 @@ export default function Room() {
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleStartShare = async () => {
-    await startSharing(roomId);
+    await startSharing(roomId, {
+      displayConstraints: buildDisplayConstraints(settings),
+      codec: settings.videoCodec,
+      bitrate: settings.videoBitrate,
+    });
     if (members && me) members.forEach(m => { if (m.id !== me.id) sendOffer(m.id); });
   };
 
@@ -461,13 +472,13 @@ export default function Room() {
   }, [roomId, deleteMessageMutation]);
 
   const handleJoinVoice = useCallback(async () => {
-    const stream = await joinVoice();
+    const stream = await joinVoice({ audioConstraints, gain: settings.micGain });
     if (!stream) return;
     send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: true });
     Object.values(presenceRef.current)
       .filter((p: any) => p.inVoice && p.userId !== me?.id)
       .forEach((p: any) => sendAudioOffer(p.userId));
-  }, [joinVoice, send, me?.id, sendAudioOffer]);
+  }, [joinVoice, audioConstraints, settings.micGain, send, me?.id, sendAudioOffer]);
 
   const handleLeaveVoice = useCallback(() => {
     leaveVoice();
