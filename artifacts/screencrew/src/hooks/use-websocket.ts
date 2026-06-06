@@ -4,6 +4,7 @@ type WebSocketMessage =
   | { type: "presence_update"; roomId: number; entries: any[] }
   | { type: "new_message"; message: any }
   | { type: "reaction_update"; messageId: number; reactions: any[] }
+  | { type: "typing_update"; userId: number; username: string; isTyping: boolean }
   | { type: "stream_offer"; from: number; sdp: string }
   | { type: "stream_answer"; from: number; sdp: string }
   | { type: "ice_candidate"; from: number; candidate: RTCIceCandidateInit };
@@ -12,6 +13,7 @@ interface UseWebSocketOptions {
   onPresenceUpdate?: (roomId: number, entries: any[]) => void;
   onNewMessage?: (message: any) => void;
   onReactionUpdate?: (messageId: number, reactions: any[]) => void;
+  onTypingUpdate?: (userId: number, username: string, isTyping: boolean) => void;
   onStreamOffer?: (from: number, sdp: string) => void;
   onStreamAnswer?: (from: number, sdp: string) => void;
   onIceCandidate?: (from: number, candidate: RTCIceCandidateInit) => void;
@@ -49,6 +51,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
             break;
           case "reaction_update":
             options.onReactionUpdate?.(data.messageId, data.reactions);
+            break;
+          case "typing_update":
+            options.onTypingUpdate?.(data.userId, data.username, data.isTyping);
             break;
           case "stream_offer":
             options.onStreamOffer?.(data.from, data.sdp);

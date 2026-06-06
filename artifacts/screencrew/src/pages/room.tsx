@@ -78,7 +78,10 @@ export default function Room() {
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isTypingRef = useRef(false);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [localSpeaking, setLocalSpeaking] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -136,6 +139,25 @@ export default function Room() {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
   }, []);
 
+  const sendTypingStop = useCallback(() => {
+    if (typingStopTimerRef.current) { clearTimeout(typingStopTimerRef.current); typingStopTimerRef.current = null; }
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      sendRef.current?.({ type: "typing", isTyping: false });
+    }
+  }, []);
+
+  const handleMsgInputChange = useCallback((value: string) => {
+    setMsgInput(value);
+    if (!value.trim()) { sendTypingStop(); return; }
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      sendRef.current?.({ type: "typing", isTyping: true });
+    }
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = setTimeout(sendTypingStop, 4000);
+  }, [sendTypingStop]);
+
   const { isConnected, send } = useWebSocket({
     onPresenceUpdate: (rid, entries) => {
       if (rid === roomId) {
@@ -150,6 +172,14 @@ export default function Room() {
       if (msg.roomId === roomId) setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
     },
     onReactionUpdate: applyReactionUpdate,
+    onTypingUpdate: (userId, username, isTyping) => {
+      setTypingUsers(prev => {
+        if (isTyping) return { ...prev, [userId]: username };
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    },
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
     onStreamAnswer: async (from, sdp) => { await handleAnswer(from, sdp); },
     onIceCandidate: async (from, candidate) => { await handleIceCandidate(from, candidate); },
@@ -174,6 +204,7 @@ export default function Room() {
   const handleSendMsg = (e: React.FormEvent) => {
     e.preventDefault();
     if (!msgInput.trim()) return;
+    sendTypingStop();
     sendMessage.mutate({ roomId, data: { content: msgInput } });
     setMsgInput("");
   };
@@ -386,12 +417,39 @@ export default function Room() {
           </ScrollArea>
         </div>
 
+        {/* Typing Indicator */}
+        {(() => {
+          const names = Object.entries(typingUsers)
+            .filter(([uid]) => Number(uid) !== me?.id)
+            .map(([, name]) => name);
+          if (names.length === 0) return null;
+          const label = names.length === 1
+            ? `${names[0]} is typing`
+            : names.length === 2
+              ? `${names[0]} and ${names[1]} are typing`
+              : `${names[0]} and ${names.length - 1} others are typing`;
+          return (
+            <div className="px-4 pb-1 shrink-0 flex items-center gap-1.5">
+              <div className="flex gap-0.5 items-end">
+                {[0, 1, 2].map(i => (
+                  <div
+                    key={i}
+                    className="w-1 h-1 rounded-full bg-primary/50"
+                    style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }}
+                  />
+                ))}
+              </div>
+              <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{label}</span>
+            </div>
+          );
+        })()}
+
         {/* Message Input */}
         <div className="px-4 py-3 border-t border-border/20 shrink-0">
           <form onSubmit={handleSendMsg} className="flex gap-2">
             <Input
               value={msgInput}
-              onChange={e => setMsgInput(e.target.value)}
+              onChange={e => handleMsgInputChange(e.target.value)}
               placeholder="Message..."
               disabled={!isConnected}
               className="h-8 text-sm bg-background/60 border-border/40 focus-visible:ring-primary/50 rounded-sm font-sans"

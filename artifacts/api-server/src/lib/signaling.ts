@@ -16,6 +16,7 @@ interface ClientState {
 }
 
 const clients = new Map<WebSocket, ClientState>();
+const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function getRoomClients(roomId: number): ClientState[] {
   return Array.from(clients.values()).filter((c) => c.roomId === roomId);
@@ -132,10 +133,33 @@ export function setupSignaling(server: Server): void {
           break;
         }
 
+        case "typing": {
+          if (!state || !state.roomId) return;
+          const isTyping = Boolean(msg.isTyping);
+          const key = `${state.roomId}:${state.userId}`;
+          const existingTimer = typingTimers.get(key);
+          if (existingTimer) clearTimeout(existingTimer);
+          typingTimers.delete(key);
+          broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping }, ws);
+          if (isTyping) {
+            const timer = setTimeout(() => {
+              typingTimers.delete(key);
+              broadcast(state.roomId!, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
+            }, 5000);
+            typingTimers.set(key, timer);
+          }
+          break;
+        }
+
         case "chat_message": {
           if (!state || !state.roomId) return;
           const content = (msg.content as string)?.trim();
           if (!content) return;
+
+          const key = `${state.roomId}:${state.userId}`;
+          const t = typingTimers.get(key);
+          if (t) { clearTimeout(t); typingTimers.delete(key); }
+          broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false }, ws);
 
           const [saved] = await db
             .insert(messagesTable)
@@ -151,6 +175,7 @@ export function setupSignaling(server: Server): void {
               username: state.username,
               content: saved.content,
               createdAt: saved.createdAt,
+              reactions: [],
             },
           });
           break;
@@ -212,6 +237,10 @@ export function setupSignaling(server: Server): void {
     ws.on("close", () => {
       const state = clients.get(ws);
       if (state?.roomId) {
+        const key = `${state.roomId}:${state.userId}`;
+        const t = typingTimers.get(key);
+        if (t) { clearTimeout(t); typingTimers.delete(key); }
+        broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
         state.streaming = false;
         state.speaking = false;
         broadcastPresence(state.roomId);
