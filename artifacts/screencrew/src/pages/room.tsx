@@ -14,9 +14,10 @@ import { useWebRTC } from "@/hooks/use-webrtc";
 import { useVoiceActivity } from "@/hooks/use-voice-activity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MonitorUp, StopCircle, Video, Volume2, VolumeX, ChevronLeft, Mic, MicOff } from "lucide-react";
+import { MonitorUp, StopCircle, Video, Volume2, VolumeX, ChevronLeft, Mic, MicOff, Share2, Copy, Check } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function Room() {
   const [, params] = useRoute("/room/:roomId");
@@ -40,6 +41,8 @@ export default function Room() {
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
   const sendRef = useRef<((msg: any) => void) | null>(null);
   const isSharingRef = useRef(false);
 
@@ -162,6 +165,14 @@ export default function Room() {
     setMsgInput("");
   };
 
+  const copyCode = useCallback(() => {
+    if (!room) return;
+    navigator.clipboard.writeText(room.inviteCode).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  }, [room]);
+
   const activeStream = viewingStreamOf && remoteStreams[viewingStreamOf];
   const viewingUser = members?.find(m => m.id === viewingStreamOf);
 
@@ -179,8 +190,17 @@ export default function Room() {
           </Button>
           <div className="flex items-baseline gap-2">
             <h1 className="font-mono text-lg font-bold text-primary tracking-widest uppercase">{room.name}</h1>
-            <span className="font-mono text-xs text-muted-foreground hidden sm:inline-block">ROOM {room.id} // {room.inviteCode}</span>
+            <span className="font-mono text-xs text-muted-foreground hidden sm:inline-block">ROOM {room.id}</span>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 rounded-sm font-mono text-xs text-muted-foreground hover:text-primary hover:bg-primary/10 gap-1.5"
+            onClick={() => setShowInvite(true)}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline uppercase">Invite</span>
+          </Button>
         </div>
         
         <div className="flex items-center gap-3">
@@ -312,6 +332,38 @@ export default function Room() {
           </div>
         </div>
       </div>
+
+      {/* Invite Code Modal */}
+      <Dialog open={showInvite} onOpenChange={setShowInvite}>
+        <DialogContent className="bg-card border-primary/30 rounded-sm max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-primary/20">
+            <DialogTitle className="font-mono text-sm uppercase tracking-widest text-primary flex items-center gap-2">
+              <Share2 className="w-4 h-4" /> Invite to {room.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-6 py-8 flex flex-col items-center gap-6">
+            <div className="text-center">
+              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Access Code</p>
+              <div className="font-mono text-4xl font-bold text-primary tracking-[0.3em] select-all bg-background border border-primary/20 rounded-sm px-6 py-4 shadow-[0_0_20px_rgba(0,229,255,0.1)]">
+                {room.inviteCode}
+              </div>
+            </div>
+            <p className="font-mono text-xs text-muted-foreground text-center leading-relaxed">
+              Share this code with your crew.<br />They can enter it on the rooms screen to join.
+            </p>
+            <Button
+              className="w-full font-mono uppercase tracking-widest rounded-sm gap-2"
+              onClick={copyCode}
+            >
+              {codeCopied ? (
+                <><Check className="w-4 h-4" /> Copied to Clipboard</>
+              ) : (
+                <><Copy className="w-4 h-4" /> Copy Code</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Stream Viewer Overlay */}
       {viewingStreamOf && (
