@@ -5,6 +5,16 @@ import { SearchGiphyQueryParams, SearchGiphyResponse } from "@workspace/api-zod"
 const router: IRouter = Router();
 
 const GIPHY_ENDPOINT = "https://api.giphy.com/v1/gifs";
+const GIPHY_TIMEOUT_MS = 5000;
+
+function isGiphyUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && (u.hostname === "giphy.com" || u.hostname.endsWith(".giphy.com"));
+  } catch {
+    return false;
+  }
+}
 
 type GiphyImage = { url?: string; width?: string; height?: string };
 type GiphyItem = {
@@ -49,7 +59,7 @@ router.get("/giphy/search", requireAuth, async (req, res): Promise<void> => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(url);
+    upstream = await fetch(url, { signal: AbortSignal.timeout(GIPHY_TIMEOUT_MS) });
   } catch (err) {
     req.log.error({ err }, "Giphy request failed");
     res.status(502).json({ error: "Failed to reach Giphy" });
@@ -62,8 +72,15 @@ router.get("/giphy/search", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const body = (await upstream.json()) as { data?: GiphyItem[] };
-  const items = body.data ?? [];
+  let body: { data?: GiphyItem[] };
+  try {
+    body = (await upstream.json()) as { data?: GiphyItem[] };
+  } catch (err) {
+    req.log.error({ err }, "Giphy returned invalid JSON");
+    res.status(502).json({ error: "Giphy returned an invalid response" });
+    return;
+  }
+  const items = Array.isArray(body?.data) ? body.data : [];
 
   const mapped = items
     .map((g) => {
@@ -71,6 +88,7 @@ router.get("/giphy/search", requireAuth, async (req, res): Promise<void> => {
       const main = imgs.fixed_height ?? imgs.fixed_height_downsampled;
       const preview = imgs.fixed_height_small ?? imgs.preview_gif ?? main;
       if (!g.id || !main?.url || !preview?.url) return null;
+      if (!isGiphyUrl(main.url) || !isGiphyUrl(preview.url)) return null;
       return {
         id: g.id,
         url: main.url,
