@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Users, LogOut, Plus, Hash } from "lucide-react";
+import { Users, LogOut, Plus, Hash, Copy, Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 export default function Rooms() {
@@ -19,6 +19,16 @@ export default function Rooms() {
 
   const [newRoomName, setNewRoomName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const copyInviteCode = useCallback((e: React.MouseEvent, code: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(null), 2000);
+    });
+  }, []);
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +105,17 @@ export default function Rooms() {
                     <h3 className="font-mono text-lg font-bold mb-2 group-hover:text-primary transition-colors">{room.name}</h3>
                     <div className="flex items-center justify-between text-xs font-mono text-muted-foreground">
                       <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {room.memberCount} members</span>
-                      <span className="flex items-center gap-1.5 opacity-50"><Hash className="w-3.5 h-3.5" /> {room.inviteCode}</span>
+                      <button
+                        onClick={(e) => copyInviteCode(e, room.inviteCode)}
+                        className={`flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 transition-all ${copiedCode === room.inviteCode ? "text-primary bg-primary/10" : "opacity-50 hover:opacity-100 hover:bg-primary/10 hover:text-primary"}`}
+                        title="Copy invite code"
+                      >
+                        {copiedCode === room.inviteCode ? (
+                          <><Check className="w-3 h-3" /> Copied!</>
+                        ) : (
+                          <><Hash className="w-3.5 h-3.5" />{room.inviteCode}<Copy className="w-3 h-3 ml-0.5" /></>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </Link>
