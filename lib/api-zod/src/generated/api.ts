@@ -109,6 +109,38 @@ export const GetRoomResponse = zod.object({
 
 
 /**
+ * @summary Rename a room (any member)
+ */
+export const UpdateRoomParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+
+
+
+export const UpdateRoomBody = zod.object({
+  "name": zod.string().min(1)
+})
+
+export const UpdateRoomResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "inviteCode": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "memberCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Leave a room (removes current user from member list)
+ */
+export const LeaveRoomParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+
+/**
  * @summary Join a room by invite code
  */
 export const JoinRoomParams = zod.object({

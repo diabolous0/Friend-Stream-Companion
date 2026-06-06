@@ -5,21 +5,23 @@ import {
   useGetRoomMembers, getGetRoomMembersQueryKey,
   useGetRoomPresence, getGetRoomPresenceQueryKey,
   useGetRoomMessages, getGetRoomMessagesQueryKey,
-  useSendMessage,
-  useToggleReaction,
+  useSendMessage, useToggleReaction,
+  useUpdateRoom, useLeaveRoom,
   useGetMe
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useVoiceActivity } from "@/hooks/use-voice-activity";
+import { useSounds } from "@/hooks/use-sounds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  MonitorUp, StopCircle, Volume2, VolumeX,
+  MonitorUp, Volume2, VolumeX,
   ChevronLeft, Mic, MicOff, Share2, Copy, Check,
-  Pin, PinOff, X
+  Pin, PinOff, X, Settings, Search, LogOut,
 } from "lucide-react";
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
@@ -33,15 +35,34 @@ function getUserColor(userId: number) {
   return USER_COLORS[userId % USER_COLORS.length];
 }
 
+function highlight(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const lc = text.toLowerCase();
+  const lq = query.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let start = 0;
+  let idx = lc.indexOf(lq, start);
+  while (idx !== -1) {
+    if (idx > start) parts.push(text.slice(start, idx));
+    parts.push(
+      <mark key={idx} className="bg-primary/30 text-foreground not-italic rounded-sm px-0">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+    );
+    start = idx + query.length;
+    idx = lc.indexOf(lq, start);
+  }
+  if (start < text.length) parts.push(text.slice(start));
+  return <>{parts}</>;
+}
+
 function useDraggable(initial: { x: number; y: number }) {
   const [pos, setPos] = useState(initial);
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
-
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { sx: e.clientX, sy: e.clientY, px: pos.x, py: pos.y };
   }, [pos]);
-
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (!dragRef.current) return;
     setPos({
@@ -49,9 +70,7 @@ function useDraggable(initial: { x: number; y: number }) {
       y: Math.max(0, Math.min(window.innerHeight - 260, dragRef.current.py + (e.clientY - dragRef.current.sy))),
     });
   }, []);
-
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
-
   return { pos, setPos, onPointerDown, onPointerMove, onPointerUp };
 }
 
@@ -65,33 +84,49 @@ export default function Room() {
   const [, params] = useRoute("/room/:roomId");
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
   const { data: me } = useGetMe();
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
   const { data: members } = useGetRoomMembers(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMembersQueryKey(roomId) } });
   const { data: initialPresence } = useGetRoomPresence(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomPresenceQueryKey(roomId) } });
   const { data: initialMessages } = useGetRoomMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
+
   const sendMessage = useSendMessage();
   const toggleReactionMutation = useToggleReaction();
+  const updateRoomMutation = useUpdateRoom();
+  const leaveRoomMutation = useLeaveRoom();
 
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isTypingRef = useRef(false);
-  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [soundsMuted, setSoundsMuted] = useState(false);
+  const { playMessage, playReaction, playJoin } = useSounds(soundsMuted);
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+
+  const [localSpeaking, setLocalSpeaking] = useState(false);
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const sendRef = useRef<((msg: any) => void) | null>(null);
   const isSharingRef = useRef(false);
+  const isTypingRef = useRef(false);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevOnlineRef = useRef<Set<number>>(new Set());
 
   const streamWindow = useDraggable({ x: Math.min(420, window.innerWidth - 440), y: 80 });
 
@@ -108,12 +143,32 @@ export default function Room() {
       const map: Record<number, any> = {};
       initialPresence.forEach((p: any) => (map[p.userId] = p));
       setPresence(map);
+      prevOnlineRef.current = new Set(initialPresence.filter((p: any) => p.online).map((p: any) => p.userId as number));
     }
   }, [initialPresence]);
 
   useEffect(() => {
+    if (room) setRenameValue(room.name);
+  }, [room]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [showSearch]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "/") { e.preventDefault(); setShowSearch(true); }
+      if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
 
   const handleSpeakingChange = useCallback((speaking: boolean) => {
     setLocalSpeaking(speaking);
@@ -121,63 +176,58 @@ export default function Room() {
   }, []);
 
   const { isActive: micActive, hasPermission: micPermission, startDetection, stopDetection } = useVoiceActivity({
-    onSpeakingChange: handleSpeakingChange,
-    threshold: 12,
-    silenceDelay: 500,
+    onSpeakingChange: handleSpeakingChange, threshold: 12, silenceDelay: 500,
   });
 
   const toggleMic = useCallback(async () => {
-    if (micActive) {
-      stopDetection();
-      sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current });
-    } else {
-      await startDetection();
-    }
+    if (micActive) { stopDetection(); sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current }); }
+    else await startDetection();
   }, [micActive, startDetection, stopDetection]);
 
   const applyReactionUpdate = useCallback((messageId: number, reactions: any[]) => {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-  }, []);
+    playReaction();
+  }, [playReaction]);
 
   const sendTypingStop = useCallback(() => {
     if (typingStopTimerRef.current) { clearTimeout(typingStopTimerRef.current); typingStopTimerRef.current = null; }
-    if (isTypingRef.current) {
-      isTypingRef.current = false;
-      sendRef.current?.({ type: "typing", isTyping: false });
-    }
+    if (isTypingRef.current) { isTypingRef.current = false; sendRef.current?.({ type: "typing", isTyping: false }); }
   }, []);
 
   const handleMsgInputChange = useCallback((value: string) => {
     setMsgInput(value);
     if (!value.trim()) { sendTypingStop(); return; }
-    if (!isTypingRef.current) {
-      isTypingRef.current = true;
-      sendRef.current?.({ type: "typing", isTyping: true });
-    }
+    if (!isTypingRef.current) { isTypingRef.current = true; sendRef.current?.({ type: "typing", isTyping: true }); }
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     typingStopTimerRef.current = setTimeout(sendTypingStop, 4000);
   }, [sendTypingStop]);
 
   const { isConnected, send } = useWebSocket({
     onPresenceUpdate: (rid, entries) => {
-      if (rid === roomId) {
-        setPresence(prev => {
-          const next = { ...prev };
-          entries.forEach((e: any) => (next[e.userId] = e));
-          return next;
+      if (rid !== roomId) return;
+      setPresence(prev => {
+        const next = { ...prev };
+        entries.forEach((e: any) => {
+          const wasOnline = prevOnlineRef.current.has(e.userId);
+          if (e.online && !wasOnline && e.userId !== me?.id) playJoin();
+          if (e.online) prevOnlineRef.current.add(e.userId);
+          else prevOnlineRef.current.delete(e.userId);
+          next[e.userId] = e;
         });
-      }
+        return next;
+      });
     },
     onNewMessage: (msg) => {
-      if (msg.roomId === roomId) setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+      if (msg.roomId === roomId) {
+        setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+        if (msg.userId !== me?.id) playMessage();
+      }
     },
     onReactionUpdate: applyReactionUpdate,
     onTypingUpdate: (userId, username, isTyping) => {
       setTypingUsers(prev => {
         if (isTyping) return { ...prev, [userId]: username };
-        const next = { ...prev };
-        delete next[userId];
-        return next;
+        const next = { ...prev }; delete next[userId]; return next;
       });
     },
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
@@ -220,15 +270,30 @@ export default function Room() {
           const newCount = group.count - 1;
           if (newCount === 0) return { ...m, reactions: reactions.filter((r: any) => r.emoji !== emoji) };
           return { ...m, reactions: reactions.map((r: any) => r.emoji === emoji ? { ...r, count: newCount, userIds: r.userIds.filter((id: number) => id !== me.id) } : r) };
-        } else {
-          return { ...m, reactions: reactions.map((r: any) => r.emoji === emoji ? { ...r, count: r.count + 1, userIds: [...r.userIds, me.id] } : r) };
         }
-      } else {
-        return { ...m, reactions: [...reactions, { emoji, count: 1, userIds: [me.id] }] };
+        return { ...m, reactions: reactions.map((r: any) => r.emoji === emoji ? { ...r, count: r.count + 1, userIds: [...r.userIds, me.id] } : r) };
       }
+      return { ...m, reactions: [...reactions, { emoji, count: 1, userIds: [me.id] }] };
     }));
     toggleReactionMutation.mutate({ roomId, messageId, data: { emoji } });
   }, [me, roomId, toggleReactionMutation]);
+
+  const handleRename = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameValue.trim() || renameValue === room?.name) return;
+    updateRoomMutation.mutate({ roomId, data: { name: renameValue } }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) });
+        setShowSettings(false);
+      },
+    });
+  };
+
+  const handleLeave = () => {
+    leaveRoomMutation.mutate({ roomId }, {
+      onSuccess: () => setLocation("/rooms"),
+    });
+  };
 
   const copyCode = useCallback(() => {
     if (!room) return;
@@ -237,6 +302,10 @@ export default function Room() {
       setTimeout(() => setCodeCopied(false), 2000);
     });
   }, [room]);
+
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
+    : messages;
 
   if (!me || !room) {
     return (
@@ -257,33 +326,31 @@ export default function Room() {
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/30 shrink-0">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground -ml-1" asChild>
+          <div className="flex items-center gap-2 min-w-0">
+            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground -ml-1 shrink-0" asChild>
               <Link href="/rooms"><ChevronLeft className="w-3.5 h-3.5" /></Link>
             </Button>
-            <span className="font-mono text-sm font-bold text-foreground tracking-wide">{room.name}</span>
+            <span className="font-mono text-sm font-bold text-foreground tracking-wide truncate">{room.name}</span>
             <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" : "bg-muted-foreground/40"}`} />
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={toggleMic}
-              title={micPermission === false ? "Mic permission denied" : micActive ? "Mute mic" : "Activate mic"}
-              className={`p-1.5 rounded-sm transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/70") : "text-muted-foreground hover:text-foreground"}`}
-            >
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={toggleMic} title={micPermission === false ? "Mic permission denied" : micActive ? "Mute mic" : "Activate mic"}
+              className={`p-1.5 rounded-sm transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/70") : "text-muted-foreground hover:text-foreground"}`}>
               {micActive ? <Mic className={`w-3.5 h-3.5 ${localSpeaking ? "animate-pulse" : ""}`} /> : <MicOff className="w-3.5 h-3.5" />}
             </button>
-            <button
-              onClick={isSharing ? stopSharing : handleStartShare}
-              title={isSharing ? "Stop sharing" : "Share screen"}
-              className={`p-1.5 rounded-sm transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground hover:text-foreground"}`}
-            >
+            <button onClick={isSharing ? stopSharing : handleStartShare} title={isSharing ? "Stop sharing" : "Share screen"}
+              className={`p-1.5 rounded-sm transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground hover:text-foreground"}`}>
               <MonitorUp className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => setShowInvite(true)}
-              className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors"
-            >
+            <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute sounds" : "Mute sounds"}
+              className={`p-1.5 rounded-sm transition-colors ${soundsMuted ? "text-muted-foreground/40" : "text-muted-foreground hover:text-foreground"}`}>
+              {soundsMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+            <button onClick={() => setShowInvite(true)} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
               <Share2 className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
+              <Settings className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -299,7 +366,6 @@ export default function Room() {
               const speaking = isMe ? localSpeaking : p?.speaking;
               const streaming = isMe ? isSharing : p?.streaming;
               const initials = member.username.substring(0, 2).toUpperCase();
-
               return (
                 <div key={member.id} className="flex items-center gap-2.5 py-1.5 px-1 rounded-sm hover:bg-muted/20 transition-colors group">
                   <div className="relative shrink-0">
@@ -318,11 +384,9 @@ export default function Room() {
                     </p>
                   </div>
                   {streaming && !isMe && (
-                    <button
-                      onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(380, window.innerWidth - 440), y: 80 }); }}
+                    <button onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(380, window.innerWidth - 440), y: 80 }); }}
                       className="p-1 rounded-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
-                      title={`Watch ${member.username}'s stream`}
-                    >
+                      title={`Watch ${member.username}'s stream`}>
                       <MonitorUp className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -342,66 +406,85 @@ export default function Room() {
 
         <div className="mx-4 border-t border-border/20 my-1 shrink-0" />
 
-        {/* Chat */}
-        <div className="flex-1 flex flex-col min-h-0 px-4 pt-1 pb-0">
-          <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest mb-1.5 shrink-0">Chat</p>
-          <ScrollArea className="flex-1">
-            <div className="space-y-0.5 pr-2 pb-2">
-              {messages.length === 0 && (
-                <p className="font-mono text-[11px] text-muted-foreground/40 text-center py-4">No messages yet</p>
+        {/* Chat header + search toggle */}
+        <div className="px-4 pt-1 shrink-0">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
+              Chat {searchQuery && filteredMessages.length !== messages.length && (
+                <span className="text-primary/70">{filteredMessages.length}/{messages.length}</span>
               )}
-              {messages.map(msg => {
+            </p>
+            <button
+              onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
+              className={`p-1 rounded-sm transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
+              title="Search messages (/)">
+              <Search className="w-3 h-3" />
+            </button>
+          </div>
+          {showSearch && (
+            <div className="flex items-center gap-1 mb-1.5">
+              <Input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); } }}
+                placeholder="Search messages..."
+                className="h-7 text-xs bg-background/60 border-border/30 focus-visible:ring-primary/40 rounded-sm font-mono flex-1"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} className="p-1 text-muted-foreground/50 hover:text-muted-foreground">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Chat messages */}
+        <div className="flex-1 min-h-0 px-4 pb-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-0.5 pr-2 pb-2">
+              {filteredMessages.length === 0 && (
+                <p className="font-mono text-[11px] text-muted-foreground/40 text-center py-4">
+                  {searchQuery ? "No messages match" : "No messages yet"}
+                </p>
+              )}
+              {filteredMessages.map(msg => {
                 const isHovered = hoveredMsgId === msg.id;
                 const reactions: any[] = msg.reactions ?? [];
                 return (
-                  <div
-                    key={msg.id}
+                  <div key={msg.id}
                     className="group/msg relative rounded-sm px-1 py-1 -mx-1 hover:bg-muted/10 transition-colors"
                     onMouseEnter={() => setHoveredMsgId(msg.id)}
-                    onMouseLeave={() => setHoveredMsgId(null)}
-                  >
+                    onMouseLeave={() => setHoveredMsgId(null)}>
                     <div className="flex items-start gap-1.5">
                       <span className="font-mono text-[10px] text-muted-foreground/40 shrink-0 mt-0.5 w-10 text-right">
                         {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <div className="flex-1 min-w-0">
                         <span className={`font-mono text-[11px] font-semibold mr-1.5 ${getUserColor(msg.userId)}`}>{msg.username}</span>
-                        <span className="font-sans text-sm text-foreground/90 break-words">{msg.content}</span>
+                        <span className="font-sans text-sm text-foreground/90 break-words">
+                          {highlight(msg.content, searchQuery)}
+                        </span>
                       </div>
                     </div>
-
-                    {/* Emoji picker — shown on hover */}
                     {isHovered && (
                       <div className="flex items-center gap-0.5 mt-1 ml-12 flex-wrap">
                         {QUICK_REACTIONS.map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => handleToggleReaction(msg.id, emoji)}
-                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all"
-                            title={`React with ${emoji}`}
-                          >
+                          <button key={emoji} onClick={() => handleToggleReaction(msg.id, emoji)}
+                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all" title={`React ${emoji}`}>
                             {emoji}
                           </button>
                         ))}
                       </div>
                     )}
-
-                    {/* Reaction pills */}
                     {reactions.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap mt-1 ml-12">
                         {reactions.map((r: any) => {
                           const isMine = (r.userIds as number[]).includes(me.id);
                           return (
-                            <button
-                              key={r.emoji}
-                              onClick={() => handleToggleReaction(msg.id, r.emoji)}
-                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
-                                isMine
-                                  ? "border-primary/50 bg-primary/10 text-primary"
-                                  : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                              }`}
-                              title={isMine ? `Remove ${r.emoji}` : `React with ${r.emoji}`}
-                            >
+                            <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
+                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}>
                               <span>{r.emoji}</span>
                               <span className="font-mono text-[10px] ml-0.5">{r.count}</span>
                             </button>
@@ -417,26 +500,17 @@ export default function Room() {
           </ScrollArea>
         </div>
 
-        {/* Typing Indicator */}
+        {/* Typing indicator */}
         {(() => {
-          const names = Object.entries(typingUsers)
-            .filter(([uid]) => Number(uid) !== me?.id)
-            .map(([, name]) => name);
-          if (names.length === 0) return null;
-          const label = names.length === 1
-            ? `${names[0]} is typing`
-            : names.length === 2
-              ? `${names[0]} and ${names[1]} are typing`
-              : `${names[0]} and ${names.length - 1} others are typing`;
+          const names = Object.entries(typingUsers).filter(([uid]) => Number(uid) !== me.id).map(([, n]) => n);
+          if (!names.length) return null;
+          const label = names.length === 1 ? `${names[0]} is typing` : names.length === 2 ? `${names[0]} and ${names[1]} are typing` : `${names[0]} and ${names.length - 1} others are typing`;
           return (
             <div className="px-4 pb-1 shrink-0 flex items-center gap-1.5">
               <div className="flex gap-0.5 items-end">
                 {[0, 1, 2].map(i => (
-                  <div
-                    key={i}
-                    className="w-1 h-1 rounded-full bg-primary/50"
-                    style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }}
-                  />
+                  <div key={i} className="w-1 h-1 rounded-full bg-primary/50"
+                    style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
                 ))}
               </div>
               <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{label}</span>
@@ -444,43 +518,32 @@ export default function Room() {
           );
         })()}
 
-        {/* Message Input */}
+        {/* Message input */}
         <div className="px-4 py-3 border-t border-border/20 shrink-0">
           <form onSubmit={handleSendMsg} className="flex gap-2">
-            <Input
-              value={msgInput}
-              onChange={e => handleMsgInputChange(e.target.value)}
-              placeholder="Message..."
-              disabled={!isConnected}
-              className="h-8 text-sm bg-background/60 border-border/40 focus-visible:ring-primary/50 rounded-sm font-sans"
-            />
-            <Button type="submit" size="sm" disabled={!msgInput.trim() || !isConnected} className="h-8 px-4 rounded-sm font-mono text-xs uppercase shrink-0">
-              Send
-            </Button>
+            <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
+              placeholder="Message..." disabled={!isConnected}
+              className="h-8 text-sm bg-background/60 border-border/40 focus-visible:ring-primary/50 rounded-sm font-sans" />
+            <Button type="submit" size="sm" disabled={!msgInput.trim() || !isConnected}
+              className="h-8 px-4 rounded-sm font-mono text-xs uppercase shrink-0">Send</Button>
           </form>
         </div>
       </div>
 
       {/* ── Floating Stream Window ── */}
       {viewingStreamOf && (
-        <div
-          className="fixed z-50 w-[420px] rounded-lg overflow-hidden border border-primary/30 shadow-2xl bg-black"
-          style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}
-        >
-          <div
-            className="flex items-center justify-between px-3 py-2 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
+        <div className="fixed z-50 w-[420px] rounded-lg overflow-hidden border border-primary/30 shadow-2xl bg-black"
+          style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}>
+          <div className="flex items-center justify-between px-3 py-2 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
             onPointerDown={streamPinned ? undefined : streamWindow.onPointerDown}
             onPointerMove={streamPinned ? undefined : streamWindow.onPointerMove}
-            onPointerUp={streamPinned ? undefined : streamWindow.onPointerUp}
-          >
+            onPointerUp={streamPinned ? undefined : streamWindow.onPointerUp}>
             <div className="flex items-center gap-2">
               <MonitorUp className="w-3.5 h-3.5 text-primary/70" />
-              <span className="font-mono text-xs text-foreground/80 uppercase tracking-wide">
-                {viewingUser?.username} is streaming
-              </span>
+              <span className="font-mono text-xs text-foreground/80 uppercase tracking-wide">{viewingUser?.username} is streaming</span>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={() => setStreamPinned(p => !p)} className={`p-1 rounded-sm transition-colors ${streamPinned ? "text-primary" : "text-muted-foreground hover:text-foreground"}`} title={streamPinned ? "Unpin" : "Pin window"}>
+              <button onClick={() => setStreamPinned(p => !p)} className={`p-1 rounded-sm transition-colors ${streamPinned ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
                 {streamPinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
               </button>
               <button onClick={() => setStreamMuted(m => !m)} className="p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -492,9 +555,7 @@ export default function Room() {
             </div>
           </div>
           <div className="aspect-video">
-            {activeStream ? (
-              <StreamVideo stream={activeStream} muted={streamMuted} />
-            ) : (
+            {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
               <div className="w-full h-full bg-black flex flex-col items-center justify-center text-primary/40 font-mono text-xs gap-2">
                 <MonitorUp className="w-8 h-8 opacity-40" />
                 <span>Waiting for signal...</span>
@@ -520,11 +581,64 @@ export default function Room() {
               </div>
             </div>
             <p className="font-mono text-xs text-muted-foreground text-center leading-relaxed">
-              Share this code with your crew.<br />They can enter it on the rooms screen to join.
+              Share this code with your crew.<br />They enter it on the rooms screen to join.
             </p>
             <Button className="w-full font-mono uppercase tracking-widest rounded-sm gap-2" onClick={copyCode}>
-              {codeCopied ? <><Check className="w-4 h-4" /> Copied to Clipboard</> : <><Copy className="w-4 h-4" /> Copy Code</>}
+              {codeCopied ? <><Check className="w-4 h-4" /> Copied</> : <><Copy className="w-4 h-4" /> Copy Code</>}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Settings Modal ── */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="bg-card border-primary/30 rounded-sm max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-primary/20">
+            <DialogTitle className="font-mono text-sm uppercase tracking-widest text-primary flex items-center gap-2">
+              <Settings className="w-4 h-4" /> Room Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-6 py-6 space-y-6">
+            {/* Rename */}
+            <div>
+              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Rename Room</p>
+              <form onSubmit={handleRename} className="flex gap-2">
+                <Input
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  placeholder="Room name"
+                  className="h-9 font-mono text-sm rounded-sm bg-background border-border/40 focus-visible:ring-primary/50 flex-1"
+                />
+                <Button type="submit" size="sm" className="h-9 px-4 rounded-sm font-mono text-xs uppercase shrink-0"
+                  disabled={updateRoomMutation.isPending || !renameValue.trim() || renameValue === room.name}>
+                  {updateRoomMutation.isPending ? "Saving…" : "Save"}
+                </Button>
+              </form>
+            </div>
+
+            <div className="border-t border-border/20" />
+
+            {/* Leave */}
+            <div>
+              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Danger Zone</p>
+              {!showLeaveConfirm ? (
+                <Button variant="outline" className="w-full rounded-sm font-mono text-xs uppercase border-destructive/30 text-destructive hover:bg-destructive/10 gap-2"
+                  onClick={() => setShowLeaveConfirm(true)}>
+                  <LogOut className="w-3.5 h-3.5" /> Leave Room
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="font-mono text-xs text-muted-foreground text-center">Are you sure? You'll need the invite code to rejoin.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 rounded-sm font-mono text-xs" onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
+                    <Button size="sm" className="flex-1 rounded-sm font-mono text-xs uppercase bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                      onClick={handleLeave} disabled={leaveRoomMutation.isPending}>
+                      {leaveRoomMutation.isPending ? "Leaving…" : "Confirm Leave"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -41,6 +41,11 @@ export interface RoomInput {
   name: string;
 }
 
+export interface UpdateRoomInput {
+  /** @minLength 1 */
+  name: string;
+}
+
 export interface JoinRoomInput {
   inviteCode: string;
 }

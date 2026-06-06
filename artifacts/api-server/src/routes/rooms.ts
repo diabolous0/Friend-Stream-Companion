@@ -163,6 +163,50 @@ router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> 
   res.json(result);
 });
 
+router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;
+  const roomId = parseInt(raw, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const [membership] = await db
+    .select()
+    .from(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const name = (req.body?.name as string)?.trim();
+  if (!name) { res.status(400).json({ error: "Name is required" }); return; }
+
+  const [updated] = await db
+    .update(roomsTable)
+    .set({ name })
+    .where(eq(roomsTable.id, roomId))
+    .returning();
+
+  if (!updated) { res.status(404).json({ error: "Room not found" }); return; }
+
+  const [{ value }] = await db
+    .select({ value: count() })
+    .from(roomMembersTable)
+    .where(eq(roomMembersTable.roomId, roomId));
+
+  res.json({ ...updated, memberCount: Number(value) });
+});
+
+router.post("/rooms/:roomId/leave", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;
+  const roomId = parseInt(raw, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  await db
+    .delete(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+
+  res.status(204).end();
+});
+
 router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void> => {
   const authReq = req as AuthenticatedRequest;
   const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;

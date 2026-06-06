@@ -18,4 +18,5 @@ export * from './reaction';
 export * from './reactionInput';
 export * from './room';
 export * from './roomInput';
+export * from './updateRoomInput';
 export * from './user';

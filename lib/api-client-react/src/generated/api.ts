@@ -32,6 +32,7 @@ import type {
   ReactionInput,
   Room,
   RoomInput,
+  UpdateRoomInput,
   User
 } from './api.schemas';
 
@@ -568,6 +569,148 @@ export function useGetRoom<TData = Awaited<ReturnType<typeof getRoom>>, TError =
 
 
 
+
+export const getUpdateRoomUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}`
+}
+
+/**
+ * @summary Rename a room (any member)
+ */
+export const updateRoom = async (roomId: number,
+    updateRoomInput: UpdateRoomInput, options?: RequestInit): Promise<Room> => {
+
+  return customFetch<Room>(getUpdateRoomUrl(roomId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateRoomInput,)
+  }
+);}
+
+
+
+
+export const getUpdateRoomMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoom>>, TError,{roomId: number;data: BodyType<UpdateRoomInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRoom>>, TError,{roomId: number;data: BodyType<UpdateRoomInput>}, TContext> => {
+
+const mutationKey = ['updateRoom'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRoom>>, {roomId: number;data: BodyType<UpdateRoomInput>}> = (props) => {
+          const {roomId,data} = props ?? {};
+
+          return  updateRoom(roomId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateRoomMutationResult = NonNullable<Awaited<ReturnType<typeof updateRoom>>>
+    export type UpdateRoomMutationBody = BodyType<UpdateRoomInput>
+    export type UpdateRoomMutationError = ErrorType<void>
+
+    /**
+ * @summary Rename a room (any member)
+ */
+export const useUpdateRoom = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoom>>, TError,{roomId: number;data: BodyType<UpdateRoomInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateRoom>>,
+        TError,
+        {roomId: number;data: BodyType<UpdateRoomInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateRoomMutationOptions(options));
+    }
+
+export const getLeaveRoomUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/leave`
+}
+
+/**
+ * @summary Leave a room (removes current user from member list)
+ */
+export const leaveRoom = async (roomId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getLeaveRoomUrl(roomId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getLeaveRoomMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof leaveRoom>>, TError,{roomId: number}, TContext> => {
+
+const mutationKey = ['leaveRoom'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof leaveRoom>>, {roomId: number}> = (props) => {
+          const {roomId} = props ?? {};
+
+          return  leaveRoom(roomId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LeaveRoomMutationResult = NonNullable<Awaited<ReturnType<typeof leaveRoom>>>
+
+    export type LeaveRoomMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Leave a room (removes current user from member list)
+ */
+export const useLeaveRoom = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof leaveRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof leaveRoom>>,
+        TError,
+        {roomId: number},
+        TContext
+      > => {
+      return useMutation(getLeaveRoomMutationOptions(options));
+    }
 
 export const getJoinRoomUrl = (roomId: number,) => {
 
