@@ -3,9 +3,81 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, Download, RotateCcw, LogOut, Pencil, ExternalLink } from "lucide-react";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut } from "lucide-react";
 import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize } from "@/lib/settings";
 import { useToast } from "@/hooks/use-toast";
+
+// ─── Hotkey helpers ────────────────────────────────────────────────────────────
+
+const KEY_LABELS: Record<string, string> = {
+  Ctrl: "⌃", Alt: "⌥", Shift: "⇧",
+  Insert: "Ins", Delete: "Del", Backquote: "`", Escape: "Esc",
+  Space: "Space", Enter: "↵", Backslash: "\\",
+  BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'",
+  Comma: ",", Period: ".", Slash: "/", Minus: "-", Equal: "=",
+  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+};
+
+export function formatHotkeyDisplay(hotkey: string): string {
+  return hotkey.split("+").map(p => {
+    if (p in KEY_LABELS) return KEY_LABELS[p];
+    if (/^Key[A-Z]$/.test(p)) return p.slice(3);
+    if (/^Digit[0-9]$/.test(p)) return p.slice(5);
+    return p;
+  }).join(" + ");
+}
+
+const MODIFIER_CODES = new Set([
+  "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+  "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight",
+]);
+
+function HotkeyCapture({ value, onChange }: { value: string; onChange: (k: string) => void }) {
+  const [capturing, setCapturing] = useState(false);
+  const divRef = useRef<HTMLDivElement>(null);
+
+  const start = () => {
+    setCapturing(true);
+    setTimeout(() => divRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (MODIFIER_CODES.has(e.code)) return;
+    if (e.code === "Escape") { setCapturing(false); return; }
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    parts.push(e.code);
+    onChange(parts.join("+"));
+    setCapturing(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <div ref={divRef} tabIndex={capturing ? 0 : -1}
+        onKeyDown={capturing ? handleKeyDown : undefined}
+        onBlur={() => setCapturing(false)}
+        className={`flex-1 flex items-center justify-center h-9 rounded-xl border font-mono text-sm outline-none select-none transition-all ${
+          capturing
+            ? "border-primary/50 bg-primary/5 text-primary/50 animate-pulse"
+            : "border-border/40 bg-muted/20 text-foreground"
+        }`}>
+        {capturing ? "↓ Press any key…" : formatHotkeyDisplay(value)}
+      </div>
+      <button onClick={capturing ? () => setCapturing(false) : start}
+        className={`h-9 px-3 rounded-xl text-xs font-medium border transition-colors ${
+          capturing
+            ? "border-primary/30 bg-primary/10 text-primary"
+            : "border-border/30 bg-muted/20 text-muted-foreground hover:text-foreground hover:border-border/50"
+        }`}>
+        {capturing ? "Esc to cancel" : "Change"}
+      </button>
+    </div>
+  );
+}
 
 // ─── Mini components ─────────────────────────────────────────────────────────
 
@@ -110,11 +182,12 @@ export function SettingsModal({
         </DialogHeader>
 
         <Tabs defaultValue="appearance" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid grid-cols-4">
+          <TabsList className="mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid grid-cols-5">
             {[
               { key: "appearance", label: "Look" },
               { key: "chat", label: "Chat" },
               { key: "audio", label: "Audio" },
+              { key: "overlay", label: "Overlay" },
               { key: "export", label: "Share" },
             ].map(t => (
               <TabsTrigger key={t.key} value={t.key}
@@ -256,6 +329,49 @@ export function SettingsModal({
                 </Section>
               </>
             )}
+          </TabsContent>
+
+          {/* ── Overlay ── */}
+          <TabsContent value="overlay" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="In-Game Overlay">
+              <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                Press your hotkey anytime to collapse the panel into a minimal HUD. Drag the HUD anywhere on screen — it shows crew status and unread messages without blocking your view.
+              </p>
+              <div className="flex items-center gap-3 px-3 py-2 bg-muted/20 border border-border/30 rounded-xl">
+                <Gamepad2 className="w-4 h-4 text-primary/60 shrink-0" />
+                <div className="flex-1 text-xs text-muted-foreground/60">Works in any windowed game. Keep ScreenCrew on a second monitor or in a floating window.</div>
+              </div>
+            </Section>
+
+            <Divider />
+
+            <Section title="Toggle Hotkey">
+              <Row label="Hotkey" description="Press to show/hide the panel">
+                <span />
+              </Row>
+              <HotkeyCapture
+                value={settings.overlayHotkey}
+                onChange={v => set("overlayHotkey", v)}
+              />
+              <p className="text-[10px] text-muted-foreground/40">
+                Tip: avoid keys your game uses. <span className="font-mono">Insert</span>, <span className="font-mono">F9</span>–<span className="font-mono">F12</span> are usually safe.
+              </p>
+            </Section>
+
+            <Divider />
+
+            <Section title="HUD Preview">
+              <div className="flex justify-center py-2">
+                <div className="inline-flex items-center gap-2 bg-card border border-primary/30 rounded-full px-3 py-1.5 shadow-lg text-xs">
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="font-semibold text-foreground/90">your-room</span>
+                  <span className="text-muted-foreground/60">3 online</span>
+                  <span className="font-bold text-primary bg-primary/15 rounded-full px-1.5 py-0.5 text-[10px]">2 new</span>
+                  <span className="font-mono text-[9px] text-muted-foreground/30">{formatHotkeyDisplay(settings.overlayHotkey)}</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground/40 text-center">Click the HUD or press the hotkey to restore the full panel</p>
+            </Section>
           </TabsContent>
 
           {/* ── Audio ── */}

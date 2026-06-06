@@ -25,7 +25,7 @@ import {
   Plus, Bell, VolumeX, Volume2,
   Pin, PinOff, X, Settings, Search,
   Users, MessageSquare, Pencil, Trash2, Smile,
-  Copy, Check, Share2, ChevronLeft, ExternalLink,
+  Copy, Check, Share2, ChevronLeft, ExternalLink, Maximize2,
 } from "lucide-react";
 import { useSettings } from "@/lib/settings";
 import { ThemeToggle } from "@/lib/theme";
@@ -35,6 +35,29 @@ import { ChatPopout } from "@/components/chat-popout";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
+
+// ─── Overlay helpers ──────────────────────────────────────────────────────────
+function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
+  const parts = hotkey.split("+");
+  const code = parts[parts.length - 1];
+  const ctrl = parts.includes("Ctrl");
+  const alt = parts.includes("Alt");
+  const shift = parts.includes("Shift");
+  return e.code === code && e.ctrlKey === ctrl && e.altKey === alt && e.shiftKey === shift && !e.metaKey;
+}
+
+function fmtHotkey(hotkey: string): string {
+  return hotkey.split("+").map(p => {
+    if (p === "Ctrl") return "⌃";
+    if (p === "Alt") return "⌥";
+    if (p === "Shift") return "⇧";
+    if (p === "Insert") return "Ins";
+    if (p === "Backquote") return "`";
+    if (/^Key[A-Z]$/.test(p)) return p.slice(3);
+    if (/^Digit[0-9]$/.test(p)) return p.slice(5);
+    return p;
+  }).join("");
+}
 
 const AVATAR_BG = [
   "bg-violet-600", "bg-blue-500", "bg-emerald-600", "bg-orange-500",
@@ -170,6 +193,12 @@ export default function Room() {
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
+
+  const [overlayMode, setOverlayMode] = useState(false);
+  const [unreadOverlay, setUnreadOverlay] = useState(0);
+  const [pillPos, setPillPos] = useState(() => settings.overlayPillPos);
+  const pillDragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  const prevMsgCountRef = useRef(0);
 
   // ─── Refs ──────────────────────────────────────────────────────────────────
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -419,6 +448,49 @@ export default function Room() {
     });
   }, [room]);
 
+  // ─── Overlay hotkey ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if (matchesHotkey(e, settings.overlayHotkey)) {
+        e.preventDefault();
+        setOverlayMode(m => !m);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [settings.overlayHotkey]);
+
+  useEffect(() => {
+    if (overlayMode && messages.length > prevMsgCountRef.current) {
+      setUnreadOverlay(u => u + (messages.length - prevMsgCountRef.current));
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages.length, overlayMode]);
+
+  useEffect(() => {
+    if (!overlayMode) setUnreadOverlay(0);
+  }, [overlayMode]);
+
+  const pillOnPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pillDragRef.current = { sx: e.clientX, sy: e.clientY, px: pillPos.x, py: pillPos.y };
+  }, [pillPos]);
+
+  const pillOnPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pillDragRef.current) return;
+    setPillPos({
+      x: Math.max(0, Math.min(window.innerWidth - 220, pillDragRef.current.px + e.clientX - pillDragRef.current.sx)),
+      y: Math.max(0, Math.min(window.innerHeight - 40,  pillDragRef.current.py + e.clientY - pillDragRef.current.sy)),
+    });
+  }, []);
+
+  const pillOnPointerUp = useCallback(() => {
+    pillDragRef.current = null;
+    setSetting("overlayPillPos", pillPos);
+  }, [pillPos, setSetting]);
+
   // ─── Derived ───────────────────────────────────────────────────────────────
   const filteredMessages = searchQuery.trim()
     ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -427,6 +499,8 @@ export default function Room() {
   const typingNames = Object.entries(typingUsers)
     .filter(([uid]) => Number(uid) !== me?.id)
     .map(([, n]) => n);
+
+  const onlineCount = Object.values(presence).filter((p: any) => p?.online).length;
 
   if (!me || !room) {
     return (
@@ -440,7 +514,7 @@ export default function Room() {
   const viewingUser = members?.find(m => m.id === viewingStreamOf);
 
   return (
-    <div className="h-[100dvh] bg-background flex items-center justify-center relative overflow-hidden">
+    <div className={`h-[100dvh] flex items-center justify-center relative overflow-hidden transition-colors ${overlayMode ? "bg-transparent" : "bg-background"}`}>
 
       {/* Hidden audio for voice calls */}
       <div className="hidden" aria-hidden>
@@ -450,7 +524,7 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"}`}
+      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden transition-all ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
         style={settings.panelOpacity < 100 ? {
           backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
           ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
@@ -756,7 +830,7 @@ export default function Room() {
       </div>
 
       {/* ── Floating Stream Window ── */}
-      {viewingStreamOf && (
+      {viewingStreamOf && !overlayMode && (
         <div className="fixed z-50 w-[440px] rounded-2xl overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f]"
           style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}>
           <div className="flex items-center justify-between px-4 py-2.5 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
@@ -812,6 +886,35 @@ export default function Room() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Overlay Pill ── */}
+      {overlayMode && (
+        <div className="fixed z-50 select-none"
+          style={{ left: pillPos.x, top: pillPos.y }}>
+          <div
+            className="flex items-center gap-2 bg-card/95 border border-primary/30 rounded-full px-3 py-1.5 shadow-2xl cursor-grab active:cursor-grabbing backdrop-blur-sm"
+            onPointerDown={pillOnPointerDown}
+            onPointerMove={pillOnPointerMove}
+            onPointerUp={pillOnPointerUp}>
+            <div className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? "bg-green-400 shadow-[0_0_4px_#4ade80]" : "bg-muted-foreground/30"}`} />
+            <span className="text-xs font-semibold text-foreground/90 max-w-[90px] truncate">{room.name}</span>
+            <span className="text-[10px] text-muted-foreground/50">{onlineCount} online</span>
+            {unreadOverlay > 0 && (
+              <span className="text-[10px] font-bold text-primary bg-primary/15 rounded-full px-1.5 min-w-[18px] text-center">
+                {unreadOverlay > 99 ? "99+" : unreadOverlay}
+              </span>
+            )}
+            <span className="font-mono text-[9px] text-muted-foreground/30">{fmtHotkey(settings.overlayHotkey)}</span>
+            <button
+              className="text-muted-foreground/40 hover:text-foreground transition-colors"
+              onClick={() => { setOverlayMode(false); setUnreadOverlay(0); }}
+              onPointerDown={e => e.stopPropagation()}
+              title="Restore panel">
+              <Maximize2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Settings Modal ── */}
       <SettingsModal
         open={showSettings}
@@ -827,7 +930,7 @@ export default function Room() {
       />
 
       {/* ── Chat Pop-out ── */}
-      {settings.chatPopout && (
+      {settings.chatPopout && !overlayMode && (
         <ChatPopout
           messages={filteredMessages}
           me={me}

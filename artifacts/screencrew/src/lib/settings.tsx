@@ -32,6 +32,10 @@ export interface AppSettings {
 
   // Audio
   soundEnabled: boolean;
+
+  // Overlay
+  overlayHotkey: string;  // KeyboardEvent.code or "Mod+Code", e.g. "Insert", "Shift+F2"
+  overlayPillPos: { x: number; y: number };
 }
 
 const DEFAULT: AppSettings = {
@@ -45,6 +49,8 @@ const DEFAULT: AppSettings = {
   soundEnabled: true,
   chatPopout: false,
   chatPopoutPos: { x: 360, y: 80 },
+  overlayHotkey: "Insert",
+  overlayPillPos: { x: 16, y: 16 },
 };
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
