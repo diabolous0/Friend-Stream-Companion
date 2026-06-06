@@ -105,6 +105,22 @@ export const SKIN_PRESETS: SkinPreset[] = [
     colors: { background: "#0c0f1f", card: "#161a30", foreground: "#dfe4ff", primary: "#7c5cff", border: "#28305a", muted: "#7681b8" } },
   { id: "hotline",  label: "Hotline", font: "space-mono", windowStyle: "smooth",
     colors: { background: "#100208", card: "#1d0610", foreground: "#ffd9e6", primary: "#ff3b6b", border: "#451222", muted: "#a85772" } },
+  { id: "midnight", label: "Midnight Blue", font: "inter", windowStyle: "smooth",
+    colors: { background: "#070b16", card: "#101626", foreground: "#d6e2f5", primary: "#3d7eff", border: "#1d2942", muted: "#6b7ea3" } },
+  { id: "terminal", label: "Terminal", font: "courier", windowStyle: "squared",
+    colors: { background: "#000000", card: "#0b0b0b", foreground: "#e8e8e8", primary: "#cfcfcf", border: "#222222", muted: "#777777" } },
+  { id: "sunset",   label: "Sunset", font: "space-mono", windowStyle: "smooth",
+    colors: { background: "#1a0a08", card: "#2a110c", foreground: "#ffe6d2", primary: "#ff7a18", border: "#4a2114", muted: "#bb7a5c" } },
+  { id: "bubblegum", label: "Bubblegum", font: "inter", windowStyle: "smooth",
+    colors: { background: "#1c0f1a", card: "#2c1729", foreground: "#ffe1f2", primary: "#ff79c6", border: "#492a44", muted: "#bd86ab" } },
+  { id: "ice",      label: "Ice", font: "space-mono", windowStyle: "smooth",
+    colors: { background: "#06121a", card: "#0e2230", foreground: "#dff4ff", primary: "#36d6ff", border: "#1a3a4c", muted: "#6fa3bb" } },
+  { id: "forest",   label: "Forest", font: "courier", windowStyle: "squared",
+    colors: { background: "#06120c", card: "#0d2016", foreground: "#d6f0df", primary: "#3fd07a", border: "#1a3a28", muted: "#6ba383" } },
+  { id: "gold",     label: "Royal Gold", font: "georgia", windowStyle: "smooth",
+    colors: { background: "#120e04", card: "#1f1808", foreground: "#fdeecb", primary: "#e8b84b", border: "#3d3014", muted: "#a8915a" } },
+  { id: "crimson",  label: "Crimson", font: "courier", windowStyle: "squared",
+    colors: { background: "#140405", card: "#22080a", foreground: "#ffd9dc", primary: "#e8344a", border: "#451418", muted: "#a8636a" } },
 ];
 
 export const ACCENT_COLORS: Record<AccentPreset, { hsl: string; hex: string; label: string }> = {
