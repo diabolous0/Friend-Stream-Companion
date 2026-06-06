@@ -26,11 +26,15 @@ import {
   Pin, PinOff, X, Settings, Search,
   Users, MessageSquare, Pencil, Trash2, Smile,
   Copy, Check, Share2, ChevronLeft, ExternalLink, Maximize2,
+  Paperclip, Loader2,
 } from "lucide-react";
 import { useSettings } from "@/lib/settings";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
+import { MentionInput, type MentionInputHandle } from "@/components/mention-input";
+import { MessageContent, containsMention } from "@/lib/markdown";
+import { useUpload } from "@/hooks/use-upload";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -91,21 +95,6 @@ function Waveform() {
       ))}
     </div>
   );
-}
-
-function highlight(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const parts: React.ReactNode[] = [];
-  const lc = text.toLowerCase(), lq = query.toLowerCase();
-  let start = 0, idx = lc.indexOf(lq);
-  while (idx !== -1) {
-    if (idx > start) parts.push(text.slice(start, idx));
-    parts.push(<mark key={idx} className="bg-primary/30 text-foreground rounded-sm px-0">{text.slice(idx, idx + query.length)}</mark>);
-    start = idx + query.length;
-    idx = lc.indexOf(lq, start);
-  }
-  if (start < text.length) parts.push(text.slice(start));
-  return <>{parts}</>;
 }
 
 function useDraggable(initial: { x: number; y: number }) {
@@ -174,6 +163,9 @@ export default function Room() {
 
   const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
+
+  const msgInputRef = useRef<MentionInputHandle>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { playMessage, playReaction, playJoin } = useSounds(!settings.soundEnabled);
 
@@ -319,8 +311,11 @@ export default function Room() {
       setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
       if (msg.userId !== me?.id) {
         playMessage();
-        if (document.visibilityState === "hidden" && notifPermRef.current === "granted") {
-          new Notification(msg.username, { body: msg.content, tag: `screencrew-room-${roomId}`, silent: true });
+        const mentioned = me?.username ? containsMention(msg.content, me.username) : false;
+        if (notifPermRef.current === "granted" && (document.visibilityState === "hidden" || mentioned)) {
+          new Notification(mentioned ? `${msg.username} mentioned you` : msg.username, {
+            body: msg.content, tag: `screencrew-room-${roomId}`, silent: !mentioned,
+          });
         }
       }
     },
@@ -352,12 +347,34 @@ export default function Room() {
     if (members && me) members.forEach(m => { if (m.id !== me.id) sendOffer(m.id); });
   };
 
-  const handleSendMsg = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendMsg = (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!msgInput.trim()) return;
     sendTypingStop();
     sendMessageMutation.mutate({ roomId, data: { content: msgInput } });
     setMsgInput("");
+  };
+
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: (r) => {
+      const isImage = r.contentType.startsWith("image/");
+      const token = isImage
+        ? `[screencrew:image:${r.objectPath}]`
+        : `[screencrew:file:${r.objectPath}:${r.name}]`;
+      sendMessageMutation.mutate({ roomId, data: { content: token } });
+    },
+  });
+
+  const handleFiles = useCallback((files: File[]) => {
+    for (const file of files) {
+      if (file.size > 25 * 1024 * 1024) continue;
+      void uploadFile(file);
+    }
+  }, [uploadFile]);
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) handleFiles(Array.from(e.target.files));
+    e.target.value = "";
   };
 
   const handleToggleReaction = useCallback((messageId: number, emoji: string) => {
@@ -734,8 +751,8 @@ export default function Room() {
                           <div className={`flex items-baseline flex-wrap gap-x-1.5 leading-relaxed ${tSize}`}>
                             {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
                             <span className={`font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
-                            <span className={`${tSize} text-foreground/85 break-all`}>
-                              {highlight(msg.content, searchQuery)}
+                            <span className={`${tSize} text-foreground/85`}>
+                              <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
                             </span>
                           </div>
@@ -804,17 +821,28 @@ export default function Room() {
 
             {/* Message input */}
             <div className="px-4 py-3 shrink-0">
-              <form onSubmit={handleSendMsg}>
-                <div className="relative">
-                  <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
-                    placeholder="Message…" disabled={!isConnected}
-                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMsg(e as any); } }}
-                    className="h-10 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/25 focus-visible:ring-0 text-sm pr-10 placeholder:text-muted-foreground/40" />
-                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInputChange} />
+              <div className="relative flex items-end gap-1.5">
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!isConnected || isUploading}
+                  title="Attach file" className="mb-0.5 p-2 rounded-xl text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 shrink-0">
+                  {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                </button>
+                <div className="relative flex-1">
+                  <MentionInput
+                    ref={msgInputRef}
+                    value={msgInput}
+                    onChange={handleMsgInputChange}
+                    onSubmit={handleSendMsg}
+                    members={members ?? []}
+                    disabled={!isConnected}
+                    placeholder="Message…  (@ to mention, drag/paste files)"
+                    onFilesPasted={handleFiles}
+                    className="rounded-xl bg-muted/25 border border-transparent focus-visible:border-primary/25 focus-visible:outline-none text-sm px-3 py-2 pr-8 placeholder:text-muted-foreground/40 text-foreground" />
+                  <button type="button" className="absolute right-2.5 bottom-2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
                     <Smile className="w-4 h-4" />
                   </button>
                 </div>
-              </form>
+              </div>
             </div>
           </>
         )}
@@ -934,12 +962,15 @@ export default function Room() {
         <ChatPopout
           messages={filteredMessages}
           me={me}
+          members={members ?? []}
           settings={settings}
           isConnected={isConnected}
           typingNames={typingNames}
           msgInput={msgInput}
           onMsgInputChange={handleMsgInputChange}
           onSend={handleSendMsg}
+          onFiles={handleFiles}
+          isUploading={isUploading}
           editingMsgId={editingMsgId}
           editContent={editContent}
           onEditStart={(id, content) => { setEditingMsgId(id); setEditContent(content); }}

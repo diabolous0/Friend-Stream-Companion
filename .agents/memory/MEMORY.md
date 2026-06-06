@@ -1,1 +1,1 @@
-- [Orval codegen quirks](orval-screencrew-quirks.md) — schemas option causes duplicate exports; index.ts not regenerated; hook arg order differs when endpoint has query params; delete old .tsx when replacing with .ts
+- [Object-storage attachments](object-storage-attachments.md) — chat uploads use authed request-url → PUT → finalize(public ACL); downloads enforce ACL so `<img>`/`<a>` (no auth header) only see finalized/public objects.

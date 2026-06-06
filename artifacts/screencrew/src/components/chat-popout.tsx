@@ -1,8 +1,10 @@
 import { useRef, useCallback, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, X, Search, Smile, Minimize2, Maximize2, Pencil, Trash2 } from "lucide-react";
+import { MessageSquare, X, Search, Smile, Minimize2, Maximize2, Pencil, Trash2, Paperclip, Loader2 } from "lucide-react";
 import type { AppSettings } from "@/lib/settings";
+import { MentionInput } from "@/components/mention-input";
+import { MessageContent } from "@/lib/markdown";
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
 
@@ -12,30 +14,18 @@ const CHAT_COLORS = [
 ];
 function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.length]; }
 
-function highlight(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const parts: React.ReactNode[] = [];
-  const lc = text.toLowerCase(), lq = query.toLowerCase();
-  let start = 0, idx = lc.indexOf(lq);
-  while (idx !== -1) {
-    if (idx > start) parts.push(text.slice(start, idx));
-    parts.push(<mark key={idx} className="bg-primary/30 text-foreground rounded-sm">{text.slice(idx, idx + query.length)}</mark>);
-    start = idx + query.length;
-    idx = lc.indexOf(lq, start);
-  }
-  if (start < text.length) parts.push(text.slice(start));
-  return <>{parts}</>;
-}
-
 export interface ChatPopoutProps {
   messages: any[];
   me: { id: number; username: string };
+  members?: { id: number; username: string }[];
   settings: AppSettings;
   isConnected: boolean;
   typingNames: string[];
   msgInput: string;
   onMsgInputChange: (v: string) => void;
-  onSend: (e: React.FormEvent) => void;
+  onSend: (e?: React.FormEvent) => void;
+  onFiles?: (files: File[]) => void;
+  isUploading?: boolean;
   editingMsgId: number | null;
   editContent: string;
   onEditStart: (id: number, content: string) => void;
@@ -54,8 +44,8 @@ export interface ChatPopoutProps {
 }
 
 export function ChatPopout({
-  messages, me, settings, isConnected,
-  typingNames, msgInput, onMsgInputChange, onSend,
+  messages, me, members, settings, isConnected,
+  typingNames, msgInput, onMsgInputChange, onSend, onFiles, isUploading,
   editingMsgId, editContent, onEditStart, onEditSave, onEditCancel, onEditContentChange,
   onDelete, onReaction,
   hasMore, loadingMore, onLoadMore,
@@ -68,6 +58,12 @@ export function ChatPopout({
   const [showSearch, setShowSearch] = useState(false);
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && onFiles) onFiles(Array.from(e.target.files));
+    e.target.value = "";
+  };
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -183,8 +179,8 @@ export function ChatPopout({
                             <span className="text-[10px] text-muted-foreground/40 shrink-0">{timeStr}</span>
                           )}
                           <span className={`text-xs font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
-                          <span className={`${textSizeClass} text-foreground/85 break-all`}>
-                            {highlight(msg.content, searchQuery)}
+                          <span className={`${textSizeClass} text-foreground/85`}>
+                            <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
                             {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
                           </span>
                         </div>
@@ -253,17 +249,27 @@ export function ChatPopout({
 
           {/* Input */}
           <div className="px-3 py-2.5 shrink-0 border-t border-border/15">
-            <form onSubmit={onSend}>
-              <div className="relative">
-                <Input value={msgInput} onChange={e => onMsgInputChange(e.target.value)}
-                  placeholder="Message…" disabled={!isConnected}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onSend(e as any); } }}
-                  className="h-8 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/25 focus-visible:ring-0 text-sm pr-8 placeholder:text-muted-foreground/40" />
-                <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/30">
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInputChange} />
+            <div className="relative flex items-end gap-1">
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!isConnected || isUploading}
+                title="Attach file" className="mb-0.5 p-1.5 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 shrink-0">
+                {isUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Paperclip className="w-3.5 h-3.5" />}
+              </button>
+              <div className="relative flex-1">
+                <MentionInput
+                  value={msgInput}
+                  onChange={onMsgInputChange}
+                  onSubmit={onSend}
+                  members={members ?? []}
+                  disabled={!isConnected}
+                  placeholder="Message…"
+                  onFilesPasted={onFiles}
+                  className="rounded-xl bg-muted/25 border border-transparent focus-visible:border-primary/25 focus-visible:outline-none text-sm px-3 py-1.5 pr-7 placeholder:text-muted-foreground/40 text-foreground" />
+                <button type="button" className="absolute right-2 bottom-1.5 text-muted-foreground/30">
                   <Smile className="w-3.5 h-3.5" />
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </>
       )}
