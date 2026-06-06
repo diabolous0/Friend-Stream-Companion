@@ -33,6 +33,7 @@ export interface Room {
   inviteCode: string;
   createdAt: string;
   memberCount: number;
+  lastMessageAt?: string | null;
 }
 
 export interface RoomInput {

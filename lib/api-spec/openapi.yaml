@@ -336,6 +336,10 @@ components:
           format: date-time
         memberCount:
           type: integer
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
 
     RoomInput:
       type: object

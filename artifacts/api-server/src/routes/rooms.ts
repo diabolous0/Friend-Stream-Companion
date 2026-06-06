@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, roomsTable, roomMembersTable, usersTable, messagesTable } from "@workspace/db";
-import { eq, and, count, desc } from "drizzle-orm";
+import { eq, and, count, desc, max, inArray } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody } from "@workspace/api-zod";
 import { randomBytes } from "node:crypto";
@@ -29,8 +29,31 @@ router.get("/rooms", requireAuth, async (req, res): Promise<void> => {
     .from(roomMembersTable)
     .where(eq(roomMembersTable.userId, authReq.userId!));
 
-  const rooms = await Promise.all(memberships.map((m) => getRoomWithCount(m.roomId)));
-  res.json(rooms.filter(Boolean));
+  const roomIds = memberships.map((m) => m.roomId);
+  if (roomIds.length === 0) { res.json([]); return; }
+
+  const [rooms, memberCounts, lastMessages] = await Promise.all([
+    db.select().from(roomsTable).where(inArray(roomsTable.id, roomIds)),
+    db
+      .select({ roomId: roomMembersTable.roomId, value: count() })
+      .from(roomMembersTable)
+      .where(inArray(roomMembersTable.roomId, roomIds))
+      .groupBy(roomMembersTable.roomId),
+    db
+      .select({ roomId: messagesTable.roomId, lastMessageAt: max(messagesTable.createdAt) })
+      .from(messagesTable)
+      .where(inArray(messagesTable.roomId, roomIds))
+      .groupBy(messagesTable.roomId),
+  ]);
+
+  const memberCountMap = new Map(memberCounts.map((r) => [r.roomId, Number(r.value)]));
+  const lastMessageMap = new Map(lastMessages.map((r) => [r.roomId, r.lastMessageAt ?? null]));
+
+  res.json(rooms.map((room) => ({
+    ...room,
+    memberCount: memberCountMap.get(room.id) ?? 0,
+    lastMessageAt: lastMessageMap.get(room.id) ?? null,
+  })));
 });
 
 router.post("/rooms", requireAuth, async (req, res): Promise<void> => {

@@ -12,4 +12,5 @@ export interface Room {
   inviteCode: string;
   createdAt: Date;
   memberCount: number;
+  lastMessageAt?: Date | null;
 }

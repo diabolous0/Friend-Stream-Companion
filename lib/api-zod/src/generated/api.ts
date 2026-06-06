@@ -74,7 +74,8 @@ export const ListRoomsResponseItem = zod.object({
   "name": zod.string(),
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
-  "memberCount": zod.number()
+  "memberCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish()
 })
 export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
 
@@ -102,7 +103,8 @@ export const GetRoomResponse = zod.object({
   "name": zod.string(),
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
-  "memberCount": zod.number()
+  "memberCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish()
 })
 
 
@@ -122,7 +124,8 @@ export const JoinRoomResponse = zod.object({
   "name": zod.string(),
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
-  "memberCount": zod.number()
+  "memberCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish()
 })
 
 
@@ -138,7 +141,8 @@ export const JoinRoomByCodeResponse = zod.object({
   "name": zod.string(),
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
-  "memberCount": zod.number()
+  "memberCount": zod.number(),
+  "lastMessageAt": zod.coerce.date().nullish()
 })
 
 
