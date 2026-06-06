@@ -59,6 +59,19 @@ export function useSounds(settings: AppSettings) {
       return;
     }
 
+    // Shared soundboard clip: `url:<objectPath>` fetched from shared storage
+    if (soundId.startsWith("url:")) {
+      const objectPath = soundId.slice("url:".length);
+      if (!objectPath) return;
+      try {
+        const src = objectPath.startsWith("http") ? objectPath : `/api/storage${objectPath}`;
+        const audio = new Audio(src);
+        audio.volume = 0.7;
+        void audio.play();
+      } catch {}
+      return;
+    }
+
     const steps = BUILTIN_TONES[soundId];
     if (steps) playTone(steps);
   }, [playTone]);

@@ -206,6 +206,45 @@ export function useWebRTC(
     try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
   }, [getAudioPC]);
 
+  // Enable/disable the local mic track (push-to-talk / mute)
+  const setMicEnabled = useCallback((enabled: boolean) => {
+    micStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = enabled; });
+    micRawStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = enabled; });
+  }, []);
+
+  // Per-peer connection quality from WebRTC stats (screen + audio PCs combined)
+  const getConnectionStats = useCallback(async (): Promise<Record<number, "good" | "ok" | "poor">> => {
+    const result: Record<number, "good" | "ok" | "poor"> = {};
+    const userIds = new Set<number>([
+      ...Object.keys(screenPCsRef.current).map(Number),
+      ...Object.keys(audioPCsRef.current).map(Number),
+    ]);
+    await Promise.all(Array.from(userIds).map(async (userId) => {
+      const pc = screenPCsRef.current[userId] ?? audioPCsRef.current[userId];
+      if (!pc) return;
+      try {
+        const stats = await pc.getStats();
+        let rtt = 0;
+        let lossRatio = 0;
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && (report as any).nominated && (report as any).currentRoundTripTime != null) {
+            rtt = (report as any).currentRoundTripTime;
+          }
+          if (report.type === "remote-inbound-rtp" && (report as any).fractionLost != null) {
+            lossRatio = Math.max(lossRatio, (report as any).fractionLost);
+          }
+        });
+        let quality: "good" | "ok" | "poor" = "good";
+        if (rtt > 0.3 || lossRatio > 0.1) quality = "poor";
+        else if (rtt > 0.15 || lossRatio > 0.03) quality = "ok";
+        result[userId] = quality;
+      } catch {
+        result[userId] = "ok";
+      }
+    }));
+    return result;
+  }, []);
+
   const cleanup = useCallback(() => {
     Object.values(screenPCsRef.current).forEach(pc => pc.close());
     screenPCsRef.current = {};
@@ -227,6 +266,7 @@ export function useWebRTC(
     handleOffer, handleAnswer, handleIceCandidate, sendOffer,
     joinVoice, leaveVoice,
     sendAudioOffer, handleAudioOffer, handleAudioAnswer, handleAudioIce,
+    setMicEnabled, getConnectionStats,
     cleanup,
   };
 }

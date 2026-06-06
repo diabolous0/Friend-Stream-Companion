@@ -2,14 +2,26 @@ import { Router, type IRouter } from "express";
 import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable } from "@workspace/db";
 import { eq, and, count, desc, max, inArray, lt } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
-import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody } from "@workspace/api-zod";
+import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes } from "node:crypto";
-import { getPresenceSnapshot, broadcastToRoom } from "../lib/signaling";
+import { getPresenceSnapshot, broadcastToRoom, notifyUser } from "../lib/signaling";
 
 const router: IRouter = Router();
 
 function generateInviteCode(): string {
   return randomBytes(4).toString("hex").toUpperCase();
+}
+
+async function getActiveMembership(roomId: number, userId: number) {
+  const [membership] = await db
+    .select()
+    .from(roomMembersTable)
+    .where(and(
+      eq(roomMembersTable.roomId, roomId),
+      eq(roomMembersTable.userId, userId),
+      eq(roomMembersTable.status, "active"),
+    ));
+  return membership ?? null;
 }
 
 async function getRoomWithCount(roomId: number) {
@@ -18,8 +30,39 @@ async function getRoomWithCount(roomId: number) {
   const [{ value }] = await db
     .select({ value: count() })
     .from(roomMembersTable)
-    .where(eq(roomMembersTable.roomId, roomId));
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
   return { ...room, memberCount: Number(value) };
+}
+
+async function enrichMessages<T extends { id: number; replyToId: number | null }>(rows: T[]) {
+  const msgIds = rows.map((m) => m.id);
+  const reactionRows = msgIds.length > 0
+    ? await db
+        .select({ messageId: messageReactionsTable.messageId, userId: messageReactionsTable.userId, emoji: messageReactionsTable.emoji })
+        .from(messageReactionsTable)
+        .where(inArray(messageReactionsTable.messageId, msgIds))
+    : [];
+  const reactionsMap = groupReactions(reactionRows);
+
+  const parentIds = Array.from(new Set(rows.map((m) => m.replyToId).filter((id): id is number => id != null)));
+  const parents = parentIds.length > 0
+    ? await db
+        .select({ id: messagesTable.id, content: messagesTable.content, username: usersTable.username })
+        .from(messagesTable)
+        .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
+        .where(inArray(messagesTable.id, parentIds))
+    : [];
+  const parentMap = new Map(parents.map((p) => [p.id, p]));
+
+  return rows.map((m) => {
+    const parent = m.replyToId != null ? parentMap.get(m.replyToId) : undefined;
+    return {
+      ...m,
+      reactions: reactionsMap.get(m.id) ?? [],
+      replyToContent: parent?.content ?? null,
+      replyToUsername: parent?.username ?? null,
+    };
+  });
 }
 
 type ReactionGroup = { emoji: string; count: number; userIds: number[] };
@@ -45,7 +88,7 @@ router.get("/rooms", requireAuth, async (req, res): Promise<void> => {
   const memberships = await db
     .select({ roomId: roomMembersTable.roomId })
     .from(roomMembersTable)
-    .where(eq(roomMembersTable.userId, authReq.userId!));
+    .where(and(eq(roomMembersTable.userId, authReq.userId!), eq(roomMembersTable.status, "active")));
 
   const roomIds = memberships.map((m) => m.roomId);
   if (roomIds.length === 0) { res.json([]); return; }
@@ -55,7 +98,7 @@ router.get("/rooms", requireAuth, async (req, res): Promise<void> => {
     db
       .select({ roomId: roomMembersTable.roomId, value: count() })
       .from(roomMembersTable)
-      .where(inArray(roomMembersTable.roomId, roomIds))
+      .where(and(inArray(roomMembersTable.roomId, roomIds), eq(roomMembersTable.status, "active")))
       .groupBy(roomMembersTable.roomId),
     db
       .select({ roomId: messagesTable.roomId, lastMessageAt: max(messagesTable.createdAt) })
@@ -85,10 +128,10 @@ router.post("/rooms", requireAuth, async (req, res): Promise<void> => {
   const inviteCode = generateInviteCode();
   const [room] = await db
     .insert(roomsTable)
-    .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId! })
+    .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId!, isPrivate: parsed.data.isPrivate ?? false })
     .returning();
 
-  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId! });
+  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active" });
 
   res.status(201).json({ ...room, memberCount: 1 });
 });
@@ -99,11 +142,7 @@ router.get("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
-
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const room = await getRoomWithCount(roomId);
@@ -124,18 +163,36 @@ router.post("/rooms/:roomId/join", requireAuth, async (req, res): Promise<void> 
   const [room] = await db.select().from(roomsTable).where(eq(roomsTable.id, roomId));
   if (!room) { res.status(404).json({ error: "Room not found" }); return; }
   if (room.inviteCode !== parsed.data.inviteCode) { res.status(403).json({ error: "Invalid invite code" }); return; }
+  if (room.inviteExpiresAt && new Date(room.inviteExpiresAt).getTime() < Date.now()) {
+    res.status(403).json({ error: "Invite link has expired" });
+    return;
+  }
 
   const [existing] = await db
     .select()
     .from(roomMembersTable)
     .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
 
-  if (!existing) {
-    await db.insert(roomMembersTable).values({ roomId, userId: authReq.userId! });
+  const result = await getRoomWithCount(roomId);
+
+  if (existing) {
+    res.json({ ...result, pending: existing.status === "pending" });
+    return;
   }
 
-  const result = await getRoomWithCount(roomId);
-  res.json(result);
+  if (room.isPrivate) {
+    await db.insert(roomMembersTable).values({ roomId, userId: authReq.userId!, status: "pending" }).onConflictDoNothing();
+    const [user] = await db
+      .select({ id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+      .from(usersTable)
+      .where(eq(usersTable.id, authReq.userId!));
+    broadcastToRoom(roomId, { type: "knock", roomId, user });
+    res.json({ ...result, pending: true });
+    return;
+  }
+
+  await db.insert(roomMembersTable).values({ roomId, userId: authReq.userId!, status: "active" }).onConflictDoNothing();
+  res.json({ ...(await getRoomWithCount(roomId)), pending: false });
 });
 
 router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> => {
@@ -150,17 +207,38 @@ router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> 
 
   if (!room) { res.status(404).json({ error: "Room not found" }); return; }
 
+  if (room.inviteExpiresAt && new Date(room.inviteExpiresAt).getTime() < Date.now()) {
+    res.status(403).json({ error: "Invite link has expired" });
+    return;
+  }
+
   const [existing] = await db
     .select()
     .from(roomMembersTable)
     .where(and(eq(roomMembersTable.roomId, room.id), eq(roomMembersTable.userId, authReq.userId!)));
 
-  if (!existing) {
-    await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId! });
+  const result = await getRoomWithCount(room.id);
+
+  if (existing) {
+    // Already a member (active or pending) — return current state.
+    res.json({ ...result, pending: existing.status === "pending" });
+    return;
   }
 
-  const result = await getRoomWithCount(room.id);
-  res.json(result);
+  if (room.isPrivate) {
+    // Knock-to-join: create a pending membership and notify active members.
+    await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "pending" }).onConflictDoNothing();
+    const [user] = await db
+      .select({ id: usersTable.id, username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+      .from(usersTable)
+      .where(eq(usersTable.id, authReq.userId!));
+    broadcastToRoom(room.id, { type: "knock", roomId: room.id, user });
+    res.json({ ...result, pending: true });
+    return;
+  }
+
+  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active" }).onConflictDoNothing();
+  res.json({ ...(await getRoomWithCount(room.id)), pending: false });
 });
 
 router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
@@ -169,18 +247,45 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
-  const name = (req.body?.name as string)?.trim();
-  if (!name) { res.status(400).json({ error: "Name is required" }); return; }
+  const parsed = UpdateRoomBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  const [room] = await db.select().from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+
+  const isCreator = room.createdBy === authReq.userId!;
+  const data = parsed.data;
+  const updates: Partial<typeof roomsTable.$inferInsert> = {};
+
+  if (data.name !== undefined) {
+    const name = data.name.trim();
+    if (!name) { res.status(400).json({ error: "Name cannot be empty" }); return; }
+    updates.name = name;
+  }
+  // Room theme/banner/notes editing is creator-only.
+  if (data.themeColor !== undefined || data.bannerUrl !== undefined || data.notes !== undefined) {
+    if (!isCreator) { res.status(403).json({ error: "Only the room creator can change room settings" }); return; }
+    if (data.themeColor !== undefined) updates.themeColor = data.themeColor;
+    if (data.bannerUrl !== undefined) updates.bannerUrl = data.bannerUrl;
+    if (data.notes !== undefined) updates.notes = data.notes;
+  }
+
+  // Privacy, invite expiry and code regeneration are creator-only.
+  if (data.isPrivate !== undefined || data.inviteExpiresAt !== undefined || data.regenerateCode) {
+    if (!isCreator) { res.status(403).json({ error: "Only the room creator can change invite settings" }); return; }
+    if (data.isPrivate !== undefined) updates.isPrivate = data.isPrivate;
+    if (data.inviteExpiresAt !== undefined) updates.inviteExpiresAt = data.inviteExpiresAt;
+    if (data.regenerateCode) updates.inviteCode = generateInviteCode();
+  }
+
+  if (Object.keys(updates).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
 
   const [updated] = await db
     .update(roomsTable)
-    .set({ name })
+    .set(updates)
     .where(eq(roomsTable.id, roomId))
     .returning();
 
@@ -189,9 +294,11 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
   const [{ value }] = await db
     .select({ value: count() })
     .from(roomMembersTable)
-    .where(eq(roomMembersTable.roomId, roomId));
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
 
-  res.json({ ...updated, memberCount: Number(value) });
+  const result = { ...updated, memberCount: Number(value) };
+  broadcastToRoom(roomId, { type: "room_updated", room: result });
+  res.json(result);
 });
 
 router.post("/rooms/:roomId/leave", requireAuth, async (req, res): Promise<void> => {
@@ -213,10 +320,7 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const members = await db
@@ -231,7 +335,7 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
     })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
-    .where(eq(roomMembersTable.roomId, roomId));
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
 
   res.json(members);
 });
@@ -242,10 +346,7 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const members = await db
@@ -257,11 +358,11 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
     })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
-    .where(eq(roomMembersTable.roomId, roomId));
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
 
-  const onlineIds = new Set(getPresenceSnapshot(roomId).map((p) => p.userId));
   const livePresence = getPresenceSnapshot(roomId);
   const liveMap = new Map(livePresence.map((p) => [p.userId, p]));
+  const onlineIds = new Set(livePresence.map((p) => p.userId));
 
   const entries = members.map((m) => {
     const live = liveMap.get(m.id);
@@ -276,6 +377,7 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
       inVoice: live?.inVoice ?? false,
       status: live?.status ?? "online",
       statusMessage: live?.statusMessage ?? null,
+      activity: live?.activity ?? null,
     };
   });
 
@@ -288,10 +390,7 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const beforeParam = req.query.before ? parseInt(req.query.before as string, 10) : undefined;
@@ -312,6 +411,8 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
+      pinned: messagesTable.pinned,
+      replyToId: messagesTable.replyToId,
     })
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
@@ -319,17 +420,8 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
     .orderBy(desc(messagesTable.id))
     .limit(limitParam);
 
-  const msgIds = messages.map((m) => m.id);
-  const reactionRows = msgIds.length > 0
-    ? await db
-        .select({ messageId: messageReactionsTable.messageId, userId: messageReactionsTable.userId, emoji: messageReactionsTable.emoji })
-        .from(messageReactionsTable)
-        .where(inArray(messageReactionsTable.messageId, msgIds))
-    : [];
-
-  const reactionsMap = groupReactions(reactionRows);
-
-  res.json(messages.reverse().map((m) => ({ ...m, reactions: reactionsMap.get(m.id) ?? [] })));
+  const enriched = await enrichMessages(messages);
+  res.json(enriched.reverse());
 });
 
 router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res): Promise<void> => {
@@ -337,6 +429,9 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
   const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
   const messageId = parseInt(Array.isArray(req.params.messageId) ? req.params.messageId[0] : req.params.messageId, 10);
   if (isNaN(roomId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const [message] = await db
     .select()
@@ -362,13 +457,9 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
     .from(usersTable)
     .where(eq(usersTable.id, updated.userId));
-  const reactionRows = await db
-    .select({ messageId: messageReactionsTable.messageId, userId: messageReactionsTable.userId, emoji: messageReactionsTable.emoji })
-    .from(messageReactionsTable)
-    .where(eq(messageReactionsTable.messageId, messageId));
-  const reactions = groupReactions(reactionRows).get(messageId) ?? [];
+  const [enriched] = await enrichMessages([updated]);
 
-  const result = { ...updated, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, reactions };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
   broadcastToRoom(roomId, { type: "message_updated", message: result });
   res.json(result);
 });
@@ -378,6 +469,9 @@ router.delete("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res
   const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
   const messageId = parseInt(Array.isArray(req.params.messageId) ? req.params.messageId[0] : req.params.messageId, 10);
   if (isNaN(roomId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const [message] = await db
     .select()
@@ -397,29 +491,38 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
   const roomId = parseInt(raw, 10);
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
-  const content = (req.body?.content as string)?.trim();
+  const parsed = SendMessageBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const content = parsed.data.content.trim();
   if (!content) { res.status(400).json({ error: "Content is required" }); return; }
+
+  // Validate reply target belongs to the same room.
+  let replyToId: number | null = null;
+  if (parsed.data.replyToId != null) {
+    const [parent] = await db
+      .select({ id: messagesTable.id })
+      .from(messagesTable)
+      .where(and(eq(messagesTable.id, parsed.data.replyToId), eq(messagesTable.roomId, roomId)));
+    if (parent) replyToId = parent.id;
+  }
 
   const [saved] = await db
     .insert(messagesTable)
-    .values({ roomId, userId: authReq.userId!, content })
+    .values({ roomId, userId: authReq.userId!, content, replyToId })
     .returning();
 
-  res.status(201).json({
-    id: saved.id,
-    roomId: saved.roomId,
-    userId: saved.userId,
-    username: authReq.username!,
-    content: saved.content,
-    createdAt: saved.createdAt,
-    reactions: [],
-  });
+  const [user] = await db
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .from(usersTable)
+    .where(eq(usersTable.id, authReq.userId!));
+  const [enriched] = await enrichMessages([saved]);
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
+
+  broadcastToRoom(roomId, { type: "new_message", message: result });
+  res.status(201).json(result);
 });
 
 router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (req, res): Promise<void> => {
@@ -433,10 +536,7 @@ router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (
   const emoji = (req.body?.emoji as string)?.trim();
   if (!emoji) { res.status(400).json({ error: "emoji is required" }); return; }
 
-  const [membership] = await db
-    .select()
-    .from(roomMembersTable)
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
+  const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const [message] = await db
@@ -476,6 +576,131 @@ router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (
   broadcastToRoom(roomId, { type: "reaction_update", messageId, reactions });
 
   res.json(reactions);
+});
+
+router.post("/rooms/:roomId/messages/:messageId/pin", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const messageId = parseInt(Array.isArray(req.params.messageId) ? req.params.messageId[0] : req.params.messageId, 10);
+  if (isNaN(roomId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const [room] = await db.select({ createdBy: roomsTable.createdBy }).from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+  if (room.createdBy !== authReq.userId!) { res.status(403).json({ error: "Only the room creator can pin messages" }); return; }
+
+  const [message] = await db
+    .select()
+    .from(messagesTable)
+    .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
+  if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+
+  const [updated] = await db
+    .update(messagesTable)
+    .set({ pinned: !message.pinned })
+    .where(eq(messagesTable.id, messageId))
+    .returning();
+
+  const [user] = await db
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .from(usersTable)
+    .where(eq(usersTable.id, updated.userId));
+  const [enriched] = await enrichMessages([updated]);
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
+
+  broadcastToRoom(roomId, { type: "message_updated", message: result });
+  res.json(result);
+});
+
+router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const messages = await db
+    .select({
+      id: messagesTable.id,
+      roomId: messagesTable.roomId,
+      userId: messagesTable.userId,
+      username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
+      content: messagesTable.content,
+      createdAt: messagesTable.createdAt,
+      editedAt: messagesTable.editedAt,
+      pinned: messagesTable.pinned,
+      replyToId: messagesTable.replyToId,
+    })
+    .from(messagesTable)
+    .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
+    .where(and(eq(messagesTable.roomId, roomId), eq(messagesTable.pinned, true)))
+    .orderBy(desc(messagesTable.id));
+
+  const enriched = await enrichMessages(messages);
+  res.json(enriched);
+});
+
+router.get("/rooms/:roomId/pending", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const pending = await db
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
+      requestedAt: roomMembersTable.joinedAt,
+    })
+    .from(roomMembersTable)
+    .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "pending")));
+
+  res.json(pending);
+});
+
+router.post("/rooms/:roomId/members/:userId/approve", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const targetUserId = parseInt(Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId, 10);
+  if (isNaN(roomId) || isNaN(targetUserId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const [roomRow] = await db.select({ createdBy: roomsTable.createdBy }).from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!roomRow) { res.status(404).json({ error: "Room not found" }); return; }
+  if (roomRow.createdBy !== authReq.userId!) { res.status(403).json({ error: "Only the room creator can approve members" }); return; }
+
+  const [pending] = await db
+    .select()
+    .from(roomMembersTable)
+    .where(and(
+      eq(roomMembersTable.roomId, roomId),
+      eq(roomMembersTable.userId, targetUserId),
+      eq(roomMembersTable.status, "pending"),
+    ));
+  if (!pending) { res.status(404).json({ error: "No pending request for this user" }); return; }
+
+  await db
+    .update(roomMembersTable)
+    .set({ status: "active" })
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId)));
+
+  const room = await getRoomWithCount(roomId);
+  notifyUser(targetUserId, { type: "knock_approved", roomId, room });
+  broadcastToRoom(roomId, { type: "knock_resolved", roomId, userId: targetUserId });
+
+  res.status(204).end();
 });
 
 export default router;

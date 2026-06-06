@@ -10,6 +10,9 @@ import {
   useUpdateRoom, useLeaveRoom,
   useEditMessage, useDeleteMessage,
   useGetMe,
+  useGetPinnedMessages, getGetPinnedMessagesQueryKey,
+  useGetPendingMembers, getGetPendingMembersQueryKey,
+  useTogglePin, useApproveMember,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -27,7 +30,10 @@ import {
   Users, MessageSquare, Pencil, Trash2, Smile,
   Copy, Check, Share2, ChevronLeft, ExternalLink, Maximize2,
   Paperclip, Loader2,
+  Reply, Star, Megaphone, BarChart3, Hand,
+  Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { useSettings } from "@/lib/settings";
 import { buildAudioConstraints, buildDisplayConstraints } from "@/lib/media";
 import { ThemeToggle } from "@/lib/theme";
@@ -35,7 +41,10 @@ import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
 import { GiphyPicker } from "@/components/giphy-picker";
 import { MentionInput, type MentionInputHandle } from "@/components/mention-input";
-import { MessageContent, containsMention } from "@/lib/markdown";
+import {
+  MessageContent, containsMention,
+  isGifReaction, gifReactionUrl, encodePoll, encodeEmote, POLL_EMOJIS,
+} from "@/lib/markdown";
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useUpload } from "@/hooks/use-upload";
 import { ProfileHoverCard, StatusPicker, STATUS_META } from "@/components/profile-hover";
@@ -45,6 +54,13 @@ import { ChevronDown } from "lucide-react";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
+
+const SOUNDBOARD_CLIPS: { id: string; label: string }[] = [
+  { id: "beep", label: "Beep" },
+  { id: "chime", label: "Chime" },
+  { id: "pop", label: "Pop" },
+  { id: "join", label: "Join" },
+];
 
 // ─── Overlay helpers ──────────────────────────────────────────────────────────
 function matchesHotkey(e: KeyboardEvent, hotkey: string): boolean {
@@ -153,10 +169,12 @@ function StreamVideo({ stream, muted }: { stream: MediaStream; muted: boolean })
   return <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-contain bg-black" />;
 }
 
-function AudioPlayer({ stream }: { stream: MediaStream }) {
+function AudioPlayer({ stream, volume = 100, muted = false }: { stream: MediaStream; volume?: number; muted?: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return <audio ref={ref} autoPlay />;
+  useEffect(() => { if (ref.current) ref.current.volume = Math.max(0, Math.min(1, volume / 100)); }, [volume]);
+  useEffect(() => { if (ref.current) ref.current.muted = muted; }, [muted]);
+  return <audio ref={ref} autoPlay muted={muted} />;
 }
 
 // ─── Room page ────────────────────────────────────────────────────────────────
@@ -175,12 +193,19 @@ export default function Room() {
   const { data: initialPresence } = useGetRoomPresence(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomPresenceQueryKey(roomId) } });
   const { data: initialMessages } = useGetRoomMessages(roomId, undefined, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
 
+  const isCreator = !!me && !!room && room.createdBy === me.id;
+
+  const { data: pinnedMessages } = useGetPinnedMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetPinnedMessagesQueryKey(roomId) } });
+  const { data: pendingMembers } = useGetPendingMembers(roomId, { query: { enabled: !!roomId && isCreator, queryKey: getGetPendingMembersQueryKey(roomId) } });
+
   const sendMessageMutation = useSendMessage();
   const toggleReactionMutation = useToggleReaction();
   const updateRoomMutation = useUpdateRoom();
   const leaveRoomMutation = useLeaveRoom();
   const editMessageMutation = useEditMessage();
   const deleteMessageMutation = useDeleteMessage();
+  const togglePinMutation = useTogglePin();
+  const approveMemberMutation = useApproveMember();
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
@@ -202,7 +227,7 @@ export default function Room() {
   const msgInputRef = useRef<MentionInputHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { playEvent, playForUser } = useSounds(settings);
+  const { playEvent, playForUser, playSound } = useSounds(settings);
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const notifPermRef = useRef<NotificationPermission>("default");
@@ -220,6 +245,20 @@ export default function Room() {
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
+
+  // Phase E feature state
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [activityInput, setActivityInput] = useState("");
+  const [showActivityEdit, setShowActivityEdit] = useState(false);
+  const [showPins, setShowPins] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showSoundboard, setShowSoundboard] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+  const [gifReactionFor, setGifReactionFor] = useState<number | null>(null);
+  const [connHealth, setConnHealth] = useState<Record<number, "good" | "ok" | "poor">>({});
+  const [pttActive, setPttActive] = useState(false);
+  const [soundboardFlash, setSoundboardFlash] = useState<{ username: string; key: number } | null>(null);
+  const myActivityRef = useRef<string>("");
 
   const [overlayMode, setOverlayMode] = useState(false);
   const [unreadOverlay, setUnreadOverlay] = useState(0);
@@ -331,6 +370,7 @@ export default function Room() {
     handleOffer, handleAnswer, handleIceCandidate, sendOffer,
     joinVoice, leaveVoice,
     sendAudioOffer, handleAudioOffer, handleAudioAnswer, handleAudioIce,
+    setMicEnabled, getConnectionStats,
     cleanup,
   } = useWebRTC(
     (msg) => sendRef.current?.(msg),
@@ -360,7 +400,7 @@ export default function Room() {
     },
     onNewMessage: (msg) => {
       if (msg.roomId !== roomId) return;
-      setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+      setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
       if (msg.userId !== me?.id) {
         const mentioned = me?.username ? containsMention(msg.content, me.username) : false;
         playForUser(msg.userId, mentioned ? "mention" : "message");
@@ -394,6 +434,29 @@ export default function Room() {
     onAudioOffer: async (from, sdp) => { await handleAudioOffer(from, sdp); },
     onAudioAnswer: async (from, sdp) => { await handleAudioAnswer(from, sdp); },
     onAudioIce: async (from, candidate) => { await handleAudioIce(from, candidate); },
+    onRoomUpdated: () => { queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) }); },
+    onSoundboardPlay: (userId, username, sound) => {
+      if (userId !== me?.id) playSound(sound, true);
+      setSoundboardFlash({ username, key: Date.now() });
+    },
+    onKnock: (rid, user) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) });
+      playEvent("join");
+      if (notifPermRef.current === "granted") {
+        new Notification(`${user?.username ?? "Someone"} wants to join`, { tag: `screencrew-knock-${roomId}`, body: room?.name ?? "" });
+      }
+    },
+    onKnockApproved: (rid) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) });
+      queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+    },
+    onKnockResolved: (rid) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) });
+      queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+    },
   });
 
   useEffect(() => { sendRef.current = send; }, [send]);
@@ -439,17 +502,63 @@ export default function Room() {
     if (members && me) members.forEach(m => { if (m.id !== me.id) sendOffer(m.id); });
   };
 
+  // Append a freshly-sent message immediately (dedup by id; the WS echo may also
+  // arrive, so guard against duplicates the same way onNewMessage does).
+  const appendOwnMessage = useCallback((msg: any) => {
+    setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+  }, []);
+
+  const postMessage = useCallback((content: string) => {
+    const replyToId = replyingTo?.id;
+    sendMessageMutation.mutate(
+      { roomId, data: replyToId ? { content, replyToId } : { content } },
+      { onSuccess: appendOwnMessage },
+    );
+    setReplyingTo(null);
+  }, [roomId, replyingTo, sendMessageMutation, appendOwnMessage]);
+
+  // Expand client-side slash commands into a message content string, or null to skip sending
+  const expandSlashCommand = useCallback((raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith("/")) return raw;
+    const sp = trimmed.indexOf(" ");
+    const cmd = (sp === -1 ? trimmed : trimmed.slice(0, sp)).toLowerCase();
+    const rest = sp === -1 ? "" : trimmed.slice(sp + 1).trim();
+    switch (cmd) {
+      case "/me":
+        return rest ? encodeEmote(me?.username ?? "", rest) : null;
+      case "/shrug":
+        return `${rest ? rest + " " : ""}¯\\_(ツ)_/¯`;
+      case "/flip":
+        return `🪙 flips a coin: **${Math.random() < 0.5 ? "Heads" : "Tails"}**`;
+      case "/roll": {
+        const sides = Math.max(2, Math.min(1000, parseInt(rest, 10) || 6));
+        return `🎲 rolls a d${sides}: **${1 + Math.floor(Math.random() * sides)}**`;
+      }
+      case "/poll": {
+        const segs = rest.split("|").map(s => s.trim()).filter(Boolean);
+        if (segs.length < 3) return raw; // need question + 2 options; fall back to plain text
+        const [q, ...options] = segs;
+        return encodePoll({ q, options: options.slice(0, 10) });
+      }
+      default:
+        return raw;
+    }
+  }, [me?.username]);
+
   const handleSendMsg = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (/^\/giphy(?:\s|$)/i.test(msgInput)) return; // picker handles posting GIFs
     if (!msgInput.trim()) return;
     sendTypingStop();
-    sendMessageMutation.mutate({ roomId, data: { content: msgInput } });
+    const expanded = expandSlashCommand(msgInput);
+    if (expanded === null) { setMsgInput(""); return; }
+    postMessage(expanded);
     setMsgInput("");
   };
 
   const handlePickGif = (url: string) => {
-    sendMessageMutation.mutate({ roomId, data: { content: `[screencrew:gif:${url}]` } });
+    postMessage(`[screencrew:gif:${url}]`);
     setMsgInput("");
     setGiphyQuery(null);
     msgInputRef.current?.focus();
@@ -461,7 +570,7 @@ export default function Room() {
       const token = isImage
         ? `[screencrew:image:${r.objectPath}]`
         : `[screencrew:file:${r.objectPath}:${r.name}]`;
-      sendMessageMutation.mutate({ roomId, data: { content: token } });
+      sendMessageMutation.mutate({ roomId, data: { content: token } }, { onSuccess: appendOwnMessage });
     },
   });
 
@@ -507,6 +616,32 @@ export default function Room() {
     }));
     toggleReactionMutation.mutate({ roomId, messageId, data: { emoji } });
   }, [me, roomId, toggleReactionMutation]);
+
+  const handleTogglePin = useCallback((messageId: number) => {
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, pinned: !m.pinned } : m));
+    togglePinMutation.mutate({ roomId, messageId }, {
+      onSettled: () => queryClient.invalidateQueries({ queryKey: getGetPinnedMessagesQueryKey(roomId) }),
+    });
+  }, [roomId, togglePinMutation, queryClient]);
+
+  const handleApproveMember = useCallback((userId: number) => {
+    approveMemberMutation.mutate({ roomId, userId }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) });
+        queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+      },
+    });
+  }, [roomId, approveMemberMutation, queryClient]);
+
+  const playSoundboard = useCallback((sound: string) => {
+    playSound(sound, true);
+    sendRef.current?.({ type: "soundboard", sound });
+  }, [playSound]);
+
+  const sendGifReaction = useCallback((messageId: number, url: string) => {
+    handleToggleReaction(messageId, `gif:${url}`);
+    setGifReactionFor(null);
+  }, [handleToggleReaction]);
 
   const loadMoreMessages = useCallback(async () => {
     if (!messages.length || loadingMore || !hasMore) return;
@@ -560,6 +695,12 @@ export default function Room() {
     });
   };
 
+  const handleUpdateRoom = useCallback((data: Parameters<typeof updateRoomMutation.mutate>[0]["data"]) => {
+    updateRoomMutation.mutate({ roomId, data }, {
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) }); },
+    });
+  }, [updateRoomMutation, roomId, queryClient]);
+
   const handleLeaveRoom = () => {
     leaveRoomMutation.mutate({ roomId }, { onSuccess: () => setLocation("/rooms") });
   };
@@ -585,11 +726,109 @@ export default function Room() {
       if (matchesHotkey(e, settings.overlayHotkey)) {
         e.preventDefault();
         setOverlayMode(m => !m);
+      } else if (matchesHotkey(e, settings.settingsHotkey)) {
+        e.preventDefault();
+        setShowSettings(s => !s);
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [settings.overlayHotkey]);
+  }, [settings.overlayHotkey, settings.settingsHotkey]);
+
+  // ─── Push-to-talk ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (settings.voiceMode !== "ptt" || !micActive) { setMicEnabled(true); setPttActive(false); return; }
+    setMicEnabled(false); // mic muted until key held in PTT mode
+    setPttActive(false);
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== settings.pttKey) return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      e.preventDefault();
+      setMicEnabled(true); setPttActive(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== settings.pttKey) return;
+      setMicEnabled(false); setPttActive(false);
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); setMicEnabled(true); };
+  }, [settings.voiceMode, settings.pttKey, micActive, setMicEnabled]);
+
+  // ─── Idle / AFK auto-status ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!settings.autoAfk) return;
+    let afk = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const ms = Math.max(1, settings.afkMinutes) * 60_000;
+    const reset = () => {
+      if (afk) { afk = false; sendRef.current?.({ type: "status", status: "online" }); }
+      clearTimeout(timer);
+      timer = setTimeout(() => { afk = true; sendRef.current?.({ type: "status", status: "away" }); }, ms);
+    };
+    const evs = ["mousemove", "keydown", "mousedown", "touchstart"] as const;
+    evs.forEach(ev => window.addEventListener(ev, reset, { passive: true }));
+    reset();
+    return () => { clearTimeout(timer); evs.forEach(ev => window.removeEventListener(ev, reset)); };
+  }, [settings.autoAfk, settings.afkMinutes]);
+
+  // ─── Connection health polling ───────────────────────────────────────────
+  useEffect(() => {
+    if (!isInVoice && Object.keys(remoteStreams).length === 0) { setConnHealth({}); return; }
+    let stop = false;
+    const poll = async () => {
+      const stats = await getConnectionStats();
+      if (!stop) setConnHealth(stats);
+    };
+    poll();
+    const id = setInterval(poll, 4000);
+    return () => { stop = true; clearInterval(id); };
+  }, [isInVoice, remoteStreams, getConnectionStats]);
+
+  // ─── Watched-friend online notifications ─────────────────────────────────
+  const prevWatchedOnlineRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const watched = new Set(settings.watchedUsers);
+    const nextOnline = new Set<number>();
+    Object.values(presence).forEach((p: any) => { if (p?.online) nextOnline.add(p.userId); });
+    nextOnline.forEach(uid => {
+      if (uid === me?.id) return;
+      if (watched.has(uid) && !prevWatchedOnlineRef.current.has(uid)) {
+        const p: any = presence[uid];
+        const name = p ? displayNameOf(p) : "A friend";
+        playEvent("join");
+        if (notifPermRef.current === "granted") {
+          new Notification(`${name} is online`, { tag: `screencrew-watch-${uid}`, body: room?.name ?? "" });
+        }
+      }
+    });
+    prevWatchedOnlineRef.current = nextOnline;
+  }, [presence, settings.watchedUsers, me?.id, room?.name, playEvent]);
+
+  // ─── Broadcast my activity tag ───────────────────────────────────────────
+  useEffect(() => {
+    if (!isConnected) return;
+    if (myActivityRef.current === activityInput) return;
+    myActivityRef.current = activityInput;
+    sendRef.current?.({ type: "activity", activity: activityInput.trim() || null });
+  }, [activityInput, isConnected]);
+
+  // ─── Apply room theme accent ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!room?.themeColor) return;
+    const el = document.documentElement;
+    const prev = el.style.getPropertyValue("--room-accent");
+    el.style.setProperty("--room-accent", room.themeColor);
+    return () => { el.style.setProperty("--room-accent", prev); };
+  }, [room?.themeColor]);
+
+  // ─── Soundboard flash auto-clear ─────────────────────────────────────────
+  useEffect(() => {
+    if (!soundboardFlash) return;
+    const t = setTimeout(() => setSoundboardFlash(null), 1500);
+    return () => clearTimeout(t);
+  }, [soundboardFlash]);
 
   useEffect(() => {
     const maxId = messages.reduce((mx, m) => (m.id > mx ? m.id : mx), 0);
@@ -677,7 +916,9 @@ export default function Room() {
       {/* Hidden audio for voice calls */}
       <div className="hidden" aria-hidden>
         {Object.entries(remoteAudioStreams).map(([uid, stream]) => (
-          <AudioPlayer key={uid} stream={stream} />
+          <AudioPlayer key={uid} stream={stream}
+            volume={settings.userVolumes[uid] ?? 100}
+            muted={!!settings.userMuted[uid]} />
         ))}
       </div>
 
@@ -732,14 +973,42 @@ export default function Room() {
           </div>
         )}
 
+        {/* ── Room banner ── */}
+        {!overlayMode && room.bannerUrl && (
+          <div className="mx-4 mb-2 rounded-xl overflow-hidden border border-border/30 shrink-0">
+            <img src={room.bannerUrl} alt="" className="w-full h-16 object-cover" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          </div>
+        )}
+
+        {/* ── Room notes ── */}
+        {!overlayMode && room.notes && (
+          <div className="px-4 mb-2 shrink-0">
+            <button onClick={() => setShowNotes(s => !s)}
+              className="w-full flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors">
+              <StickyNote className="w-3 h-3 shrink-0 text-primary/60" />
+              <span className="font-semibold uppercase tracking-widest">Notes</span>
+              <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${showNotes ? "rotate-180" : ""}`} />
+            </button>
+            {showNotes && (
+              <div className="mt-1.5 text-xs text-foreground/80 bg-muted/20 border border-border/30 rounded-lg px-3 py-2 whitespace-pre-wrap break-words">
+                {room.notes}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── FRIENDS ── */}
         <div className="px-4 shrink-0">
           <div className="flex items-center justify-between mb-2.5">
             <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Friends</span>
             <div className="flex items-center gap-0.5">
-              <button onClick={toggleMic} title={micActive ? "Mute mic" : "Enable mic"}
-                className={`p-1 rounded-md transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/80") : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+              <button onClick={toggleMic}
+                title={micActive ? (settings.voiceMode === "ptt" ? `Push-to-talk (${fmtHotkey(settings.pttKey)})` : "Mute mic") : "Enable mic"}
+                className={`relative p-1 rounded-md transition-colors ${micActive ? (settings.voiceMode === "ptt" && !pttActive ? "text-amber-400/80" : localSpeaking ? "text-green-400" : "text-primary/80") : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 {micActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                {micActive && settings.voiceMode === "ptt" && (
+                  <span className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${pttActive ? "bg-green-400" : "bg-amber-400"}`} />
+                )}
               </button>
               <button onClick={isSharing ? stopSharing : handleStartShare} title={isSharing ? "Stop sharing" : "Share screen"}
                 className={`p-1 rounded-md transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
@@ -754,12 +1023,71 @@ export default function Room() {
                 className={`p-1 rounded-md transition-colors ${notifPermission === "granted" ? "text-primary/60" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 <Bell className="w-3.5 h-3.5" />
               </button>
+              <button onClick={() => { setShowActivityEdit(s => !s); setShowSoundboard(false); }} title="Set activity"
+                className={`p-1 rounded-md transition-colors ${showActivityEdit || activityInput ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                <BarChart3 className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => { setShowSoundboard(s => !s); setShowActivityEdit(false); }} title="Soundboard"
+                className={`p-1 rounded-md transition-colors ${showSoundboard ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                <Megaphone className="w-3.5 h-3.5" />
+              </button>
+              {isCreator && pendingMembers && pendingMembers.length > 0 && (
+                <button onClick={() => setShowPending(s => !s)} title="Pending requests"
+                  className="relative p-1 rounded-md text-amber-400 hover:text-amber-300 transition-colors">
+                  <Hand className="w-3.5 h-3.5" />
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 text-[8px] font-bold text-black flex items-center justify-center">{pendingMembers.length}</span>
+                </button>
+              )}
               <button onClick={() => setShowInvite(true)} title="Invite"
                 className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors">
                 <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
+
+          {/* Activity tag input */}
+          {showActivityEdit && (
+            <div className="mb-2.5 flex items-center gap-1.5">
+              <BarChart3 className="w-3.5 h-3.5 text-primary/60 shrink-0" />
+              <Input value={activityInput} onChange={e => setActivityInput(e.target.value.slice(0, 80))}
+                onKeyDown={e => e.key === "Enter" && setShowActivityEdit(false)}
+                placeholder="What are you playing?"
+                className="h-7 rounded-lg bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs" />
+              {activityInput && (
+                <button onClick={() => setActivityInput("")} className="text-muted-foreground/40 hover:text-foreground shrink-0" title="Clear">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Soundboard panel */}
+          {showSoundboard && (
+            <div className="mb-2.5 grid grid-cols-4 gap-1">
+              {SOUNDBOARD_CLIPS.map(clip => (
+                <button key={clip.id} onClick={() => playSoundboard(clip.id)}
+                  className="text-[10px] rounded-lg bg-muted/30 hover:bg-primary/15 border border-border/30 hover:border-primary/30 py-1.5 transition-colors text-foreground/80">
+                  {clip.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Pending join requests (creator) */}
+          {isCreator && showPending && pendingMembers && pendingMembers.length > 0 && (
+            <div className="mb-2.5 space-y-1">
+              {pendingMembers.map((pm: any) => (
+                <div key={pm.id} className="flex items-center gap-2 bg-amber-400/10 border border-amber-400/30 rounded-lg px-2 py-1.5">
+                  <Hand className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="text-xs flex-1 truncate">{displayNameOf(pm) || pm.username} wants to join</span>
+                  <button onClick={() => handleApproveMember(pm.id)} disabled={approveMemberMutation.isPending}
+                    className="text-[10px] font-semibold rounded-md bg-primary/20 hover:bg-primary/30 text-primary px-2 py-0.5 transition-colors disabled:opacity-40">
+                    Approve
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Friend rows */}
           <div className="space-y-0.5 mb-3">
@@ -810,11 +1138,21 @@ export default function Room() {
                   </div>
                   {/* Name + status */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-tight truncate">
-                      {displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}
-                      {isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
+                    <p className="text-sm font-medium leading-tight truncate flex items-center gap-1">
+                      <span className="truncate">{displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}</span>
+                      {isMe && <span className="text-muted-foreground/40 font-normal shrink-0">(you)</span>}
+                      {!isMe && online && connHealth[member.id] && (
+                        <span title={`Connection: ${connHealth[member.id]}`}
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${connHealth[member.id] === "good" ? "bg-green-400" : connHealth[member.id] === "ok" ? "bg-amber-400" : "bg-red-400"}`} />
+                      )}
                     </p>
-                    <p className={`text-xs leading-tight mt-0.5 truncate ${statusColor}`}>{statusLabel}</p>
+                    {p?.activity && online && !activityLabel ? (
+                      <p className="text-xs leading-tight mt-0.5 truncate text-primary/70 flex items-center gap-1">
+                        <BarChart3 className="w-3 h-3 shrink-0" /> {p.activity}
+                      </p>
+                    ) : (
+                      <p className={`text-xs leading-tight mt-0.5 truncate ${statusColor}`}>{statusLabel}</p>
+                    )}
                   </div>
                   {/* Right icon */}
                   {speaking ? (
@@ -839,7 +1177,15 @@ export default function Room() {
                   {rowInner}
                 </StatusPicker>
               ) : (
-                <ProfileHoverCard key={member.id} user={profile} square={classic} enableUserSound>
+                <ProfileHoverCard key={member.id} user={profile} square={classic} enableUserSound
+                  volume={settings.userVolumes[String(member.id)] ?? 100}
+                  muted={!!settings.userMuted[String(member.id)]}
+                  onVolumeChange={(v) => setSetting("userVolumes", { ...settings.userVolumes, [String(member.id)]: v })}
+                  onMuteToggle={() => setSetting("userMuted", { ...settings.userMuted, [String(member.id)]: !settings.userMuted[String(member.id)] })}
+                  watched={settings.watchedUsers.includes(member.id)}
+                  onWatchToggle={() => setSetting("watchedUsers", settings.watchedUsers.includes(member.id)
+                    ? settings.watchedUsers.filter(u => u !== member.id)
+                    : [...settings.watchedUsers, member.id])}>
                   {rowInner}
                 </ProfileHoverCard>
               );
@@ -896,6 +1242,33 @@ export default function Room() {
               )}
             </div>
 
+            {/* Pinned messages bar */}
+            {pinnedMessages && pinnedMessages.length > 0 && (
+              <div className="px-4 shrink-0">
+                <button onClick={() => setShowPins(s => !s)}
+                  className="w-full flex items-center gap-1.5 text-[11px] text-primary/70 hover:text-primary py-1 transition-colors">
+                  <Pin className="w-3 h-3 shrink-0" />
+                  <span className="font-medium">{pinnedMessages.length} pinned</span>
+                  <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${showPins ? "rotate-180" : ""}`} />
+                </button>
+                {showPins && (
+                  <div className="space-y-1 mb-1.5 max-h-28 overflow-y-auto">
+                    {pinnedMessages.map((pm: any) => (
+                      <div key={pm.id} className="flex items-start gap-1.5 text-[11px] bg-muted/20 border border-border/30 rounded-lg px-2 py-1">
+                        <span className={`font-semibold shrink-0 ${chatColor(pm.userId)}`}>{displayNameOf(pm) || pm.username}:</span>
+                        <span className="text-foreground/70 truncate flex-1">{toastPreview(pm.content)}</span>
+                        {isCreator && (
+                          <button onClick={() => handleTogglePin(pm.id)} className="text-muted-foreground/40 hover:text-destructive shrink-0" title="Unpin">
+                            <PinOff className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 min-h-0 px-4">
               <ScrollArea className="h-full">
@@ -937,6 +1310,13 @@ export default function Room() {
                           </form>
                         ) : (
                           <div className={`flex items-baseline flex-wrap gap-x-1.5 leading-relaxed ${tSize}`}>
+                            {msg.replyToId && (
+                              <div className="basis-full flex items-center gap-1 text-[11px] text-muted-foreground/50 truncate mb-0.5 pl-1 border-l-2 border-primary/30">
+                                <Reply className="w-3 h-3 shrink-0" />
+                                <span className="font-medium text-primary/60">{msg.replyToUsername ?? "msg"}</span>
+                                <span className="truncate">{toastPreview(msg.replyToContent ?? "")}</span>
+                              </div>
+                            )}
                             {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
                             {avatarSrc(msg.avatarUrl) && (
                               <img src={avatarSrc(msg.avatarUrl)!} alt=""
@@ -949,17 +1329,29 @@ export default function Room() {
                             </span>
                           </div>
                         )}
-                        {/* Own message actions */}
-                        {isOwn && !isEditing && isHovered && (
+                        {/* Message actions */}
+                        {!isEditing && isHovered && (
                           <div className="absolute right-1 top-0.5 flex items-center gap-0.5 bg-card border border-border/40 rounded-lg px-1 py-0.5 shadow-sm">
-                            <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
-                              className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
-                              <Pencil className="w-3 h-3" />
+                            <button onClick={() => { setReplyingTo(msg); msgInputRef.current?.focus(); }}
+                              className="p-0.5 text-muted-foreground/40 hover:text-primary transition-colors" title="Reply">
+                              <Reply className="w-3 h-3" />
                             </button>
-                            <button onClick={() => handleDeleteMsg(msg.id)}
-                              className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                            {isCreator && (
+                              <button onClick={() => handleTogglePin(msg.id)}
+                                className={`p-0.5 transition-colors ${msg.pinned ? "text-primary" : "text-muted-foreground/40 hover:text-primary"}`} title={msg.pinned ? "Unpin" : "Pin"}>
+                                <Pin className="w-3 h-3" />
+                              </button>
+                            )}
+                            {isOwn && <>
+                              <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
+                                className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button onClick={() => handleDeleteMsg(msg.id)}
+                                className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </>}
                           </div>
                         )}
                         {/* Quick reactions on hover */}
@@ -971,6 +1363,16 @@ export default function Room() {
                                 {emoji}
                               </button>
                             ))}
+                            <button onClick={() => setGifReactionFor(f => f === msg.id ? null : msg.id)}
+                              className={`leading-none w-6 h-6 flex items-center justify-center rounded-lg transition-all ${gifReactionFor === msg.id ? "bg-primary/15 text-primary" : "hover:bg-primary/10 text-muted-foreground/60"}`}
+                              title="GIF reaction">
+                              <span className="text-[9px] font-bold">GIF</span>
+                            </button>
+                          </div>
+                        )}
+                        {gifReactionFor === msg.id && (
+                          <div className="mt-1">
+                            <GiphyPicker query="" onPick={(url) => sendGifReaction(msg.id, url)} onClose={() => setGifReactionFor(null)} />
                           </div>
                         )}
                         {/* Reaction bubbles */}
@@ -978,10 +1380,13 @@ export default function Room() {
                           <div className="flex items-center gap-1 flex-wrap mt-1">
                             {reactions.map((r: any) => {
                               const isMine = (r.userIds as number[]).includes(me.id);
+                              const gif = isGifReaction(r.emoji);
                               return (
                                 <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
                                   className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30"}`}>
-                                  <span>{r.emoji}</span>
+                                  {gif
+                                    ? <img src={gifReactionUrl(r.emoji)} alt="gif" className="h-6 w-auto rounded object-cover" />
+                                    : <span>{r.emoji}</span>}
                                   <span className="text-[10px] ml-0.5">{r.count}</span>
                                 </button>
                               );
@@ -1024,6 +1429,16 @@ export default function Room() {
 
             {/* Message input */}
             <div className="px-4 py-3 shrink-0">
+              {replyingTo && (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 bg-muted/20 border border-border/30 rounded-lg px-2 py-1 mb-1.5">
+                  <Reply className="w-3 h-3 text-primary/60 shrink-0" />
+                  <span className="text-primary/70 font-medium shrink-0">{displayNameOf(replyingTo) || replyingTo.username}</span>
+                  <span className="truncate flex-1">{toastPreview(replyingTo.content)}</span>
+                  <button onClick={() => setReplyingTo(null)} className="text-muted-foreground/40 hover:text-foreground shrink-0" title="Cancel reply">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               {giphyQuery !== null && (
                 <GiphyPicker query={giphyQuery} onPick={handlePickGif} onClose={() => { setGiphyQuery(null); setMsgInput(""); }} />
               )}
@@ -1087,7 +1502,7 @@ export default function Room() {
               </button>
             </div>
           </div>
-          <div className="aspect-video">
+          <div className={`aspect-video transition-shadow ${presence[viewingStreamOf]?.speaking ? "ring-2 ring-green-400/70 ring-inset" : ""}`}>
             {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
               <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
                 <MonitorUp className="w-10 h-10 opacity-30" />
@@ -1098,24 +1513,119 @@ export default function Room() {
         </div>
       )}
 
+      {/* ── Soundboard flash ── */}
+      {soundboardFlash && !overlayMode && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 bg-card/95 border border-primary/40 rounded-full px-3 py-1.5 shadow-2xl backdrop-blur-sm animate-in fade-in slide-in-from-bottom-2 duration-200 pointer-events-none">
+          <Megaphone className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs text-foreground/80"><span className="font-semibold text-primary">{soundboardFlash.username}</span> played a sound</span>
+        </div>
+      )}
+
       {/* ── Invite Modal ── */}
       <Dialog open={showInvite} onOpenChange={setShowInvite}>
-        <DialogContent className="bg-card border-border/50 rounded-2xl max-w-xs p-0 overflow-hidden shadow-2xl">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/20">
+        <DialogContent className="bg-card border-border/50 rounded-2xl max-w-xs p-0 overflow-hidden shadow-2xl max-h-[90vh]">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/20 shrink-0">
             <DialogTitle className="text-sm font-semibold flex items-center gap-2">
               <Share2 className="w-4 h-4 text-primary" /> Invite to {room.name}
             </DialogTitle>
           </DialogHeader>
-          <div className="px-6 py-6 flex flex-col items-center gap-5">
+          <div className="px-6 py-6 flex flex-col gap-5 overflow-y-auto">
             <div className="text-center">
               <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-3">Invite Code</p>
-              <div className="font-mono text-4xl font-bold tracking-[0.3em] select-all bg-muted/20 border border-border/30 rounded-xl px-6 py-4 text-primary">
+              <div className="font-mono text-4xl font-bold tracking-[0.3em] select-all bg-muted/20 border border-border/30 rounded-xl px-6 py-4 text-primary text-center">
                 {room.inviteCode}
               </div>
+              {room.inviteExpiresAt && (
+                <p className="text-[10px] text-amber-400/80 mt-2 flex items-center justify-center gap-1">
+                  <Clock className="w-3 h-3" /> Expires {new Date(room.inviteExpiresAt).toLocaleString()}
+                </p>
+              )}
             </div>
             <Button className="w-full rounded-xl font-medium gap-2" onClick={copyCode}>
               {codeCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Code</>}
             </Button>
+
+            {isCreator && (
+              <div className="space-y-4 pt-2 border-t border-border/20">
+                <p className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Room Settings</p>
+
+                {/* Privacy */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    {room.isPrivate ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Globe className="w-3.5 h-3.5 text-muted-foreground/50" />}
+                    <span>{room.isPrivate ? "Private (knock to join)" : "Open"}</span>
+                  </div>
+                  <button onClick={() => handleUpdateRoom({ isPrivate: !room.isPrivate })} disabled={updateRoomMutation.isPending}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${room.isPrivate ? "bg-primary" : "bg-muted/50"}`}>
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${room.isPrivate ? "left-[18px]" : "left-0.5"}`} />
+                  </button>
+                </div>
+
+                {/* Invite expiry */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground/50" /> Expiry
+                  </div>
+                  <div className="flex gap-1 flex-wrap justify-end">
+                    {([
+                      { label: "1h", ms: 3600_000 },
+                      { label: "24h", ms: 86400_000 },
+                      { label: "Never", ms: 0 },
+                    ]).map(({ label, ms }) => (
+                      <button key={label} onClick={() => handleUpdateRoom({ inviteExpiresAt: ms ? new Date(Date.now() + ms).toISOString() : null })}
+                        disabled={updateRoomMutation.isPending}
+                        className="text-[10px] px-2 py-1 rounded-md bg-muted/30 hover:bg-primary/15 hover:text-primary border border-border/30 transition-colors">
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Regenerate code */}
+                <button onClick={() => handleUpdateRoom({ regenerateCode: true })} disabled={updateRoomMutation.isPending}
+                  className="w-full flex items-center justify-center gap-2 h-8 rounded-lg border border-border/30 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors">
+                  <RefreshCw className="w-3.5 h-3.5" /> New Invite Code
+                </button>
+
+                {/* Theme color */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Palette className="w-3.5 h-3.5 text-muted-foreground/50" /> Accent
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {["#22d3ee", "#a78bfa", "#f472b6", "#4ade80", "#fbbf24", "#fb7185"].map(hex => (
+                      <button key={hex} onClick={() => handleUpdateRoom({ themeColor: hex })}
+                        className={`w-5 h-5 rounded-full transition-all ${room.themeColor === hex ? "ring-2 ring-offset-1 ring-offset-card ring-white scale-110" : "hover:scale-105 opacity-70"}`}
+                        style={{ backgroundColor: hex }} />
+                    ))}
+                    {room.themeColor && (
+                      <button onClick={() => handleUpdateRoom({ themeColor: null })} title="Clear accent"
+                        className="text-muted-foreground/40 hover:text-foreground">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Banner */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm"><MonitorUp className="w-3.5 h-3.5 text-muted-foreground/50" /> Banner URL</div>
+                  <Input defaultValue={room.bannerUrl ?? ""} key={`banner-${room.bannerUrl}`}
+                    onBlur={e => { const v = e.target.value.trim(); if (v !== (room.bannerUrl ?? "")) handleUpdateRoom({ bannerUrl: v || null }); }}
+                    placeholder="https://…/banner.png"
+                    className="h-8 rounded-lg bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs" />
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm"><StickyNote className="w-3.5 h-3.5 text-muted-foreground/50" /> Room Notes</div>
+                  <Textarea defaultValue={room.notes ?? ""} key={`notes-${room.notes}`}
+                    onBlur={e => { const v = e.target.value.trim(); if (v !== (room.notes ?? "")) handleUpdateRoom({ notes: v || null }); }}
+                    placeholder="Pinned info, rules, links…" rows={3}
+                    className="rounded-lg bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs resize-none" />
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -814,6 +814,18 @@ export function SettingsModal({
 
             <Divider />
 
+            <Section title="Settings Hotkey">
+              <Row label="Hotkey" description="Press to open this settings panel">
+                <span />
+              </Row>
+              <HotkeyCapture
+                value={settings.settingsHotkey}
+                onChange={v => set("settingsHotkey", v)}
+              />
+            </Section>
+
+            <Divider />
+
             <Section title="HUD Preview">
               <div className="flex justify-center py-2">
                 <div className="inline-flex items-center gap-2 bg-card border border-primary/30 rounded-full px-3 py-1.5 shadow-lg text-xs">
@@ -863,6 +875,53 @@ export function SettingsModal({
                 <Toggle checked={settings.autoGainControl} onToggle={() => set("autoGainControl", !settings.autoGainControl)} />
               </Row>
               <p className="text-[10px] text-muted-foreground/40">Mic changes apply next time you join voice.</p>
+            </Section>
+
+            <Divider />
+
+            <Section title="Voice Activation">
+              <Row label="Mode" description="Open mic or push-to-talk">
+                <div className="flex gap-1">
+                  {([
+                    { v: "open" as const, label: "Open" },
+                    { v: "ptt" as const, label: "Push-to-talk" },
+                  ]).map(({ v, label }) => (
+                    <button key={v} onClick={() => set("voiceMode", v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.voiceMode === v
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              {settings.voiceMode === "ptt" && (
+                <>
+                  <Row label="Talk key" description="Hold to transmit your mic">
+                    <span />
+                  </Row>
+                  <HotkeyCapture value={settings.pttKey} onChange={v => set("pttKey", v)} />
+                </>
+              )}
+            </Section>
+
+            <Divider />
+
+            <Section title="Away Detection">
+              <Row label="Auto-AFK" description="Mark yourself away when idle">
+                <Toggle checked={settings.autoAfk} onToggle={() => set("autoAfk", !settings.autoAfk)} />
+              </Row>
+              {settings.autoAfk && (
+                <Row label="Idle timeout" description="Minutes before going away">
+                  <div className="flex items-center gap-3">
+                    <input type="range" min={1} max={30} step={1}
+                      value={settings.afkMinutes}
+                      onChange={e => set("afkMinutes", Number(e.target.value))}
+                      className="w-24 accent-primary h-1 rounded-full" />
+                    <span className="text-xs text-muted-foreground/70 w-12 text-right">{settings.afkMinutes} min</span>
+                  </div>
+                </Row>
+              )}
             </Section>
 
             <Divider />

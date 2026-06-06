@@ -1,2 +1,4 @@
 - [Chat attachment markers](chat-attachment-markers.md) — ScreenCrew encodes images/files/GIFs as inline `[screencrew:<type>:...]` markers; external-URL types need a dual server+client host allowlist.
 - [Vite new-dep optimize crash](vite-new-dep-optimize-crash.md) — adding a new Radix dep (popover/hover-card) triggers a one-time Vite re-optimize whose HMR reload throws "Cannot read properties of null (useMemo)"; restart the web workflow to clear it.
+- [Chat render WS-echo race](chat-render-ws-echo-race.md) — sent messages must be appended on mutation success (id-dedup), not only via WS new_message echo, or a freshly-joined sender never sees their own message.
+- [Room membership access control](room-membership-access-control.md) — active-status filtering + creator-only gating invariants for room/knock/pin/approve routes; room_members has UNIQUE(room_id,user_id).

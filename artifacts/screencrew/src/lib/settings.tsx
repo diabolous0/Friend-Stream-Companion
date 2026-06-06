@@ -129,6 +129,18 @@ export interface AppSettings {
   // Overlay
   overlayHotkey: string;  // KeyboardEvent.code or "Mod+Code", e.g. "Insert", "Shift+F2"
   overlayPillPos: { x: number; y: number };
+
+  // Voice & presence
+  voiceMode: "open" | "ptt";          // open mic vs push-to-talk
+  pttKey: string;                     // KeyboardEvent.code for push-to-talk, e.g. "Backquote"
+  userVolumes: Record<string, number>; // userId -> 0–200 (%)
+  userMuted: Record<string, boolean>;  // userId -> locally muted
+  autoAfk: boolean;                   // auto-set away after inactivity
+  afkMinutes: number;                 // minutes of inactivity before AFK
+  watchedUsers: number[];             // userIds to notify when they come online
+
+  // Keyboard shortcuts
+  settingsHotkey: string;             // open settings, e.g. "Comma" (with Mod)
 }
 
 const DEFAULT: AppSettings = {
@@ -164,6 +176,14 @@ const DEFAULT: AppSettings = {
   chatPopoutPos: { x: 360, y: 80 },
   overlayHotkey: "Insert",
   overlayPillPos: { x: 16, y: 16 },
+  voiceMode: "open",
+  pttKey: "Backquote",
+  userVolumes: {},
+  userMuted: {},
+  autoAfk: true,
+  afkMinutes: 10,
+  watchedUsers: [],
+  settingsHotkey: "Comma",
 };
 
 // ─── Storage ──────────────────────────────────────────────────────────────────

@@ -112,7 +112,14 @@ export const ListRoomsResponseItem = zod.object({
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
-  "lastMessageAt": zod.coerce.date().nullish()
+  "createdBy": zod.number().optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "pending": zod.boolean().nullish()
 })
 export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
 
@@ -124,7 +131,8 @@ export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
 
 
 export const CreateRoomBody = zod.object({
-  "name": zod.string().min(1)
+  "name": zod.string().min(1),
+  "isPrivate": zod.boolean().optional()
 })
 
 
@@ -141,7 +149,14 @@ export const GetRoomResponse = zod.object({
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
-  "lastMessageAt": zod.coerce.date().nullish()
+  "createdBy": zod.number().optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "pending": zod.boolean().nullish()
 })
 
 
@@ -156,7 +171,13 @@ export const UpdateRoomParams = zod.object({
 
 
 export const UpdateRoomBody = zod.object({
-  "name": zod.string().min(1)
+  "name": zod.string().min(1).optional(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().optional(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "regenerateCode": zod.boolean().optional()
 })
 
 export const UpdateRoomResponse = zod.object({
@@ -165,7 +186,14 @@ export const UpdateRoomResponse = zod.object({
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
-  "lastMessageAt": zod.coerce.date().nullish()
+  "createdBy": zod.number().optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "pending": zod.boolean().nullish()
 })
 
 
@@ -194,7 +222,14 @@ export const JoinRoomResponse = zod.object({
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
-  "lastMessageAt": zod.coerce.date().nullish()
+  "createdBy": zod.number().optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "pending": zod.boolean().nullish()
 })
 
 
@@ -211,7 +246,14 @@ export const JoinRoomByCodeResponse = zod.object({
   "inviteCode": zod.string(),
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
-  "lastMessageAt": zod.coerce.date().nullish()
+  "createdBy": zod.number().optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "pending": zod.boolean().nullish()
 })
 
 
@@ -280,6 +322,10 @@ export const GetRoomMessagesResponseItem = zod.object({
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
+  "pinned": zod.boolean().nullish(),
+  "replyToId": zod.number().nullish(),
+  "replyToContent": zod.string().nullish(),
+  "replyToUsername": zod.string().nullish(),
   "reactions": zod.array(zod.object({
   "emoji": zod.string(),
   "count": zod.number(),
@@ -300,7 +346,8 @@ export const SendMessageParams = zod.object({
 
 
 export const SendMessageBody = zod.object({
-  "content": zod.string().min(1)
+  "content": zod.string().min(1),
+  "replyToId": zod.number().nullish()
 })
 
 
@@ -329,6 +376,10 @@ export const EditMessageResponse = zod.object({
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
+  "pinned": zod.boolean().nullish(),
+  "replyToId": zod.number().nullish(),
+  "replyToContent": zod.string().nullish(),
+  "replyToUsername": zod.string().nullish(),
   "reactions": zod.array(zod.object({
   "emoji": zod.string(),
   "count": zod.number(),
@@ -364,6 +415,94 @@ export const ToggleReactionResponseItem = zod.object({
   "userIds": zod.array(zod.number())
 })
 export const ToggleReactionResponse = zod.array(ToggleReactionResponseItem)
+
+
+/**
+ * @summary Pin or unpin a message (any member)
+ */
+export const TogglePinParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "messageId": zod.coerce.number()
+})
+
+export const TogglePinResponse = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "editedAt": zod.coerce.date().nullish(),
+  "pinned": zod.boolean().nullish(),
+  "replyToId": zod.number().nullish(),
+  "replyToContent": zod.string().nullish(),
+  "replyToUsername": zod.string().nullish(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+}))
+})
+
+
+/**
+ * @summary Get pinned messages in a room
+ */
+export const GetPinnedMessagesParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const GetPinnedMessagesResponseItem = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "editedAt": zod.coerce.date().nullish(),
+  "pinned": zod.boolean().nullish(),
+  "replyToId": zod.number().nullish(),
+  "replyToContent": zod.string().nullish(),
+  "replyToUsername": zod.string().nullish(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+}))
+})
+export const GetPinnedMessagesResponse = zod.array(GetPinnedMessagesResponseItem)
+
+
+/**
+ * @summary Get users waiting to join a private room (knock requests)
+ */
+export const GetPendingMembersParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const GetPendingMembersResponseItem = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const GetPendingMembersResponse = zod.array(GetPendingMembersResponseItem)
+
+
+/**
+ * @summary Approve a pending knock request (any active member)
+ */
+export const ApproveMemberParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
 
 
 /**

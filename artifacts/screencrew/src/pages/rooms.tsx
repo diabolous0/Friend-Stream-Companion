@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe } from "@workspace/api-client-react";
+import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -23,7 +23,9 @@ export default function Rooms() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: me } = useGetMe();
-  const { data: rooms, isLoading } = useListRooms();
+  const { data: rooms, isLoading } = useListRooms({
+    query: { queryKey: getListRoomsQueryKey(), refetchInterval: 10000 },
+  });
   const { theme } = useTheme();
   const classic = theme === "classic";
 
@@ -56,7 +58,15 @@ export default function Rooms() {
     e.preventDefault();
     if (!inviteCode.trim()) return;
     joinRoom.mutate({ data: { inviteCode } }, {
-      onSuccess: (room) => setLocation(`/room/${room.id}`),
+      onSuccess: (room) => {
+        if (room.pending) {
+          setInviteCode("");
+          setShowJoin(false);
+          toast({ title: "Knock sent", description: `Waiting for a member of ${room.name} to let you in.` });
+          return;
+        }
+        setLocation(`/room/${room.id}`);
+      },
       onError: (err) => toast({ title: "Failed to join room", description: err.message, variant: "destructive" }),
     });
   };

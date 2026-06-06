@@ -444,6 +444,100 @@ paths:
         "404":
           description: Message not found
 
+  /rooms/{roomId}/messages/{messageId}/pin:
+    post:
+      operationId: togglePin
+      tags: [messages]
+      summary: Pin or unpin a message (any member)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "403":
+          description: Not a member of this room
+        "404":
+          description: Message not found
+
+  /rooms/{roomId}/pins:
+    get:
+      operationId: getPinnedMessages
+      tags: [messages]
+      summary: Get pinned messages in a room
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of pinned messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+
+  /rooms/{roomId}/pending:
+    get:
+      operationId: getPendingMembers
+      tags: [rooms]
+      summary: Get users waiting to join a private room (knock requests)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of pending members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MemberUser"
+
+  /rooms/{roomId}/members/{userId}/approve:
+    post:
+      operationId: approveMember
+      tags: [rooms]
+      summary: Approve a pending knock request (any active member)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Approved
+        "403":
+          description: Not a member of this room
+        "404":
+          description: Pending request not found
+
   /giphy/search:
     get:
       operationId: searchGiphy
@@ -627,9 +721,30 @@ components:
           format: date-time
         memberCount:
           type: integer
+        createdBy:
+          type: integer
         lastMessageAt:
           type: string
           format: date-time
+          nullable: true
+        themeColor:
+          type: string
+          nullable: true
+        bannerUrl:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        isPrivate:
+          type: boolean
+          nullable: true
+        inviteExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        pending:
+          type: boolean
           nullable: true
 
     RoomInput:
@@ -639,14 +754,32 @@ components:
         name:
           type: string
           minLength: 1
+        isPrivate:
+          type: boolean
 
     UpdateRoomInput:
       type: object
-      required: [name]
       properties:
         name:
           type: string
           minLength: 1
+        themeColor:
+          type: string
+          nullable: true
+        bannerUrl:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        isPrivate:
+          type: boolean
+        inviteExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        regenerateCode:
+          type: boolean
 
     JoinRoomInput:
       type: object
@@ -732,6 +865,18 @@ components:
           type: string
           format: date-time
           nullable: true
+        pinned:
+          type: boolean
+          nullable: true
+        replyToId:
+          type: integer
+          nullable: true
+        replyToContent:
+          type: string
+          nullable: true
+        replyToUsername:
+          type: string
+          nullable: true
         reactions:
           type: array
           items:
@@ -744,6 +889,9 @@ components:
         content:
           type: string
           minLength: 1
+        replyToId:
+          type: integer
+          nullable: true
 
     EditMessageInput:
       type: object

@@ -115,15 +115,23 @@ function renderToken(tok: Token, key: string | number, searchQuery: string, myUs
   }
 }
 
+type PollData = { q: string; options: string[] };
+
 type Segment =
   | { type: "text"; value: string }
   | { type: "image"; objectPath: string }
   | { type: "file"; objectPath: string; name: string }
-  | { type: "gif"; url: string };
+  | { type: "gif"; url: string }
+  | { type: "poll"; poll: PollData };
 
 const IMG_RE  = /\[screencrew:image:([^\]]+)\]/g;
 const FILE_RE = /\[screencrew:file:([^:]+):([^\]]+)\]/g;
 const GIF_RE  = /\[screencrew:gif:([^\]]+)\]/g;
+const POLL_RE = /\[screencrew:poll:([A-Za-z0-9+/=]+)\]/g;
+const ME_RE   = /^\[screencrew:me:([^\]]*)\]([\s\S]*)$/;
+
+// Number emojis used for poll voting (also used as reaction emojis in room.tsx)
+export const POLL_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
 
 function isGiphyUrl(url: string): boolean {
   try {
@@ -132,6 +140,42 @@ function isGiphyUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// A reaction emoji that is actually a GIF, encoded as `gif:<giphyUrl>`
+export function isGifReaction(emoji: string): boolean {
+  return emoji.startsWith("gif:") && isGiphyUrl(emoji.slice("gif:".length));
+}
+
+export function gifReactionUrl(emoji: string): string {
+  return emoji.slice("gif:".length);
+}
+
+// Encode/decode poll markers
+export function encodePoll(poll: PollData): string {
+  try { return `[screencrew:poll:${btoa(unescape(encodeURIComponent(JSON.stringify(poll))))}]`; }
+  catch { return ""; }
+}
+
+function decodePoll(b64: string): PollData | null {
+  try {
+    const parsed = JSON.parse(decodeURIComponent(escape(atob(b64))));
+    if (parsed && typeof parsed.q === "string" && Array.isArray(parsed.options)) {
+      return { q: parsed.q, options: parsed.options.slice(0, 10).map(String) };
+    }
+  } catch {}
+  return null;
+}
+
+// Parse a `/me` emote marker: returns { username, action } or null
+export function parseEmote(content: string): { username: string; action: string } | null {
+  const m = content.match(ME_RE);
+  if (!m) return null;
+  return { username: m[1], action: m[2] };
+}
+
+export function encodeEmote(username: string, action: string): string {
+  return `[screencrew:me:${username}]${action}`;
 }
 
 export function splitAttachments(content: string): Segment[] {
@@ -146,6 +190,11 @@ export function splitAttachments(content: string): Segment[] {
   GIF_RE.lastIndex = 0;
   while ((m = GIF_RE.exec(content)) !== null)
     hits.push({ index: m.index, len: m[0].length, seg: { type: "gif", url: m[1] } });
+  POLL_RE.lastIndex = 0;
+  while ((m = POLL_RE.exec(content)) !== null) {
+    const poll = decodePoll(m[1]);
+    if (poll) hits.push({ index: m.index, len: m[0].length, seg: { type: "poll", poll } });
+  }
   hits.sort((a, b) => a.index - b.index);
   const segs: Segment[] = [];
   let last = 0;
@@ -166,6 +215,15 @@ interface MessageContentProps {
 }
 
 export function MessageContent({ content, searchQuery = "", myUsername, className = "" }: MessageContentProps) {
+  const emote = parseEmote(content);
+  if (emote) {
+    return (
+      <span className={`leading-relaxed break-words whitespace-pre-wrap italic text-primary/80 ${className}`}>
+        ✦ <span className="font-semibold">{emote.username}</span>{" "}
+        {tokenise(emote.action, myUsername).map((tok, ti) => renderToken(tok, ti, searchQuery, myUsername))}
+      </span>
+    );
+  }
   const segments = splitAttachments(content);
   return (
     <span className={`leading-relaxed break-words whitespace-pre-wrap ${className}`}>
@@ -201,6 +259,19 @@ export function MessageContent({ content, searchQuery = "", myUsername, classNam
                   GIPHY
                 </span>
               </span>
+            </span>
+          );
+        }
+        if (seg.type === "poll") {
+          return (
+            <span key={si} className="block my-1 p-2.5 rounded-lg bg-muted/25 border border-border/40">
+              <span className="block text-xs font-semibold text-primary/90 mb-1.5">📊 {seg.poll.q}</span>
+              {seg.poll.options.map((opt, oi) => (
+                <span key={oi} className="block text-[11px] text-foreground/80 py-0.5">
+                  {POLL_EMOJIS[oi]} {opt}
+                </span>
+              ))}
+              <span className="block text-[10px] text-muted-foreground/60 mt-1.5">React with the matching number to vote</span>
             </span>
           );
         }

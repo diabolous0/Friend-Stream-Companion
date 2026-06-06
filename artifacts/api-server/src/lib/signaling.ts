@@ -20,6 +20,7 @@ interface ClientState {
   inVoice: boolean;
   status: UserStatus;
   statusMessage: string | null;
+  activity: string | null;
 }
 
 const clients = new Map<WebSocket, ClientState>();
@@ -50,6 +51,7 @@ function broadcastPresence(roomId: number): void {
     inVoice: c.inVoice,
     status: c.status,
     statusMessage: c.statusMessage,
+    activity: c.activity,
   }));
   const payload = JSON.stringify({ type: "presence_update", roomId, entries });
   for (const client of getRoomClients(roomId)) {
@@ -111,6 +113,7 @@ export function setupSignaling(server: Server): void {
             inVoice: false,
             status: "online",
             statusMessage: null,
+            activity: null,
           });
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
@@ -124,7 +127,11 @@ export function setupSignaling(server: Server): void {
           const [membership] = await db
             .select()
             .from(roomMembersTable)
-            .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, state.userId)));
+            .where(and(
+              eq(roomMembersTable.roomId, roomId),
+              eq(roomMembersTable.userId, state.userId),
+              eq(roomMembersTable.status, "active"),
+            ));
 
           if (!membership) {
             ws.send(JSON.stringify({ type: "error", error: "Not a member of this room" }));
@@ -154,6 +161,7 @@ export function setupSignaling(server: Server): void {
           state.speaking = false;
           state.streaming = false;
           state.inVoice = false;
+          state.activity = null;
           broadcastPresence(prevRoom);
           break;
         }
@@ -175,6 +183,27 @@ export function setupSignaling(server: Server): void {
           const rawMsg = typeof msg.statusMessage === "string" ? msg.statusMessage.trim().slice(0, 120) : "";
           state.statusMessage = rawMsg.length > 0 ? rawMsg : null;
           if (state.roomId) broadcastPresence(state.roomId);
+          break;
+        }
+
+        case "activity": {
+          if (!state) return;
+          const rawActivity = typeof msg.activity === "string" ? msg.activity.trim().slice(0, 80) : "";
+          state.activity = rawActivity.length > 0 ? rawActivity : null;
+          if (state.roomId) broadcastPresence(state.roomId);
+          break;
+        }
+
+        case "soundboard": {
+          if (!state || !state.roomId) return;
+          const sound = typeof msg.sound === "string" ? msg.sound.trim().slice(0, 200) : "";
+          if (!sound) return;
+          broadcast(state.roomId, {
+            type: "soundboard_play",
+            userId: state.userId,
+            username: state.username,
+            sound,
+          });
           break;
         }
 
@@ -229,9 +258,24 @@ export function setupSignaling(server: Server): void {
           if (t) { clearTimeout(t); typingTimers.delete(key); }
           broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false }, ws);
 
+          const replyToId = Number.isInteger(msg.replyToId) ? (msg.replyToId as number) : null;
+          let replyToContent: string | null = null;
+          let replyToUsername: string | null = null;
+          if (replyToId) {
+            const [parent] = await db
+              .select({ content: messagesTable.content, username: usersTable.username })
+              .from(messagesTable)
+              .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
+              .where(and(eq(messagesTable.id, replyToId), eq(messagesTable.roomId, state.roomId)));
+            if (parent) {
+              replyToContent = parent.content;
+              replyToUsername = parent.username;
+            }
+          }
+
           const [saved] = await db
             .insert(messagesTable)
-            .values({ roomId: state.roomId, userId: state.userId, content })
+            .values({ roomId: state.roomId, userId: state.userId, content, replyToId: replyToContent ? replyToId : null })
             .returning();
 
           broadcast(state.roomId, {
@@ -247,6 +291,10 @@ export function setupSignaling(server: Server): void {
               createdAt: saved.createdAt,
               editedAt: null,
               reactions: [],
+              pinned: false,
+              replyToId: saved.replyToId,
+              replyToContent,
+              replyToUsername,
             },
           });
           break;
@@ -346,5 +394,15 @@ export function getPresenceSnapshot(roomId: number) {
     inVoice: c.inVoice,
     status: c.status,
     statusMessage: c.statusMessage,
+    activity: c.activity,
   }));
+}
+
+export function notifyUser(userId: number, message: object): void {
+  const payload = JSON.stringify(message);
+  for (const client of clients.values()) {
+    if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
 }

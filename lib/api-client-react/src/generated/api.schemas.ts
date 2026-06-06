@@ -76,17 +76,31 @@ export interface Room {
   inviteCode: string;
   createdAt: string;
   memberCount: number;
+  createdBy?: number;
   lastMessageAt?: string | null;
+  themeColor?: string | null;
+  bannerUrl?: string | null;
+  notes?: string | null;
+  isPrivate?: boolean | null;
+  inviteExpiresAt?: string | null;
+  pending?: boolean | null;
 }
 
 export interface RoomInput {
   /** @minLength 1 */
   name: string;
+  isPrivate?: boolean;
 }
 
 export interface UpdateRoomInput {
   /** @minLength 1 */
-  name: string;
+  name?: string;
+  themeColor?: string | null;
+  bannerUrl?: string | null;
+  notes?: string | null;
+  isPrivate?: boolean;
+  inviteExpiresAt?: string | null;
+  regenerateCode?: boolean;
 }
 
 export interface JoinRoomInput {
@@ -135,12 +149,17 @@ export interface Message {
   content: string;
   createdAt: string;
   editedAt?: string | null;
+  pinned?: boolean | null;
+  replyToId?: number | null;
+  replyToContent?: string | null;
+  replyToUsername?: string | null;
   reactions: Reaction[];
 }
 
 export interface MessageInput {
   /** @minLength 1 */
   content: string;
+  replyToId?: number | null;
 }
 
 export interface EditMessageInput {

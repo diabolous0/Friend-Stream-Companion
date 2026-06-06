@@ -3,7 +3,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useSettings, BUILTIN_SOUNDS, type UserStatus } from "@/lib/settings";
 import { useSounds } from "@/hooks/use-sounds";
-import { Gamepad2, Circle, Play } from "lucide-react";
+import { Gamepad2, Circle, Play, Volume2, VolumeX, Star } from "lucide-react";
 
 function safeHref(url?: string | null): string | null {
   if (!url) return null;
@@ -86,8 +86,10 @@ function UserSoundControl({ userId }: { userId: number }) {
   );
 }
 
-export function ProfileHoverCard({ user, square, enableUserSound, children }: {
+export function ProfileHoverCard({ user, square, enableUserSound, children, volume, muted, onVolumeChange, onMuteToggle, watched, onWatchToggle }: {
   user: ProfileInfo; square?: boolean; enableUserSound?: boolean; children: React.ReactNode;
+  volume?: number; muted?: boolean; onVolumeChange?: (v: number) => void; onMuteToggle?: () => void;
+  watched?: boolean; onWatchToggle?: () => void;
 }) {
   const status: UserStatus = user.online === false ? "away" : (user.status ?? "online");
   const meta = user.online === false
@@ -148,6 +150,27 @@ export function ProfileHoverCard({ user, square, enableUserSound, children }: {
                 </div>
               )}
             </div>
+          )}
+
+          {!user.isMe && (onVolumeChange || onMuteToggle) && (
+            <div className="mt-3 pt-3 border-t border-border/40 flex items-center gap-2">
+              <button onClick={onMuteToggle} title={muted ? "Unmute" : "Mute"}
+                className={`shrink-0 transition-colors ${muted ? "text-red-400" : "text-muted-foreground/60 hover:text-foreground"}`}>
+                {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+              <input type="range" min={0} max={100} value={muted ? 0 : (volume ?? 100)} disabled={muted}
+                onChange={(e) => onVolumeChange?.(Number(e.target.value))}
+                className="flex-1 h-1 accent-primary cursor-pointer disabled:opacity-40" />
+              <span className="text-[10px] text-muted-foreground/50 w-7 text-right tabular-nums">{muted ? 0 : (volume ?? 100)}</span>
+            </div>
+          )}
+
+          {!user.isMe && onWatchToggle && (
+            <button onClick={onWatchToggle}
+              className={`mt-2 w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border transition-colors ${watched ? "border-amber-400/50 bg-amber-400/10 text-amber-400" : "border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border"}`}>
+              <Star className={`w-3.5 h-3.5 ${watched ? "fill-current" : ""}`} />
+              {watched ? "Watching — notify when online" : "Notify when online"}
+            </button>
           )}
 
           {enableUserSound && !user.isMe && <UserSoundControl userId={user.userId} />}

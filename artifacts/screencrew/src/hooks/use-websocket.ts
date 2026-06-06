@@ -14,7 +14,12 @@ type WebSocketMessage =
   | { type: "ice_candidate"; from: number; candidate: RTCIceCandidateInit }
   | { type: "audio_offer"; from: number; sdp: string }
   | { type: "audio_answer"; from: number; sdp: string }
-  | { type: "audio_ice"; from: number; candidate: RTCIceCandidateInit };
+  | { type: "audio_ice"; from: number; candidate: RTCIceCandidateInit }
+  | { type: "room_updated"; room: any }
+  | { type: "soundboard_play"; userId: number; username: string; sound: string }
+  | { type: "knock"; roomId: number; user: any }
+  | { type: "knock_approved"; roomId: number; room: any }
+  | { type: "knock_resolved"; roomId: number; userId: number };
 
 interface UseWebSocketOptions {
   onPresenceUpdate?: (roomId: number, entries: any[]) => void;
@@ -31,6 +36,11 @@ interface UseWebSocketOptions {
   onAudioOffer?: (from: number, sdp: string) => void;
   onAudioAnswer?: (from: number, sdp: string) => void;
   onAudioIce?: (from: number, candidate: RTCIceCandidateInit) => void;
+  onRoomUpdated?: (room: any) => void;
+  onSoundboardPlay?: (userId: number, username: string, sound: string) => void;
+  onKnock?: (roomId: number, user: any) => void;
+  onKnockApproved?: (roomId: number, room: any) => void;
+  onKnockResolved?: (roomId: number, userId: number) => void;
 }
 
 export function useWebSocket(options: UseWebSocketOptions) {
@@ -72,6 +82,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "audio_offer":       o.onAudioOffer?.(data.from, data.sdp); break;
           case "audio_answer":      o.onAudioAnswer?.(data.from, data.sdp); break;
           case "audio_ice":         o.onAudioIce?.(data.from, data.candidate); break;
+          case "room_updated":      o.onRoomUpdated?.(data.room); break;
+          case "soundboard_play":   o.onSoundboardPlay?.(data.userId, data.username, data.sound); break;
+          case "knock":             o.onKnock?.(data.roomId, data.user); break;
+          case "knock_approved":    o.onKnockApproved?.(data.roomId, data.room); break;
+          case "knock_resolved":    o.onKnockResolved?.(data.roomId, data.userId); break;
         }
       } catch (e) {
         console.error("Failed to parse websocket message", e);
