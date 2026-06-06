@@ -444,6 +444,36 @@ paths:
         "404":
           description: Message not found
 
+  /giphy/search:
+    get:
+      operationId: searchGiphy
+      tags: [giphy]
+      summary: Search Giphy for GIFs (proxied server-side; falls back to trending when q is empty)
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search query; if empty or omitted, trending GIFs are returned
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 18
+      responses:
+        "200":
+          description: List of matching GIFs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GiphyGif"
+        "503":
+          description: Giphy is not configured on the server
+
 components:
   schemas:
     HealthStatus:
@@ -453,6 +483,25 @@ components:
           type: string
       required:
         - status
+
+    GiphyGif:
+      type: object
+      required: [id, url, previewUrl, width, height]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          description: Full GIF URL (fixed height) suitable for posting and display
+        previewUrl:
+          type: string
+          description: Smaller GIF URL used for the picker thumbnail
+        title:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
 
     AuthInput:
       type: object

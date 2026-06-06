@@ -362,3 +362,24 @@ export const ToggleReactionResponseItem = zod.object({
 export const ToggleReactionResponse = zod.array(ToggleReactionResponseItem)
 
 
+/**
+ * @summary Search Giphy for GIFs (proxied server-side; falls back to trending when q is empty)
+ */
+export const searchGiphyQueryLimitDefault = 18;
+
+export const SearchGiphyQueryParams = zod.object({
+  "q": zod.coerce.string().optional().describe('Search query; if empty or omitted, trending GIFs are returned'),
+  "limit": zod.coerce.number().default(searchGiphyQueryLimitDefault)
+})
+
+export const SearchGiphyResponseItem = zod.object({
+  "id": zod.string(),
+  "url": zod.string().describe('Full GIF URL (fixed height) suitable for posting and display'),
+  "previewUrl": zod.string().describe('Smaller GIF URL used for the picker thumbnail'),
+  "title": zod.string().optional(),
+  "width": zod.number(),
+  "height": zod.number()
+})
+export const SearchGiphyResponse = zod.array(SearchGiphyResponseItem)
+
+

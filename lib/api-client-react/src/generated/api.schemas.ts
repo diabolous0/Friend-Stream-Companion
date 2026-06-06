@@ -9,6 +9,17 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface GiphyGif {
+  id: string;
+  /** Full GIF URL (fixed height) suitable for posting and display */
+  url: string;
+  /** Smaller GIF URL used for the picker thumbnail */
+  previewUrl: string;
+  title?: string;
+  width: number;
+  height: number;
+}
+
 export interface AuthInput {
   /** @minLength 2 */
   username: string;
@@ -125,6 +136,14 @@ export type GetRoomMessagesParams = {
  * Fetch messages with ID less than this value (cursor pagination)
  */
 before?: number;
+limit?: number;
+};
+
+export type SearchGiphyParams = {
+/**
+ * Search query; if empty or omitted, trending GIFs are returned
+ */
+q?: string;
 limit?: number;
 };
 

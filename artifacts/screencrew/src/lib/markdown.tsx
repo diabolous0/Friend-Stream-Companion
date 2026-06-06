@@ -118,10 +118,21 @@ function renderToken(tok: Token, key: string | number, searchQuery: string, myUs
 type Segment =
   | { type: "text"; value: string }
   | { type: "image"; objectPath: string }
-  | { type: "file"; objectPath: string; name: string };
+  | { type: "file"; objectPath: string; name: string }
+  | { type: "gif"; url: string };
 
 const IMG_RE  = /\[screencrew:image:([^\]]+)\]/g;
 const FILE_RE = /\[screencrew:file:([^:]+):([^\]]+)\]/g;
+const GIF_RE  = /\[screencrew:gif:([^\]]+)\]/g;
+
+function isGiphyUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && (u.hostname === "giphy.com" || u.hostname.endsWith(".giphy.com"));
+  } catch {
+    return false;
+  }
+}
 
 export function splitAttachments(content: string): Segment[] {
   const hits: Array<{ index: number; len: number; seg: Segment }> = [];
@@ -132,6 +143,9 @@ export function splitAttachments(content: string): Segment[] {
   FILE_RE.lastIndex = 0;
   while ((m = FILE_RE.exec(content)) !== null)
     hits.push({ index: m.index, len: m[0].length, seg: { type: "file", objectPath: m[1], name: m[2] } });
+  GIF_RE.lastIndex = 0;
+  while ((m = GIF_RE.exec(content)) !== null)
+    hits.push({ index: m.index, len: m[0].length, seg: { type: "gif", url: m[1] } });
   hits.sort((a, b) => a.index - b.index);
   const segs: Segment[] = [];
   let last = 0;
@@ -173,6 +187,20 @@ export function MessageContent({ content, searchQuery = "", myUsername, classNam
                 className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-muted/30 border border-border/30 text-xs text-primary/80 hover:bg-muted/50 transition-colors">
                 📎 {seg.name}
               </a>
+            </span>
+          );
+        }
+        if (seg.type === "gif") {
+          if (!isGiphyUrl(seg.url)) return null;
+          return (
+            <span key={si} className="block my-1">
+              <span className="relative inline-block">
+                <img src={seg.url} alt="gif"
+                  className="max-w-full max-h-56 rounded-lg border border-border/30 object-contain" />
+                <span className="absolute bottom-1 right-1 text-[8px] font-bold tracking-wide text-white/90 bg-black/55 rounded px-1 py-0.5 pointer-events-none">
+                  GIPHY
+                </span>
+              </span>
             </span>
           );
         }

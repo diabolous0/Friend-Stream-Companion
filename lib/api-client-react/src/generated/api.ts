@@ -24,6 +24,7 @@ import type {
   AuthResponse,
   EditMessageInput,
   GetRoomMessagesParams,
+  GiphyGif,
   HealthStatus,
   JoinByCodeInput,
   JoinRoomInput,
@@ -35,6 +36,7 @@ import type {
   ReactionInput,
   Room,
   RoomInput,
+  SearchGiphyParams,
   UpdateProfileInput,
   UpdateRoomInput,
   User
@@ -1464,4 +1466,88 @@ export const useToggleReaction = <TError = ErrorType<void>,
       > => {
       return useMutation(getToggleReactionMutationOptions(options));
     }
+
+export const getSearchGiphyUrl = (params?: SearchGiphyParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/giphy/search?${stringifiedParams}` : `/api/giphy/search`
+}
+
+/**
+ * @summary Search Giphy for GIFs (proxied server-side; falls back to trending when q is empty)
+ */
+export const searchGiphy = async (params?: SearchGiphyParams, options?: RequestInit): Promise<GiphyGif[]> => {
+
+  return customFetch<GiphyGif[]>(getSearchGiphyUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchGiphyQueryKey = (params?: SearchGiphyParams,) => {
+    return [
+    `/api/giphy/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchGiphyQueryOptions = <TData = Awaited<ReturnType<typeof searchGiphy>>, TError = ErrorType<void>>(params?: SearchGiphyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchGiphy>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchGiphyQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchGiphy>>> = ({ signal }) => searchGiphy(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchGiphy>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchGiphyQueryResult = NonNullable<Awaited<ReturnType<typeof searchGiphy>>>
+export type SearchGiphyQueryError = ErrorType<void>
+
+
+/**
+ * @summary Search Giphy for GIFs (proxied server-side; falls back to trending when q is empty)
+ */
+
+export function useSearchGiphy<TData = Awaited<ReturnType<typeof searchGiphy>>, TError = ErrorType<void>>(
+ params?: SearchGiphyParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchGiphy>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchGiphyQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 

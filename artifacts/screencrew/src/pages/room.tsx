@@ -33,6 +33,7 @@ import { buildAudioConstraints, buildDisplayConstraints } from "@/lib/media";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
+import { GiphyPicker } from "@/components/giphy-picker";
 import { MentionInput, type MentionInputHandle } from "@/components/mention-input";
 import { MessageContent, containsMention } from "@/lib/markdown";
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
@@ -90,6 +91,7 @@ function toastPreview(content: string) {
   const text = content
     .replace(/\[screencrew:image:[^\]]+\]/g, "\u{1F4F7} Photo")
     .replace(/\[screencrew:file:[^:]+:([^\]]+)\]/g, "\u{1F4CE} $1")
+    .replace(/\[screencrew:gif:[^\]]+\]/g, "\u{1F3AC} GIF")
     .trim();
   return text || "\u{1F4F7} Photo";
 }
@@ -181,6 +183,7 @@ export default function Room() {
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
+  const [giphyQuery, setGiphyQuery] = useState<string | null>(null);
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
   const [reads, setReads] = useState<Record<number, number>>({});
@@ -298,6 +301,13 @@ export default function Room() {
 
   const handleMsgInputChange = useCallback((value: string) => {
     setMsgInput(value);
+    const giphyMatch = value.match(/^\/giphy(?:\s+([\s\S]*))?$/i);
+    if (giphyMatch) {
+      setGiphyQuery(giphyMatch[1]?.trim() ?? "");
+      sendTypingStop();
+      return;
+    }
+    setGiphyQuery(null);
     if (!value.trim()) { sendTypingStop(); return; }
     if (!isTypingRef.current) { isTypingRef.current = true; sendRef.current?.({ type: "typing", isTyping: true }); }
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
@@ -417,10 +427,18 @@ export default function Room() {
 
   const handleSendMsg = (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (/^\/giphy(?:\s|$)/i.test(msgInput)) return; // picker handles posting GIFs
     if (!msgInput.trim()) return;
     sendTypingStop();
     sendMessageMutation.mutate({ roomId, data: { content: msgInput } });
     setMsgInput("");
+  };
+
+  const handlePickGif = (url: string) => {
+    sendMessageMutation.mutate({ roomId, data: { content: `[screencrew:gif:${url}]` } });
+    setMsgInput("");
+    setGiphyQuery(null);
+    msgInputRef.current?.focus();
   };
 
   const { uploadFile, isUploading } = useUpload({
@@ -955,6 +973,9 @@ export default function Room() {
 
             {/* Message input */}
             <div className="px-4 py-3 shrink-0">
+              {giphyQuery !== null && (
+                <GiphyPicker query={giphyQuery} onPick={handlePickGif} onClose={() => { setGiphyQuery(null); setMsgInput(""); }} />
+              )}
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInputChange} />
               <div className="relative flex items-end gap-1.5">
                 <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!isConnected || isUploading}
