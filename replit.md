@@ -1,36 +1,55 @@
-# [Project name]
+# ScreenCrew
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party aesthetic.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080, proxied at `/api`)
+- `pnpm --filter @workspace/screencrew run dev` — run the frontend (port 23898, proxied at `/`)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string, `SESSION_SECRET` — for HMAC auth tokens
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- API: Express 5 + ws (WebSocket)
 - DB: PostgreSQL + Drizzle ORM
+- Auth: HMAC-SHA256 tokens via `SESSION_SECRET`
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Frontend: React + Vite + wouter + TanStack Query + shadcn/ui
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/db/src/schema/` — DB schema (users, rooms, messages tables)
+- `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth)
+- `lib/api-client-react/src/generated/` — generated React Query hooks + Zod schemas
+- `artifacts/api-server/src/` — Express API + WebSocket signaling server
+- `artifacts/api-server/src/lib/signaling.ts` — WebSocket signaling for WebRTC
+- `artifacts/api-server/src/routes/` — auth, rooms, messages, presence routes
+- `artifacts/screencrew/src/pages/` — login, rooms list, room view
+- `artifacts/screencrew/src/hooks/` — `use-websocket.ts`, `use-webrtc.ts`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- WebSocket signaling at `/api/ws` (same server as HTTP, attached via `createServer(app)` + `setupSignaling(server)`)
+- Auth: stateless HMAC-SHA256 tokens (no session table); token stored in `localStorage` as `screencrew_token`
+- WebRTC: peer-to-peer with Google STUN server; signaling relayed through our WebSocket server
+- Presence is tracked in DB and broadcast via WebSocket on join/leave/stream events
+- All API types flow from OpenAPI spec → Orval codegen → typed React Query hooks
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Register/login with username + password
+- Create rooms with unique invite codes, join rooms by code
+- Real-time crew status sidebar: online/speaking/streaming indicators
+- WebRTC screen sharing: start TX to share your screen, click the video icon next to a streaming crew member to watch
+- Text chat with real-time WebSocket delivery
+- Dark cyan monospace theme (Winamp/LAN-party aesthetic)
 
 ## User preferences
 
@@ -38,7 +57,10 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Always run `pnpm --filter @workspace/api-spec run codegen` after changing `openapi.yaml`
+- `useGetMe()` and other generated hooks accept `{ query: UseQueryOptions }` — `queryKey` is required if you pass a `query` option (TanStack Query v5 requirement); omit the options entirely to use defaults
+- Deep imports like `@workspace/api-client-react/src/...` are not valid — always import from `@workspace/api-client-react` (the barrel re-exports everything including `setAuthTokenGetter`)
+- Google Fonts `@import url(...)` must be the very first line in `index.css` before any Tailwind imports
 
 ## Pointers
 

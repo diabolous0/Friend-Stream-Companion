@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ScreenCrew"
+version = "1.0.0"
+id = "artifacts/screencrew"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23898
+
+[services.development]
+run = "pnpm --filter @workspace/screencrew run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/screencrew", "run", "build" ]
+publicDir = "artifacts/screencrew/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23898"
+BASE_PATH = "/"
