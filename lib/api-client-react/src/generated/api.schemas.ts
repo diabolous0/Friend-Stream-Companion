@@ -19,12 +19,34 @@ export interface AuthInput {
 export interface User {
   id: number;
   username: string;
+  displayName?: string | null;
+  email?: string | null;
+  steamUrl?: string | null;
+  discordUrl?: string | null;
+  avatarUrl?: string | null;
   createdAt: string;
 }
 
 export interface AuthResponse {
   token: string;
   user: User;
+}
+
+export interface PublicUser {
+  id: number;
+  username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  createdAt: string;
+}
+
+export interface UpdateProfileInput {
+  /** @maxLength 40 */
+  displayName?: string | null;
+  email?: string | null;
+  steamUrl?: string | null;
+  discordUrl?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface Room {
@@ -57,6 +79,8 @@ export interface JoinByCodeInput {
 export interface PresenceEntry {
   userId: number;
   username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
   online: boolean;
   speaking: boolean;
   streaming: boolean;
@@ -74,6 +98,8 @@ export interface Message {
   roomId: number;
   userId: number;
   username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
   content: string;
   createdAt: string;
   editedAt?: string | null;

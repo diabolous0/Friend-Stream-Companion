@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic } from "lucide-react";
-import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize, type VideoQuality, type VideoCodec } from "@/lib/settings";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun } from "lucide-react";
+import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize, type VideoQuality, type VideoCodec, type ColorMode, type WindowControls } from "@/lib/settings";
 import { VIDEO_QUALITY_LABELS, VIDEO_BITRATE_OPTIONS } from "@/lib/media";
+import { useGetMe, useUpdateMe, getGetMeQueryKey } from "@workspace/api-client-react";
+import { useUpload } from "@/hooks/use-upload";
+import { avatarSrc, initials } from "@/lib/avatar";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Hotkey helpers ────────────────────────────────────────────────────────────
@@ -195,6 +199,162 @@ const VIDEO_QUALITY_OPTIONS: { value: VideoQuality; label: string }[] =
 const VIDEO_CODEC_OPTIONS: { value: VideoCodec; label: string }[] =
   (["auto", "VP9", "VP8", "H264", "AV1"] as VideoCodec[]).map(v => ({ value: v, label: v === "auto" ? "Auto" : v }));
 
+// ─── Profile tab ─────────────────────────────────────────────────────────────
+
+function ProfileTab() {
+  const { data: me } = useGetMe();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const updateMe = useUpdateMe();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [form, setForm] = useState({ displayName: "", email: "", steamUrl: "", discordUrl: "" });
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [seeded, setSeeded] = useState(false);
+
+  useEffect(() => {
+    if (me && !seeded) {
+      setForm({
+        displayName: me.displayName ?? "",
+        email: me.email ?? "",
+        steamUrl: me.steamUrl ?? "",
+        discordUrl: me.discordUrl ?? "",
+      });
+      setAvatarUrl(me.avatarUrl ?? null);
+      setSeeded(true);
+    }
+  }, [me, seeded]);
+
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: r => setAvatarUrl(r.objectPath),
+    onError: () => toast({ title: "Avatar upload failed", variant: "destructive" }),
+  });
+
+  const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!f.type.startsWith("image/")) {
+      toast({ title: "Pick an image file", variant: "destructive" });
+      return;
+    }
+    void uploadFile(f);
+  };
+
+  const save = () => {
+    updateMe.mutate(
+      {
+        data: {
+          displayName: form.displayName.trim() || null,
+          email: form.email.trim() || null,
+          steamUrl: form.steamUrl.trim() || null,
+          discordUrl: form.discordUrl.trim() || null,
+          avatarUrl: avatarUrl || null,
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          toast({ title: "Profile saved" });
+        },
+        onError: () => toast({ title: "Could not save profile", variant: "destructive" }),
+      },
+    );
+  };
+
+  const inputCls = "h-9 w-full rounded-xl bg-muted/25 border border-transparent px-3 text-sm text-foreground outline-none focus:border-primary/30 placeholder:text-muted-foreground/40";
+  const src = avatarSrc(avatarUrl);
+  const previewName = form.displayName.trim() || me?.username || "";
+
+  return (
+    <div className="space-y-5">
+      <Section title="Avatar">
+        <div className="flex items-center gap-4">
+          <div className="relative shrink-0">
+            <div className="w-16 h-16 rounded-2xl overflow-hidden bg-primary/15 border border-primary/25 flex items-center justify-center">
+              {src ? (
+                <img src={src} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-lg font-bold text-primary">{initials(previewName)}</span>
+              )}
+            </div>
+            {isUploading && (
+              <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
+                <Loader2 className="w-5 h-5 text-white animate-spin" />
+              </div>
+            )}
+          </div>
+          <div className="flex-1 space-y-1.5">
+            <button onClick={() => fileRef.current?.click()} disabled={isUploading}
+              className="flex items-center gap-2 h-9 px-3 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/15 transition-colors disabled:opacity-50">
+              <Camera className="w-3.5 h-3.5" /> {src ? "Change photo" : "Upload photo"}
+            </button>
+            {src && (
+              <button onClick={() => setAvatarUrl(null)}
+                className="text-[11px] text-muted-foreground/50 hover:text-destructive transition-colors">
+                Remove photo
+              </button>
+            )}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePick} />
+        </div>
+      </Section>
+
+      <Divider />
+
+      <Section title="Identity">
+        <Field label="Display name" description="Shown to your crew instead of your username">
+          <div className="relative">
+            <User className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input value={form.displayName} maxLength={40}
+              onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
+              placeholder={me?.username ?? "Your name"}
+              className={inputCls + " pl-9"} />
+          </div>
+        </Field>
+        <Field label="Email" description="Private — only visible to you">
+          <div className="relative">
+            <Mail className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input value={form.email} type="email"
+              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+              placeholder="you@example.com"
+              className={inputCls + " pl-9"} />
+          </div>
+        </Field>
+      </Section>
+
+      <Divider />
+
+      <Section title="Social links">
+        <Field label="Steam">
+          <div className="relative">
+            <Gamepad2 className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input value={form.steamUrl}
+              onChange={e => setForm(f => ({ ...f, steamUrl: e.target.value }))}
+              placeholder="steamcommunity.com/id/you"
+              className={inputCls + " pl-9"} />
+          </div>
+        </Field>
+        <Field label="Discord">
+          <div className="relative">
+            <MessageCircle className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input value={form.discordUrl}
+              onChange={e => setForm(f => ({ ...f, discordUrl: e.target.value }))}
+              placeholder="username or invite link"
+              className={inputCls + " pl-9"} />
+          </div>
+        </Field>
+      </Section>
+
+      <Button onClick={save} disabled={updateMe.isPending || isUploading}
+        className="w-full h-9 rounded-xl text-sm gap-2">
+        {updateMe.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+        Save profile
+      </Button>
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
@@ -261,13 +421,14 @@ export function SettingsModal({
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="appearance" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid grid-cols-5">
+        <Tabs defaultValue="profile" className="flex-1 overflow-hidden flex flex-col">
+          <TabsList className="mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid grid-cols-6">
             {[
+              { key: "profile", label: "You" },
               { key: "appearance", label: "Look" },
               { key: "chat", label: "Chat" },
               { key: "audio", label: "Media" },
-              { key: "overlay", label: "Overlay" },
+              { key: "overlay", label: "HUD" },
               { key: "export", label: "Share" },
             ].map(t => (
               <TabsTrigger key={t.key} value={t.key}
@@ -276,6 +437,11 @@ export function SettingsModal({
               </TabsTrigger>
             ))}
           </TabsList>
+
+          {/* ── Profile ── */}
+          <TabsContent value="profile" className="flex-1 overflow-y-auto px-6 py-5">
+            <ProfileTab />
+          </TabsContent>
 
           {/* ── Appearance ── */}
           <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -288,6 +454,36 @@ export function SettingsModal({
                         ? "bg-primary/15 text-primary border border-primary/30"
                         : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
                       {t === "lynx" ? "Lynx" : "Classic"}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row label="Color Mode" description="Light or dark interface">
+                <div className="flex gap-1">
+                  {([
+                    { v: "dark" as ColorMode, label: "Dark", Icon: Moon },
+                    { v: "light" as ColorMode, label: "Light", Icon: Sun },
+                  ]).map(({ v, label, Icon }) => (
+                    <button key={v} onClick={() => set("colorMode", v)}
+                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.colorMode === v
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
+                      <Icon className="w-3.5 h-3.5" /> {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row label="Window Controls" description="Title-bar button style">
+                <div className="flex gap-1">
+                  {([
+                    { v: "windows" as WindowControls, label: "Windows" },
+                    { v: "mac" as WindowControls, label: "macOS" },
+                  ]).map(({ v, label }) => (
+                    <button key={v} onClick={() => set("windowControls", v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.windowControls === v
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
+                      {label}
                     </button>
                   ))}
                 </div>

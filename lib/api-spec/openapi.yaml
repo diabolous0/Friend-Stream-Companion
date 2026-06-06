@@ -89,6 +89,27 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           description: Unauthorized
+    patch:
+      operationId: updateMe
+      tags: [users]
+      summary: Update current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileInput"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid input
+        "401":
+          description: Unauthorized
 
   /rooms:
     get:
@@ -252,7 +273,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/User"
+                  $ref: "#/components/schemas/PublicUser"
 
   /rooms/{roomId}/presence:
     get:
@@ -461,9 +482,62 @@ components:
           type: integer
         username:
           type: string
+        displayName:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        steamUrl:
+          type: string
+          nullable: true
+        discordUrl:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
+
+    PublicUser:
+      type: object
+      required: [id, username, createdAt]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    UpdateProfileInput:
+      type: object
+      properties:
+        displayName:
+          type: string
+          nullable: true
+          maxLength: 40
+        email:
+          type: string
+          nullable: true
+        steamUrl:
+          type: string
+          nullable: true
+        discordUrl:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
 
     Room:
       type: object
@@ -523,6 +597,12 @@ components:
           type: integer
         username:
           type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
         online:
           type: boolean
         speaking:
@@ -557,6 +637,12 @@ components:
           type: integer
         username:
           type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
         content:
           type: string
         createdAt:

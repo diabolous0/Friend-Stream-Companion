@@ -10,6 +10,8 @@ interface ClientState {
   ws: WebSocket;
   userId: number;
   username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
   roomId: number | null;
   speaking: boolean;
   streaming: boolean;
@@ -36,6 +38,8 @@ function broadcastPresence(roomId: number): void {
   const entries = getRoomClients(roomId).map((c) => ({
     userId: c.userId,
     username: c.username,
+    displayName: c.displayName,
+    avatarUrl: c.avatarUrl,
     online: true,
     speaking: c.speaking,
     streaming: c.streaming,
@@ -93,6 +97,8 @@ export function setupSignaling(server: Server): void {
             ws,
             userId: user.id,
             username: user.username,
+            displayName: user.displayName,
+            avatarUrl: user.avatarUrl,
             roomId: null,
             speaking: false,
             streaming: false,
@@ -216,6 +222,8 @@ export function setupSignaling(server: Server): void {
               roomId: saved.roomId,
               userId: saved.userId,
               username: state.username,
+              displayName: state.displayName,
+              avatarUrl: state.avatarUrl,
               content: saved.content,
               createdAt: saved.createdAt,
               editedAt: null,
@@ -292,6 +300,21 @@ export function setupSignaling(server: Server): void {
 
 export function broadcastToRoom(roomId: number, message: object): void {
   broadcast(roomId, message);
+}
+
+export function refreshUserProfile(
+  userId: number,
+  profile: { displayName: string | null; avatarUrl: string | null },
+): void {
+  const affectedRooms = new Set<number>();
+  for (const state of clients.values()) {
+    if (state.userId === userId) {
+      state.displayName = profile.displayName;
+      state.avatarUrl = profile.avatarUrl;
+      if (state.roomId !== null) affectedRooms.add(state.roomId);
+    }
+  }
+  for (const roomId of affectedRooms) broadcastPresence(roomId);
 }
 
 export function getPresenceSnapshot(roomId: number) {

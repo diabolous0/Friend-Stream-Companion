@@ -3,6 +3,8 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type UITheme = "lynx" | "classic";
+export type ColorMode = "dark" | "light";
+export type WindowControls = "windows" | "mac";
 export type AccentPreset = "cyan" | "blue" | "purple" | "green" | "orange" | "pink" | "red";
 export type FontSize = "sm" | "md" | "lg";
 export type VideoQuality = "auto" | "1080p60" | "1080p30" | "720p30" | "480p30";
@@ -21,6 +23,8 @@ export const ACCENT_COLORS: Record<AccentPreset, { hsl: string; hex: string; lab
 export interface AppSettings {
   // Appearance
   uiTheme: UITheme;
+  colorMode: ColorMode;
+  windowControls: WindowControls;
   accentPreset: AccentPreset;
   panelOpacity: number;      // 20–100
   blurBackground: boolean;
@@ -53,6 +57,8 @@ export interface AppSettings {
 
 const DEFAULT: AppSettings = {
   uiTheme: "lynx",
+  colorMode: "dark",
+  windowControls: "windows",
   accentPreset: "cyan",
   panelOpacity: 100,
   blurBackground: false,
@@ -93,8 +99,9 @@ function save(s: AppSettings) {
 
 function apply(s: AppSettings) {
   const el = document.documentElement;
-  el.classList.add("dark");
+  el.classList.toggle("dark", s.colorMode === "dark");
   el.dataset.ui = s.uiTheme;
+  el.dataset.windowControls = s.windowControls;
   const { hsl } = ACCENT_COLORS[s.accentPreset];
   el.style.setProperty("--primary", hsl);
   el.style.setProperty("--ring", hsl);

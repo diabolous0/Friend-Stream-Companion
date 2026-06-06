@@ -35,6 +35,7 @@ import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
 import { MentionInput, type MentionInputHandle } from "@/components/mention-input";
 import { MessageContent, containsMention } from "@/lib/markdown";
+import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useUpload } from "@/hooks/use-upload";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -78,7 +79,15 @@ function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.len
 
 // ─── Helper components ───────────────────────────────────────────────────────
 
-function Avatar({ username, userId, size = 36, square = false }: { username: string; userId: number; size?: number; square?: boolean }) {
+function Avatar({ username, userId, size = 36, square = false, avatarUrl }: { username: string; userId: number; size?: number; square?: boolean; avatarUrl?: string | null }) {
+  const src = avatarSrc(avatarUrl);
+  if (src) {
+    return (
+      <img src={src} alt={username}
+        className={`${square ? "rounded-sm" : "rounded-full"} object-cover select-none shrink-0`}
+        style={{ width: size, height: size }} />
+    );
+  }
   return (
     <div className={`${avatarBg(userId)} ${square ? "rounded-sm" : "rounded-full"} flex items-center justify-center text-white font-bold select-none shrink-0`}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.35) }}>
@@ -699,14 +708,16 @@ export default function Room() {
                 <div key={member.id} className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-muted/20 transition-colors group">
                   {/* Avatar */}
                   <div className="relative shrink-0">
-                    <Avatar username={member.username} userId={member.id} size={36} square={classic} />
+                    <Avatar username={member.username} userId={member.id} size={36} square={classic}
+                      avatarUrl={isMe ? me.avatarUrl : p?.avatarUrl} />
                     <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/20"}`} />
                     {speaking && <div className="absolute inset-0 rounded-full border border-green-400/40 animate-ping" />}
                   </div>
                   {/* Name + status */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-tight truncate">
-                      {member.username}{isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
+                      {displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}
+                      {isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
                     </p>
                     <p className={`text-xs leading-tight mt-0.5 ${statusColor}`}>{statusLabel}</p>
                   </div>
@@ -809,7 +820,7 @@ export default function Room() {
                           <form onSubmit={handleEditMsg}>
                             <div className="flex items-baseline gap-1.5 mb-0.5">
                               {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
-                              <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                              <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{displayNameOf(msg) || msg.username}</span>
                             </div>
                             <Input value={editContent} onChange={e => setEditContent(e.target.value)}
                               onKeyDown={e => e.key === "Escape" && (setEditingMsgId(null), setEditContent(""))}
@@ -820,7 +831,11 @@ export default function Room() {
                         ) : (
                           <div className={`flex items-baseline flex-wrap gap-x-1.5 leading-relaxed ${tSize}`}>
                             {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
-                            <span className={`font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                            {avatarSrc(msg.avatarUrl) && (
+                              <img src={avatarSrc(msg.avatarUrl)!} alt=""
+                                className="w-4 h-4 rounded-full object-cover self-center shrink-0" />
+                            )}
+                            <span className={`font-semibold shrink-0 ${chatColor(msg.userId)}`}>{displayNameOf(msg) || msg.username}</span>
                             <span className={`${tSize} text-foreground/85`}>
                               <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}

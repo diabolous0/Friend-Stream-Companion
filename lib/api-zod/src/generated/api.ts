@@ -51,6 +51,11 @@ export const LoginResponse = zod.object({
   "user": zod.object({
   "id": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 })
@@ -62,6 +67,38 @@ export const LoginResponse = zod.object({
 export const GetMeResponse = zod.object({
   "id": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update current user's profile
+ */
+export const updateMeBodyDisplayNameMax = 40;
+
+
+
+export const UpdateMeBody = zod.object({
+  "displayName": zod.string().max(updateMeBodyDisplayNameMax).nullish(),
+  "email": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish()
+})
+
+export const UpdateMeResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -188,6 +225,8 @@ export const GetRoomMembersParams = zod.object({
 export const GetRoomMembersResponseItem = zod.object({
   "id": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetRoomMembersResponse = zod.array(GetRoomMembersResponseItem)
@@ -203,6 +242,8 @@ export const GetRoomPresenceParams = zod.object({
 export const GetRoomPresenceResponseItem = zod.object({
   "userId": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "online": zod.boolean(),
   "speaking": zod.boolean(),
   "streaming": zod.boolean(),
@@ -230,6 +271,8 @@ export const GetRoomMessagesResponseItem = zod.object({
   "roomId": zod.number(),
   "userId": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -277,6 +320,8 @@ export const EditMessageResponse = zod.object({
   "roomId": zod.number(),
   "userId": zod.number(),
   "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),

@@ -220,7 +220,13 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const members = await db
-    .select({ id: usersTable.id, username: usersTable.username, createdAt: usersTable.createdAt })
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
+      createdAt: usersTable.createdAt,
+    })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
     .where(eq(roomMembersTable.roomId, roomId));
@@ -241,7 +247,12 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const members = await db
-    .select({ id: usersTable.id, username: usersTable.username })
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
+    })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
     .where(eq(roomMembersTable.roomId, roomId));
@@ -253,6 +264,8 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
   const entries = members.map((m) => ({
     userId: m.id,
     username: m.username,
+    displayName: m.displayName,
+    avatarUrl: m.avatarUrl,
     online: onlineIds.has(m.id),
     speaking: liveMap.get(m.id)?.speaking ?? false,
     streaming: liveMap.get(m.id)?.streaming ?? false,
@@ -286,6 +299,8 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       roomId: messagesTable.roomId,
       userId: messagesTable.userId,
       username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
@@ -335,14 +350,17 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .where(eq(messagesTable.id, messageId))
     .returning();
 
-  const [user] = await db.select({ username: usersTable.username }).from(usersTable).where(eq(usersTable.id, updated.userId));
+  const [user] = await db
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .from(usersTable)
+    .where(eq(usersTable.id, updated.userId));
   const reactionRows = await db
     .select({ messageId: messageReactionsTable.messageId, userId: messageReactionsTable.userId, emoji: messageReactionsTable.emoji })
     .from(messageReactionsTable)
     .where(eq(messageReactionsTable.messageId, messageId));
   const reactions = groupReactions(reactionRows).get(messageId) ?? [];
 
-  const result = { ...updated, username: user.username, reactions };
+  const result = { ...updated, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, reactions };
   broadcastToRoom(roomId, { type: "message_updated", message: result });
   res.json(result);
 });

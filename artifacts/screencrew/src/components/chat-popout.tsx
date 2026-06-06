@@ -5,6 +5,7 @@ import { MessageSquare, X, Search, Smile, Minimize2, Maximize2, Pencil, Trash2, 
 import type { AppSettings } from "@/lib/settings";
 import { MentionInput } from "@/components/mention-input";
 import { MessageContent } from "@/lib/markdown";
+import { avatarSrc, displayNameOf } from "@/lib/avatar";
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
 
@@ -109,6 +110,7 @@ export function ChatPopout({
 
   const textSizeClass = settings.fontSize === "sm" ? "text-xs" : settings.fontSize === "lg" ? "text-base" : "text-sm";
   const compact = settings.compactMessages;
+  const isMac = settings.windowControls === "mac";
 
   const bgStyle: React.CSSProperties = settings.panelOpacity < 100
     ? {
@@ -130,29 +132,40 @@ export function ChatPopout({
       )}
 
       {/* Header (draggable) */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/20 cursor-grab active:cursor-grabbing select-none shrink-0"
+      <div className={`flex items-center px-3 py-2 border-b border-border/20 cursor-grab active:cursor-grabbing select-none shrink-0 ${isMac ? "flex-row-reverse" : "justify-between"}`}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center gap-2 ${isMac ? "ml-auto" : ""}`}>
           <MessageSquare className="w-3.5 h-3.5 text-primary/70" />
           <span className="text-xs font-semibold text-foreground/80">Chat</span>
           {searchQuery && filtered.length !== messages.length && (
             <span className="text-[10px] text-primary/60">{filtered.length}/{messages.length}</span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
-            className={`p-1 rounded-md transition-colors ${showSearch ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
-            <Search className="w-3 h-3" />
-          </button>
-          <button onClick={() => setMinimized(m => !m)}
-            className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors">
-            {minimized ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
-          </button>
-          <button onClick={onClose}
-            className="p-1 rounded-md text-muted-foreground/40 hover:text-destructive transition-colors">
-            <X className="w-3 h-3" />
-          </button>
-        </div>
+        {isMac ? (
+          <div className="flex items-center gap-1.5">
+            <button onClick={onClose} title="Close"
+              className="w-3 h-3 rounded-full bg-[#ff5f57] hover:brightness-110 transition" />
+            <button onClick={() => setMinimized(m => !m)} title={minimized ? "Expand" : "Minimize"}
+              className="w-3 h-3 rounded-full bg-[#febc2e] hover:brightness-110 transition" />
+            <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }} title="Search"
+              className={`w-3 h-3 rounded-full transition hover:brightness-110 ${showSearch ? "bg-[#28c840]" : "bg-[#28c840]/60"}`} />
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
+              className={`p-1 rounded-md transition-colors ${showSearch ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+              <Search className="w-3 h-3" />
+            </button>
+            <button onClick={() => setMinimized(m => !m)}
+              className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+              {minimized ? <Maximize2 className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
+            </button>
+            <button onClick={onClose}
+              className="p-1 rounded-md text-muted-foreground/40 hover:text-destructive transition-colors">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
 
       {!minimized && (
@@ -207,7 +220,13 @@ export function ChatPopout({
                           {settings.showTimestamps && (
                             <span className="text-[10px] text-muted-foreground/40 shrink-0">{timeStr}</span>
                           )}
-                          <span className={`text-xs font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                          {avatarSrc(msg.avatarUrl) && (
+                            <img src={avatarSrc(msg.avatarUrl)!} alt=""
+                              className="w-3.5 h-3.5 rounded-full object-cover self-center shrink-0" />
+                          )}
+                          <span className={`text-xs font-semibold shrink-0 ${chatColor(msg.userId)}`}>
+                            {displayNameOf(msg) || msg.username}
+                          </span>
                           <span className={`${textSizeClass} text-foreground/85`}>
                             <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
                             {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
