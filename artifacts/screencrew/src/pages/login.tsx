@@ -3,17 +3,15 @@ import { useLocation } from "wouter";
 import { useLogin, useRegister, useGetMe, getGetMeQueryKey, setAuthTokenGetter } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MonitorUp } from "lucide-react";
 
-// Initialize auth getter
 setAuthTokenGetter(() => localStorage.getItem("screencrew_token"));
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [tab, setTab] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -25,127 +23,79 @@ export default function Login() {
     setLocation("/rooms");
   };
 
-  const onLogin = (e: React.FormEvent) => {
+  const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    loginMutation.mutate({ data: { username, password } }, {
-      onSuccess: (data) => handleSuccess(data.token),
-      onError: (err) => {
-        toast({ title: "Login failed", description: err.message, variant: "destructive" });
-      }
-    });
-  };
-
-  const onRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-    registerMutation.mutate({ data: { username, password } }, {
-      onSuccess: (data) => handleSuccess(data.token),
-      onError: (err) => {
-        toast({ title: "Registration failed", description: err.message, variant: "destructive" });
-      }
-    });
+    if (tab === "login") {
+      loginMutation.mutate({ data: { username, password } }, {
+        onSuccess: (data) => handleSuccess(data.token),
+        onError: () => toast({ title: "Wrong username or password", variant: "destructive" }),
+      });
+    } else {
+      registerMutation.mutate({ data: { username, password } }, {
+        onSuccess: (data) => handleSuccess(data.token),
+        onError: (err) => toast({ title: "Registration failed", description: err.message, variant: "destructive" }),
+      });
+    }
   };
 
   const { data: me, isLoading } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() } });
+  if (me) { setLocation("/rooms"); return null; }
+  if (isLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+    </div>
+  );
 
-  if (me) {
-    setLocation("/rooms");
-    return null;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-primary font-mono crt-scanline">INIT SYSTEM...</div>
-      </div>
-    );
-  }
+  const isPending = loginMutation.isPending || registerMutation.isPending;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background crt-scanline relative overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/10 via-background/80 to-background pointer-events-none" />
-      
-      <Card className="w-full max-w-sm border-primary/20 bg-background/95 backdrop-blur z-10 rounded-sm">
-        <CardHeader className="text-center pb-2">
-          <CardTitle className="font-mono text-3xl text-primary tracking-widest uppercase">ScreenCrew</CardTitle>
-          <CardDescription className="font-mono text-xs tracking-wider text-muted-foreground">LOCAL AREA NETWORK CLIENT</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-4 bg-muted/50 rounded-sm">
-              <TabsTrigger value="login" className="rounded-sm font-mono text-xs uppercase data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Auth</TabsTrigger>
-              <TabsTrigger value="register" className="rounded-sm font-mono text-xs uppercase data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Register</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="login">
-              <form onSubmit={onLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="username" className="font-mono text-xs text-primary/80 uppercase">Username</Label>
-                  <Input 
-                    id="username" 
-                    value={username} 
-                    onChange={e => setUsername(e.target.value)}
-                    className="font-mono bg-muted/20 border-primary/20 focus-visible:ring-primary rounded-sm h-10"
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password" className="font-mono text-xs text-primary/80 uppercase">Password</Label>
-                  <Input 
-                    id="password" 
-                    type="password" 
-                    value={password} 
-                    onChange={e => setPassword(e.target.value)}
-                    className="font-mono bg-muted/20 border-primary/20 focus-visible:ring-primary rounded-sm h-10"
-                    required 
-                  />
-                </div>
-                <Button 
-                  type="submit" 
-                  className="w-full font-mono uppercase tracking-widest rounded-sm"
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending ? "Connecting..." : "Initialize"}
-                </Button>
-              </form>
-            </TabsContent>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-80 bg-card border border-border/60 rounded-2xl shadow-2xl overflow-hidden">
+        {/* App header */}
+        <div className="flex items-center gap-3 px-6 pt-7 pb-6">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center">
+            <MonitorUp className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="font-semibold text-base text-foreground">ScreenCrew</h1>
+            <p className="text-xs text-muted-foreground">Watch together, anywhere</p>
+          </div>
+        </div>
 
-            <TabsContent value="register">
-              <form onSubmit={onRegister} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="reg-username" className="font-mono text-xs text-primary/80 uppercase">Username</Label>
-                  <Input 
-                    id="reg-username" 
-                    value={username} 
-                    onChange={e => setUsername(e.target.value)}
-                    className="font-mono bg-muted/20 border-primary/20 focus-visible:ring-primary rounded-sm h-10"
-                    required 
-                    minLength={2}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reg-password" className="font-mono text-xs text-primary/80 uppercase">Password</Label>
-                  <Input 
-                    id="reg-password" 
-                    type="password" 
-                    value={password} 
-                    onChange={e => setPassword(e.target.value)}
-                    className="font-mono bg-muted/20 border-primary/20 focus-visible:ring-primary rounded-sm h-10"
-                    required 
-                    minLength={4}
-                  />
-                </div>
-                <Button 
-                  type="submit" 
-                  className="w-full font-mono uppercase tracking-widest rounded-sm"
-                  disabled={registerMutation.isPending}
-                >
-                  {registerMutation.isPending ? "Creating..." : "Create Node"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+        {/* Tab switcher */}
+        <div className="flex mx-6 mb-5 bg-muted/40 rounded-xl p-1">
+          {(["login", "register"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+              {t === "login" ? "Sign in" : "Register"}
+            </button>
+          ))}
+        </div>
+
+        {/* Form */}
+        <form onSubmit={onSubmit} className="px-6 pb-7 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Username</label>
+            <Input value={username} onChange={e => setUsername(e.target.value)}
+              placeholder="your_handle" required minLength={tab === "register" ? 2 : 1}
+              className="h-10 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0 text-sm" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Password</label>
+            <Input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••" required minLength={tab === "register" ? 4 : 1}
+              className="h-10 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0 text-sm" />
+          </div>
+          <Button type="submit" disabled={isPending || !username || !password}
+            className="w-full h-10 rounded-xl text-sm font-semibold mt-1">
+            {isPending ? (
+              <><div className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" /> {tab === "login" ? "Signing in…" : "Creating…"}</>
+            ) : (
+              tab === "login" ? "Sign in" : "Create account"
+            )}
+          </Button>
+        </form>
+      </div>
     </div>
   );
 }

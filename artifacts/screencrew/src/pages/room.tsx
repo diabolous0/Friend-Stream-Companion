@@ -9,7 +9,7 @@ import {
   useSendMessage, useToggleReaction,
   useUpdateRoom, useLeaveRoom,
   useEditMessage, useDeleteMessage,
-  useGetMe
+  useGetMe,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -21,26 +21,59 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  MonitorUp, Volume2, VolumeX, ChevronLeft, Mic, MicOff,
-  Share2, Copy, Check, Pin, PinOff, X, Settings, Search,
-  LogOut, Phone, PhoneOff, Headphones, Pencil, Trash2, Bell,
+  MonitorUp, Mic, MicOff, Phone, PhoneOff, Headphones,
+  Plus, Bell, VolumeX, Volume2,
+  Pin, PinOff, X, Settings, Search, LogOut,
+  Users, MessageSquare, Pencil, Trash2, Smile,
+  Copy, Check, Share2,
 } from "lucide-react";
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
-const USER_COLORS = [
-  "text-cyan-400", "text-violet-400", "text-green-400", "text-orange-400",
-  "text-pink-400", "text-yellow-400", "text-blue-400", "text-rose-400",
+
+const AVATAR_BG = [
+  "bg-violet-600", "bg-blue-500", "bg-emerald-600", "bg-orange-500",
+  "bg-pink-600", "bg-amber-500", "bg-cyan-600", "bg-rose-600",
 ];
-function getUserColor(userId: number) { return USER_COLORS[userId % USER_COLORS.length]; }
+const CHAT_COLORS = [
+  "text-violet-400", "text-blue-400", "text-emerald-400", "text-orange-400",
+  "text-pink-400", "text-amber-400", "text-cyan-400", "text-rose-400",
+];
+
+function avatarBg(userId: number) { return AVATAR_BG[userId % AVATAR_BG.length]; }
+function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.length]; }
+
+// ─── Helper components ───────────────────────────────────────────────────────
+
+function Avatar({ username, userId, size = 36 }: { username: string; userId: number; size?: number }) {
+  return (
+    <div className={`${avatarBg(userId)} rounded-full flex items-center justify-center text-white font-bold select-none shrink-0`}
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.35) }}>
+      {username.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
+function Waveform() {
+  return (
+    <div className="flex items-end gap-px shrink-0">
+      {[3, 5, 7, 5, 3, 6, 4].map((h, i) => (
+        <div key={i} className="w-0.5 bg-green-400 rounded-full"
+          style={{ height: h, animation: "waveform 0.8s ease-in-out infinite", animationDelay: `${i * 80}ms` }} />
+      ))}
+    </div>
+  );
+}
 
 function highlight(text: string, query: string): React.ReactNode {
   if (!query.trim()) return text;
   const parts: React.ReactNode[] = [];
   const lc = text.toLowerCase(), lq = query.toLowerCase();
-  let start = 0, idx = lc.indexOf(lq, 0);
+  let start = 0, idx = lc.indexOf(lq);
   while (idx !== -1) {
     if (idx > start) parts.push(text.slice(start, idx));
-    parts.push(<mark key={idx} className="bg-primary/30 text-foreground not-italic rounded-sm px-0">{text.slice(idx, idx + query.length)}</mark>);
+    parts.push(<mark key={idx} className="bg-primary/30 text-foreground rounded-sm px-0">{text.slice(idx, idx + query.length)}</mark>);
     start = idx + query.length;
     idx = lc.indexOf(lq, start);
   }
@@ -58,8 +91,8 @@ function useDraggable(initial: { x: number; y: number }) {
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (!dragRef.current) return;
     setPos({
-      x: Math.max(0, Math.min(window.innerWidth - 420, dragRef.current.px + (e.clientX - dragRef.current.sx))),
-      y: Math.max(0, Math.min(window.innerHeight - 260, dragRef.current.py + (e.clientY - dragRef.current.sy))),
+      x: Math.max(0, Math.min(window.innerWidth - 460, dragRef.current.px + e.clientX - dragRef.current.sx)),
+      y: Math.max(0, Math.min(window.innerHeight - 280, dragRef.current.py + e.clientY - dragRef.current.sy)),
     });
   }, []);
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
@@ -77,6 +110,8 @@ function AudioPlayer({ stream }: { stream: MediaStream }) {
   useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
   return <audio ref={ref} autoPlay />;
 }
+
+// ─── Room page ────────────────────────────────────────────────────────────────
 
 export default function Room() {
   const [, params] = useRoute("/room/:roomId");
@@ -97,43 +132,36 @@ export default function Room() {
   const editMessageMutation = useEditMessage();
   const deleteMessageMutation = useDeleteMessage();
 
-  // ─── Core state ────────────────────────────────────────────────────────────
+  // ─── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
+  const [localSpeaking, setLocalSpeaking] = useState(false);
 
-  // ─── Search ────────────────────────────────────────────────────────────────
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSearch, setShowSearch] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  // ─── Pagination ────────────────────────────────────────────────────────────
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  // ─── Edit / delete ─────────────────────────────────────────────────────────
   const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
 
-  // ─── Sounds ────────────────────────────────────────────────────────────────
   const [soundsMuted, setSoundsMuted] = useState(false);
   const { playMessage, playReaction, playJoin } = useSounds(soundsMuted);
 
-  // ─── Notifications ─────────────────────────────────────────────────────────
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const notifPermRef = useRef<NotificationPermission>("default");
 
-  // ─── Settings / invite ─────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
-  const [showInvite, setShowInvite] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
 
-  // ─── Stream window ─────────────────────────────────────────────────────────
-  const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
@@ -146,10 +174,8 @@ export default function Room() {
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevOnlineRef = useRef<Set<number>>(new Set());
   const presenceRef = useRef<Record<number, any>>({});
+  const streamWindow = useDraggable({ x: 360, y: 60 });
 
-  const streamWindow = useDraggable({ x: Math.min(420, window.innerWidth - 440), y: 80 });
-
-  // ─── Presence ref sync ─────────────────────────────────────────────────────
   useEffect(() => { presenceRef.current = presence; }, [presence]);
 
   // ─── Init ──────────────────────────────────────────────────────────────────
@@ -171,7 +197,6 @@ export default function Room() {
   }, [initialPresence]);
 
   useEffect(() => { if (room) setRenameValue(room.name); }, [room]);
-
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   useEffect(() => {
@@ -185,18 +210,7 @@ export default function Room() {
     if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 50);
   }, [showSearch]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (e.key === "/") { e.preventDefault(); setShowSearch(true); }
-      if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, []);
-
-  // ─── Voice activity ────────────────────────────────────────────────────────
+  // ─── Voice activity ─────────────────────────────────────────────────────────
   const handleSpeakingChange = useCallback((speaking: boolean) => {
     setLocalSpeaking(speaking);
     sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current, inVoice: false });
@@ -272,11 +286,7 @@ export default function Room() {
       if (msg.userId !== me?.id) {
         playMessage();
         if (document.visibilityState === "hidden" && notifPermRef.current === "granted") {
-          new Notification(msg.username, {
-            body: msg.content,
-            tag: `screencrew-room-${roomId}`,
-            silent: true,
-          });
+          new Notification(msg.username, { body: msg.content, tag: `screencrew-room-${roomId}`, silent: true });
         }
       }
     },
@@ -287,12 +297,8 @@ export default function Room() {
         const next = { ...prev }; delete next[userId]; return next;
       });
     },
-    onMessageUpdated: (msg) => {
-      setMessages(prev => prev.map(m => m.id === msg.id ? { ...msg } : m));
-    },
-    onMessageDeleted: (messageId) => {
-      setMessages(prev => prev.filter(m => m.id !== messageId));
-    },
+    onMessageUpdated: (msg) => { setMessages(prev => prev.map(m => m.id === msg.id ? { ...msg } : m)); },
+    onMessageDeleted: (messageId) => { setMessages(prev => prev.filter(m => m.id !== messageId)); },
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
     onStreamAnswer: async (from, sdp) => { await handleAnswer(from, sdp); },
     onIceCandidate: async (from, candidate) => { await handleIceCandidate(from, candidate); },
@@ -343,13 +349,10 @@ export default function Room() {
     if (!messages.length || loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const oldest = messages[0].id;
-      const older = await getRoomMessages(roomId, { before: oldest, limit: 50 });
+      const older = await getRoomMessages(roomId, { before: messages[0].id, limit: 50 });
       if (!older || older.length < 50) setHasMore(false);
-      if (older && older.length > 0) setMessages(prev => [...older, ...prev]);
-    } finally {
-      setLoadingMore(false);
-    }
+      if (older?.length) setMessages(prev => [...older, ...prev]);
+    } finally { setLoadingMore(false); }
   }, [messages, loadingMore, hasMore, roomId]);
 
   const handleEditMsg = (e: React.FormEvent) => {
@@ -391,6 +394,12 @@ export default function Room() {
     leaveRoomMutation.mutate({ roomId }, { onSuccess: () => setLocation("/rooms") });
   };
 
+  const requestNotifPermission = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm); notifPermRef.current = perm;
+  }, []);
+
   const copyCode = useCallback(() => {
     if (!room) return;
     navigator.clipboard.writeText(room.inviteCode).then(() => {
@@ -398,20 +407,21 @@ export default function Room() {
     });
   }, [room]);
 
-  const requestNotifPermission = useCallback(async () => {
-    if (typeof Notification === "undefined") return;
-    const perm = await Notification.requestPermission();
-    setNotifPermission(perm);
-    notifPermRef.current = perm;
-  }, []);
-
   // ─── Derived ───────────────────────────────────────────────────────────────
   const filteredMessages = searchQuery.trim()
     ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
+  const typingNames = Object.entries(typingUsers)
+    .filter(([uid]) => Number(uid) !== me?.id)
+    .map(([, n]) => n);
+
   if (!me || !room) {
-    return <div className="min-h-screen bg-background flex items-center justify-center font-mono text-primary text-xs tracking-widest">CONNECTING TO NODE...</div>;
+    return (
+      <div className="h-[100dvh] bg-background flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
   }
 
   const activeStream = viewingStreamOf ? remoteStreams[viewingStreamOf] : null;
@@ -420,60 +430,66 @@ export default function Room() {
   return (
     <div className="h-[100dvh] bg-background flex items-center justify-center relative overflow-hidden">
 
-      {/* Hidden audio elements for voice call */}
+      {/* Hidden audio for voice calls */}
       <div className="hidden" aria-hidden>
-        {Object.entries(remoteAudioStreams).map(([userId, stream]) => (
-          <AudioPlayer key={userId} stream={stream} />
+        {Object.entries(remoteAudioStreams).map(([uid, stream]) => (
+          <AudioPlayer key={uid} stream={stream} />
         ))}
       </div>
 
-      {/* ── Compact Panel ── */}
-      <div className="w-[360px] h-[620px] flex flex-col bg-card border border-border/60 rounded-lg shadow-2xl overflow-hidden">
+      {/* ── Main Panel ── */}
+      <div className="w-[320px] h-[580px] flex flex-col bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden">
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/30 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <Button variant="ghost" size="icon" className="h-6 w-6 rounded-sm text-muted-foreground hover:text-foreground -ml-1 shrink-0" asChild>
-              <Link href="/rooms"><ChevronLeft className="w-3.5 h-3.5" /></Link>
-            </Button>
-            <span className="font-mono text-sm font-bold text-foreground tracking-wide truncate">{room.name}</span>
-            <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" : "bg-muted-foreground/40"}`} />
+        {/* Title bar */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+              <MonitorUp className="w-3.5 h-3.5 text-primary" />
+            </div>
+            <span className="text-sm font-semibold text-foreground truncate">{room.name}</span>
+            <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_5px_#4ade80]" : "bg-muted-foreground/30"}`} />
           </div>
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={toggleMic} title={micActive ? "Mute mic" : "Activate mic"}
-              className={`p-1.5 rounded-sm transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/70") : "text-muted-foreground hover:text-foreground"}`}>
-              {micActive ? <Mic className={`w-3.5 h-3.5 ${localSpeaking ? "animate-pulse" : ""}`} /> : <MicOff className="w-3.5 h-3.5" />}
-            </button>
-            <button onClick={isSharing ? stopSharing : handleStartShare} title={isSharing ? "Stop sharing" : "Share screen"}
-              className={`p-1.5 rounded-sm transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground hover:text-foreground"}`}>
-              <MonitorUp className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={isInVoice ? handleLeaveVoice : handleJoinVoice} title={isInVoice ? "Leave voice call" : "Join voice call"}
-              className={`p-1.5 rounded-sm transition-colors ${isInVoice ? "text-violet-400 animate-pulse" : "text-muted-foreground hover:text-foreground"}`}>
-              {isInVoice ? <PhoneOff className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
-            </button>
-            <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute sounds" : "Mute sounds"}
-              className={`p-1.5 rounded-sm transition-colors ${soundsMuted ? "text-muted-foreground/40" : "text-muted-foreground hover:text-foreground"}`}>
-              {soundsMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-            </button>
-            <button onClick={notifPermission === "default" ? requestNotifPermission : undefined}
-              title={notifPermission === "granted" ? "Notifications on" : notifPermission === "denied" ? "Notifications blocked" : "Enable notifications"}
-              className={`p-1.5 rounded-sm transition-colors ${notifPermission === "granted" ? "text-primary/70" : notifPermission === "denied" ? "text-muted-foreground/20" : "text-muted-foreground/50 hover:text-muted-foreground"}`}>
-              <Bell className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => setShowInvite(true)} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
-              <Share2 className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
-              <Settings className="w-3.5 h-3.5" />
-            </button>
+          {/* macOS-style window controls */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute" : "Mute sounds"}
+              className="w-3 h-3 rounded-full bg-yellow-400/80 hover:bg-yellow-400 transition-colors" />
+            <Link href="/rooms">
+              <div className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-500 transition-colors cursor-pointer" />
+            </Link>
           </div>
         </div>
 
-        {/* Friends */}
-        <div className="shrink-0 px-4 pt-3 pb-1">
-          <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest mb-2">Crew</p>
-          <div className="space-y-0.5">
+        {/* ── FRIENDS ── */}
+        <div className="px-4 shrink-0">
+          <div className="flex items-center justify-between mb-2.5">
+            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Friends</span>
+            <div className="flex items-center gap-0.5">
+              <button onClick={toggleMic} title={micActive ? "Mute mic" : "Enable mic"}
+                className={`p-1 rounded-md transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/80") : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                {micActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={isSharing ? stopSharing : handleStartShare} title={isSharing ? "Stop sharing" : "Share screen"}
+                className={`p-1 rounded-md transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                <MonitorUp className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={isInVoice ? handleLeaveVoice : handleJoinVoice} title={isInVoice ? "Leave voice" : "Join voice"}
+                className={`p-1 rounded-md transition-colors ${isInVoice ? "text-violet-400 animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                {isInVoice ? <PhoneOff className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={notifPermission === "default" ? requestNotifPermission : undefined}
+                title={notifPermission === "granted" ? "Notifications on" : "Enable notifications"}
+                className={`p-1 rounded-md transition-colors ${notifPermission === "granted" ? "text-primary/60" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                <Bell className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setShowInvite(true)} title="Invite"
+                className="p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground transition-colors">
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Friend rows */}
+          <div className="space-y-0.5 mb-3">
             {members?.map(member => {
               const isMe = member.id === me.id;
               const p = presence[member.id];
@@ -481,70 +497,69 @@ export default function Room() {
               const speaking = isMe ? localSpeaking : p?.speaking;
               const streaming = isMe ? isSharing : p?.streaming;
               const inVoice = isMe ? isInVoice : p?.inVoice;
-              const initials = member.username.substring(0, 2).toUpperCase();
+
               const statusLabel = speaking ? "Speaking" : streaming ? "Streaming" : inVoice ? "In Voice" : online ? "Online" : "Offline";
-              const statusColor = speaking ? "text-green-400" : streaming ? "text-primary" : inVoice ? "text-violet-400" : online ? "text-muted-foreground/60" : "text-muted-foreground/30";
+              const statusColor = speaking ? "text-green-400" : streaming ? "text-primary" : inVoice ? "text-violet-400" : online ? "text-muted-foreground/50" : "text-muted-foreground/25";
+
               return (
-                <div key={member.id} className="flex items-center gap-2.5 py-1 px-1 rounded-sm hover:bg-muted/20 transition-colors group">
+                <div key={member.id} className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-muted/20 transition-colors group">
+                  {/* Avatar */}
                   <div className="relative shrink-0">
-                    <div className="w-8 h-8 rounded-full bg-muted/50 border border-border/40 flex items-center justify-center">
-                      <span className="font-mono text-[11px] font-bold text-foreground/80">{initials}</span>
-                    </div>
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/30"}`} />
-                    {speaking && <div className="absolute -inset-1 rounded-full border border-green-400/50 animate-ping" />}
+                    <Avatar username={member.username} userId={member.id} size={36} />
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/20"}`} />
+                    {speaking && <div className="absolute inset-0 rounded-full border border-green-400/40 animate-ping" />}
                   </div>
+                  {/* Name + status */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <p className={`font-sans text-sm truncate leading-none ${isMe ? "font-semibold text-foreground" : "text-foreground/90"}`}>
-                        {member.username}{isMe && " (You)"}
-                      </p>
-                      {inVoice && <Headphones className="w-3 h-3 text-violet-400/80 shrink-0" />}
-                    </div>
-                    <p className={`text-[11px] font-mono mt-0.5 leading-none ${statusColor}`}>{statusLabel}</p>
+                    <p className="text-sm font-medium leading-tight truncate">
+                      {member.username}{isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
+                    </p>
+                    <p className={`text-xs leading-tight mt-0.5 ${statusColor}`}>{statusLabel}</p>
                   </div>
-                  {streaming && !isMe && (
-                    <button onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(380, window.innerWidth - 440), y: 80 }); }}
-                      className="p-1 rounded-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100">
-                      <MonitorUp className="w-3.5 h-3.5" />
+                  {/* Right icon */}
+                  {speaking ? (
+                    <Waveform />
+                  ) : streaming && !isMe ? (
+                    <button
+                      onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
+                      className="p-1 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
+                      title="Watch stream">
+                      <MonitorUp className="w-4 h-4" />
                     </button>
-                  )}
-                  {speaking && (
-                    <div className="flex items-end gap-px shrink-0">
-                      {[3, 5, 4, 6, 3].map((h, i) => (
-                        <div key={i} className="w-0.5 bg-green-400 rounded-full animate-pulse" style={{ height: `${h}px`, animationDelay: `${i * 100}ms` }} />
-                      ))}
-                    </div>
-                  )}
+                  ) : inVoice ? (
+                    <Headphones className="w-3.5 h-3.5 text-violet-400/60 shrink-0" />
+                  ) : null}
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="mx-4 border-t border-border/20 my-1 shrink-0" />
+        {/* Divider */}
+        <div className="mx-4 border-t border-border/25 shrink-0" />
 
-        {/* Chat header + search toggle */}
-        <div className="px-4 pt-1 shrink-0">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest">
-              Chat {searchQuery && filteredMessages.length !== messages.length && (
-                <span className="text-primary/70">{filteredMessages.length}/{messages.length}</span>
+        {/* ── CHAT ── */}
+        <div className="px-4 pt-3 shrink-0">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">
+              Chat
+              {searchQuery && filteredMessages.length !== messages.length && (
+                <span className="ml-1.5 text-primary/60">{filteredMessages.length}/{messages.length}</span>
               )}
-            </p>
+            </span>
             <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
-              className={`p-1 rounded-sm transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
-              title="Search messages (/)">
-              <Search className="w-3 h-3" />
+              className={`p-1 rounded-md transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+              <Search className="w-3.5 h-3.5" />
             </button>
           </div>
           {showSearch && (
-            <div className="flex items-center gap-1 mb-1.5">
+            <div className="mb-2 relative">
               <Input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={e => { if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); } }}
-                placeholder="Search messages…"
-                className="h-7 text-xs bg-background/60 border-border/30 focus-visible:ring-primary/40 rounded-sm font-mono flex-1" />
+                onKeyDown={e => e.key === "Escape" && (setShowSearch(false), setSearchQuery(""))}
+                placeholder="Search…"
+                className="h-8 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs pr-8" />
               {searchQuery && (
-                <button onClick={() => setSearchQuery("")} className="p-1 text-muted-foreground/50 hover:text-muted-foreground">
+                <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40">
                   <X className="w-3 h-3" />
                 </button>
               )}
@@ -552,73 +567,73 @@ export default function Room() {
           )}
         </div>
 
-        {/* Chat messages */}
-        <div className="flex-1 min-h-0 px-4 pb-0">
+        {/* Messages */}
+        <div className="flex-1 min-h-0 px-4">
           <ScrollArea className="h-full">
-            <div className="space-y-0.5 pr-2 pb-2">
-              {/* Load more */}
+            <div className="space-y-0.5 pr-1 pb-2">
               {hasMore && !searchQuery && (
                 <button onClick={loadMoreMessages} disabled={loadingMore}
-                  className="w-full text-center font-mono text-[10px] text-primary/40 hover:text-primary/70 py-1.5 transition-colors disabled:opacity-40">
-                  {loadingMore ? "Loading…" : "↑ Load older messages"}
+                  className="w-full text-center text-[11px] text-muted-foreground/40 hover:text-muted-foreground/70 py-1 transition-colors disabled:opacity-30">
+                  {loadingMore ? "Loading…" : "↑ Load older"}
                 </button>
               )}
               {filteredMessages.length === 0 && (
-                <p className="font-mono text-[11px] text-muted-foreground/40 text-center py-4">
-                  {searchQuery ? "No messages match" : "No messages yet"}
+                <p className="text-xs text-muted-foreground/40 text-center py-4">
+                  {searchQuery ? "No messages match" : "No messages yet — say hi!"}
                 </p>
               )}
               {filteredMessages.map(msg => {
+                const isOwn = msg.userId === me.id;
                 const isHovered = hoveredMsgId === msg.id;
                 const isEditing = editingMsgId === msg.id;
-                const isOwn = msg.userId === me.id;
                 const reactions: any[] = msg.reactions ?? [];
+                const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                 return (
                   <div key={msg.id}
-                    className="group/msg relative rounded-sm px-1 py-1 -mx-1 hover:bg-muted/10 transition-colors"
+                    className="relative group/msg px-2 py-1 -mx-2 rounded-xl hover:bg-muted/15 transition-colors"
                     onMouseEnter={() => setHoveredMsgId(msg.id)}
                     onMouseLeave={() => setHoveredMsgId(null)}>
-                    <div className="flex items-start gap-1.5">
-                      <span className="font-mono text-[10px] text-muted-foreground/40 shrink-0 mt-0.5 w-10 text-right">
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <span className={`font-mono text-[11px] font-semibold mr-1.5 ${getUserColor(msg.userId)}`}>{msg.username}</span>
-                        {isEditing ? (
-                          <form onSubmit={handleEditMsg} className="mt-0.5">
-                            <Input value={editContent} onChange={e => setEditContent(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Escape") { setEditingMsgId(null); setEditContent(""); } }}
-                              className="h-6 text-sm bg-background/80 border-primary/30 rounded-sm focus-visible:ring-primary/40 font-sans"
-                              autoFocus />
-                            <span className="font-mono text-[9px] text-muted-foreground/30">Enter to save · Esc to cancel</span>
-                          </form>
-                        ) : (
-                          <span className="font-sans text-sm text-foreground/90 break-words">
-                            {highlight(msg.content, searchQuery)}
-                            {msg.editedAt && <span className="font-mono text-[9px] text-muted-foreground/30 ml-1">(edited)</span>}
-                          </span>
-                        )}
+                    {isEditing ? (
+                      <form onSubmit={handleEditMsg}>
+                        <div className="flex items-baseline gap-1.5 mb-0.5">
+                          <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>
+                          <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                        </div>
+                        <Input value={editContent} onChange={e => setEditContent(e.target.value)}
+                          onKeyDown={e => e.key === "Escape" && (setEditingMsgId(null), setEditContent(""))}
+                          className="h-7 rounded-lg bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm ml-0"
+                          autoFocus />
+                        <span className="text-[10px] text-muted-foreground/30 ml-0.5">Enter · Esc to cancel</span>
+                      </form>
+                    ) : (
+                      <div className="flex items-baseline flex-wrap gap-x-1.5 leading-relaxed">
+                        <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>
+                        <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                        <span className="text-sm text-foreground/85 break-all">
+                          {highlight(msg.content, searchQuery)}
+                          {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
+                        </span>
                       </div>
-                    </div>
+                    )}
                     {/* Own message actions */}
                     {isOwn && !isEditing && isHovered && (
-                      <div className="absolute right-1 top-1 flex items-center gap-0.5 bg-card/95 border border-border/30 rounded-sm px-1 py-0.5">
+                      <div className="absolute right-1 top-0.5 flex items-center gap-0.5 bg-card border border-border/40 rounded-lg px-1 py-0.5 shadow-sm">
                         <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
                           className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
-                          <Pencil className="w-2.5 h-2.5" />
+                          <Pencil className="w-3 h-3" />
                         </button>
                         <button onClick={() => handleDeleteMsg(msg.id)}
                           className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
-                          <Trash2 className="w-2.5 h-2.5" />
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     )}
-                    {/* Quick reactions */}
+                    {/* Quick reactions on hover */}
                     {isHovered && !isEditing && (
-                      <div className="flex items-center gap-0.5 mt-1 ml-12 flex-wrap">
+                      <div className="flex items-center gap-0.5 mt-1 flex-wrap">
                         {QUICK_REACTIONS.map(emoji => (
                           <button key={emoji} onClick={() => handleToggleReaction(msg.id, emoji)}
-                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all">
+                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded-lg hover:bg-primary/10 hover:scale-125 transition-all">
                             {emoji}
                           </button>
                         ))}
@@ -626,14 +641,14 @@ export default function Room() {
                     )}
                     {/* Reaction bubbles */}
                     {reactions.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap mt-1 ml-12">
+                      <div className="flex items-center gap-1 flex-wrap mt-1">
                         {reactions.map((r: any) => {
                           const isMine = (r.userIds as number[]).includes(me.id);
                           return (
                             <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
                               className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30"}`}>
                               <span>{r.emoji}</span>
-                              <span className="font-mono text-[10px] ml-0.5">{r.count}</span>
+                              <span className="text-[10px] ml-0.5">{r.count}</span>
                             </button>
                           );
                         })}
@@ -648,64 +663,74 @@ export default function Room() {
         </div>
 
         {/* Typing indicator */}
-        {(() => {
-          const names = Object.entries(typingUsers).filter(([uid]) => Number(uid) !== me.id).map(([, n]) => n);
-          if (!names.length) return null;
-          const label = names.length === 1 ? `${names[0]} is typing` : names.length === 2 ? `${names[0]} and ${names[1]} are typing` : `${names[0]} and ${names.length - 1} others are typing`;
-          return (
-            <div className="px-4 pb-1 shrink-0 flex items-center gap-1.5">
-              <div className="flex gap-0.5 items-end">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className="w-1 h-1 rounded-full bg-primary/50"
-                    style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
-                ))}
-              </div>
-              <span className="font-mono text-[10px] text-muted-foreground/50 truncate">{label}</span>
+        {typingNames.length > 0 && (
+          <div className="px-5 pb-1 shrink-0 flex items-center gap-1.5">
+            <div className="flex gap-0.5 items-end">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40"
+                  style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
+              ))}
             </div>
-          );
-        })()}
+            <span className="text-[11px] text-muted-foreground/50 truncate">
+              {typingNames.length === 1 ? `${typingNames[0]} is typing` : `${typingNames[0]} and ${typingNames.length - 1} others are typing`}
+            </span>
+          </div>
+        )}
 
         {/* Message input */}
-        <div className="px-4 py-3 border-t border-border/20 shrink-0">
-          <form onSubmit={handleSendMsg} className="flex gap-2">
-            <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
-              placeholder="Message…" disabled={!isConnected}
-              className="h-8 text-sm bg-background/60 border-border/40 focus-visible:ring-primary/50 rounded-sm font-sans" />
-            <Button type="submit" size="sm" disabled={!msgInput.trim() || !isConnected}
-              className="h-8 px-4 rounded-sm font-mono text-xs uppercase shrink-0">Send</Button>
+        <div className="px-4 py-3 shrink-0">
+          <form onSubmit={handleSendMsg}>
+            <div className="relative">
+              <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
+                placeholder="Message…" disabled={!isConnected}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMsg(e as any); } }}
+                className="h-10 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/25 focus-visible:ring-0 text-sm pr-10 placeholder:text-muted-foreground/40" />
+              <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
+                <Smile className="w-4 h-4" />
+              </button>
+            </div>
           </form>
+        </div>
+
+        {/* Bottom nav */}
+        <div className="flex items-center justify-around border-t border-border/20 px-4 pb-4 pt-2 shrink-0">
+          <NavBtn active icon={<Users className="w-5 h-5" />} />
+          <NavBtn onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
+            active={showSearch}
+            icon={<MessageSquare className="w-5 h-5" />} />
+          <NavBtn onClick={() => setShowSettings(true)} icon={<Settings className="w-5 h-5" />} />
         </div>
       </div>
 
       {/* ── Floating Stream Window ── */}
       {viewingStreamOf && (
-        <div className="fixed z-50 w-[420px] rounded-lg overflow-hidden border border-primary/30 shadow-2xl bg-black"
+        <div className="fixed z-50 w-[440px] rounded-2xl overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f]"
           style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}>
-          <div className="flex items-center justify-between px-3 py-2 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
+          <div className="flex items-center justify-between px-4 py-2.5 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
             onPointerDown={streamPinned ? undefined : streamWindow.onPointerDown}
             onPointerMove={streamPinned ? undefined : streamWindow.onPointerMove}
             onPointerUp={streamPinned ? undefined : streamWindow.onPointerUp}>
             <div className="flex items-center gap-2">
-              <MonitorUp className="w-3.5 h-3.5 text-primary/70" />
-              <span className="font-mono text-xs text-foreground/80 uppercase tracking-wide">{viewingUser?.username} is streaming</span>
+              <MonitorUp className="w-3.5 h-3.5 text-muted-foreground/60" />
+              <span className="text-sm font-medium">{viewingUser?.username} is streaming</span>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={() => setStreamPinned(p => !p)} className={`p-1 rounded-sm transition-colors ${streamPinned ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-                {streamPinned ? <Pin className="w-3 h-3" /> : <PinOff className="w-3 h-3" />}
+              <button onClick={() => setStreamPinned(p => !p)} className={`p-1.5 rounded-lg transition-colors ${streamPinned ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground"}`}>
+                {streamPinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={() => setStreamMuted(m => !m)} className="p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
-                {streamMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+              <button onClick={() => setStreamMuted(m => !m)} className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground transition-colors">
+                {streamMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={() => setViewingStreamOf(null)} className="p-1 rounded-sm text-muted-foreground hover:text-destructive transition-colors">
-                <X className="w-3 h-3" />
+              <button onClick={() => setViewingStreamOf(null)} className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-destructive transition-colors">
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
           <div className="aspect-video">
             {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
-              <div className="w-full h-full bg-black flex flex-col items-center justify-center text-primary/40 font-mono text-xs gap-2">
-                <MonitorUp className="w-8 h-8 opacity-40" />
-                <span>Waiting for signal…</span>
+              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
+                <MonitorUp className="w-10 h-10 opacity-30" />
+                <span className="text-sm">Waiting for signal…</span>
               </div>
             )}
           </div>
@@ -714,24 +739,21 @@ export default function Room() {
 
       {/* ── Invite Modal ── */}
       <Dialog open={showInvite} onOpenChange={setShowInvite}>
-        <DialogContent className="bg-card border-primary/30 rounded-sm max-w-sm p-0 overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-primary/20">
-            <DialogTitle className="font-mono text-sm uppercase tracking-widest text-primary flex items-center gap-2">
-              <Share2 className="w-4 h-4" /> Invite to {room.name}
+        <DialogContent className="bg-card border-border/50 rounded-2xl max-w-xs p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/20">
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <Share2 className="w-4 h-4 text-primary" /> Invite to {room.name}
             </DialogTitle>
           </DialogHeader>
-          <div className="px-6 py-8 flex flex-col items-center gap-6">
+          <div className="px-6 py-6 flex flex-col items-center gap-5">
             <div className="text-center">
-              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Access Code</p>
-              <div className="font-mono text-4xl font-bold text-primary tracking-[0.3em] select-all bg-background border border-primary/20 rounded-sm px-6 py-4 shadow-[0_0_20px_rgba(0,229,255,0.1)]">
+              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-3">Invite Code</p>
+              <div className="font-mono text-4xl font-bold tracking-[0.3em] select-all bg-muted/20 border border-border/30 rounded-xl px-6 py-4 text-primary">
                 {room.inviteCode}
               </div>
             </div>
-            <p className="font-mono text-xs text-muted-foreground text-center leading-relaxed">
-              Share this code with your crew.<br />They enter it on the rooms screen to join.
-            </p>
-            <Button className="w-full font-mono uppercase tracking-widest rounded-sm gap-2" onClick={copyCode}>
-              {codeCopied ? <><Check className="w-4 h-4" /> Copied</> : <><Copy className="w-4 h-4" /> Copy Code</>}
+            <Button className="w-full rounded-xl font-medium gap-2" onClick={copyCode}>
+              {codeCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Code</>}
             </Button>
           </div>
         </DialogContent>
@@ -739,40 +761,40 @@ export default function Room() {
 
       {/* ── Settings Modal ── */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="bg-card border-primary/30 rounded-sm max-w-sm p-0 overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-primary/20">
-            <DialogTitle className="font-mono text-sm uppercase tracking-widest text-primary flex items-center gap-2">
-              <Settings className="w-4 h-4" /> Room Settings
+        <DialogContent className="bg-card border-border/50 rounded-2xl max-w-xs p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/20">
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <Settings className="w-4 h-4 text-primary" /> Room Settings
             </DialogTitle>
           </DialogHeader>
-          <div className="px-6 py-6 space-y-6">
+          <div className="px-6 py-5 space-y-5">
             <div>
-              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Rename Room</p>
+              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Rename</p>
               <form onSubmit={handleRename} className="flex gap-2">
-                <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} placeholder="Room name"
-                  className="h-9 font-mono text-sm rounded-sm bg-background border-border/40 focus-visible:ring-primary/50 flex-1" />
-                <Button type="submit" size="sm" className="h-9 px-4 rounded-sm font-mono text-xs uppercase shrink-0"
+                <Input value={renameValue} onChange={e => setRenameValue(e.target.value)}
+                  className="h-9 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm flex-1" />
+                <Button type="submit" size="sm" className="h-9 rounded-xl text-xs px-4"
                   disabled={updateRoomMutation.isPending || !renameValue.trim() || renameValue === room.name}>
-                  {updateRoomMutation.isPending ? "Saving…" : "Save"}
+                  {updateRoomMutation.isPending ? "…" : "Save"}
                 </Button>
               </form>
             </div>
             <div className="border-t border-border/20" />
             <div>
-              <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Danger Zone</p>
+              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Danger</p>
               {!showLeaveConfirm ? (
-                <Button variant="outline" className="w-full rounded-sm font-mono text-xs uppercase border-destructive/30 text-destructive hover:bg-destructive/10 gap-2"
+                <button className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-destructive/25 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
                   onClick={() => setShowLeaveConfirm(true)}>
                   <LogOut className="w-3.5 h-3.5" /> Leave Room
-                </Button>
+                </button>
               ) : (
                 <div className="space-y-2">
-                  <p className="font-mono text-xs text-muted-foreground text-center">You'll need the invite code to rejoin.</p>
+                  <p className="text-xs text-muted-foreground/60 text-center">You'll need the invite code to rejoin.</p>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 rounded-sm font-mono text-xs" onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
-                    <Button size="sm" className="flex-1 rounded-sm font-mono text-xs uppercase bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                    <Button variant="outline" size="sm" className="flex-1 rounded-xl text-xs" onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
+                    <Button size="sm" className="flex-1 rounded-xl text-xs bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                       onClick={handleLeaveRoom} disabled={leaveRoomMutation.isPending}>
-                      {leaveRoomMutation.isPending ? "Leaving…" : "Confirm"}
+                      {leaveRoomMutation.isPending ? "…" : "Confirm"}
                     </Button>
                   </div>
                 </div>
@@ -782,5 +804,15 @@ export default function Room() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function NavBtn({ icon, active, onClick }: { icon: React.ReactNode; active?: boolean; onClick?: () => void }) {
+  return (
+    <button onClick={onClick}
+      className={`relative flex items-center justify-center p-2 rounded-xl transition-colors ${active ? "text-foreground" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+      {icon}
+      {active && <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-foreground rounded-full" />}
+    </button>
   );
 }

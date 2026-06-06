@@ -4,13 +4,18 @@ import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe } from "@works
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Users, LogOut, Plus, Hash, Copy, Check } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 function getLastVisited(roomId: number): Date | null {
   const ts = localStorage.getItem(`screencrew_visited_${roomId}`);
   return ts ? new Date(ts) : null;
 }
+
+const AVATAR_COLORS = [
+  "bg-violet-600", "bg-blue-500", "bg-green-600", "bg-orange-500",
+  "bg-pink-600", "bg-yellow-500", "bg-cyan-600", "bg-rose-600",
+];
 
 export default function Rooms() {
   const [, setLocation] = useLocation();
@@ -25,19 +30,19 @@ export default function Rooms() {
   const [newRoomName, setNewRoomName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
 
   const copyInviteCode = useCallback((e: React.MouseEvent, code: string) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     navigator.clipboard.writeText(code).then(() => {
-      setCopiedCode(code);
-      setTimeout(() => setCopiedCode(null), 2000);
+      setCopiedCode(code); setTimeout(() => setCopiedCode(null), 2000);
     });
   }, []);
 
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRoomName) return;
+    if (!newRoomName.trim()) return;
     createRoom.mutate({ data: { name: newRoomName } }, {
       onSuccess: (room) => setLocation(`/room/${room.id}`),
       onError: (err) => toast({ title: "Failed to create room", description: err.message, variant: "destructive" }),
@@ -46,7 +51,7 @@ export default function Rooms() {
 
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteCode) return;
+    if (!inviteCode.trim()) return;
     joinRoom.mutate({ data: { inviteCode } }, {
       onSuccess: (room) => setLocation(`/room/${room.id}`),
       onError: (err) => toast({ title: "Failed to join room", description: err.message, variant: "destructive" }),
@@ -61,72 +66,128 @@ export default function Rooms() {
 
   if (!me) return null;
 
+  const avatarColor = AVATAR_COLORS[me.id % AVATAR_COLORS.length];
+  const initials = me.username.substring(0, 2).toUpperCase();
+
   return (
-    <div className="min-h-screen bg-background crt-scanline font-sans flex flex-col items-center py-12 px-4 relative">
-      <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-
-      <div className="w-full max-w-4xl flex items-center justify-between mb-12">
-        <h1 className="font-mono text-2xl font-bold text-primary tracking-widest uppercase">ScreenCrew</h1>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-sm text-muted-foreground">USER: <span className="text-foreground">{me.username}</span></span>
-          <Button variant="outline" size="sm" onClick={handleLogout} className="rounded-sm font-mono text-xs border-primary/30 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30">
-            <LogOut className="w-3 h-3 mr-2" /> Disconnect
-          </Button>
+    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/25 flex items-center justify-center">
+              <MonitorUp className="w-4.5 h-4.5 text-primary" />
+            </div>
+            <div>
+              <h1 className="font-semibold text-base text-foreground">ScreenCrew</h1>
+              <p className="text-xs text-muted-foreground">Your rooms</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-7 h-7 rounded-full ${avatarColor} flex items-center justify-center text-white text-[11px] font-bold`}>
+                {initials}
+              </div>
+              <span className="text-sm text-muted-foreground">{me.username}</span>
+            </div>
+            <button onClick={handleLogout} className="p-2 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 transition-colors" title="Sign out">
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-8">
-
-        <div className="md:col-span-2 space-y-6">
-          <div className="flex items-center justify-between border-b border-primary/20 pb-2">
-            <h2 className="font-mono text-lg text-primary uppercase">Active Nodes</h2>
+        {/* Room list */}
+        <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-xl mb-4">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border/30">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Rooms</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => { setShowJoin(j => !j); setShowCreate(false); }}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${showJoin ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"}`}>
+                Join
+              </button>
+              <button onClick={() => { setShowCreate(c => !c); setShowJoin(false); }}
+                className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${showCreate ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"}`}>
+                <Plus className="w-3.5 h-3.5" /> Create
+              </button>
+            </div>
           </div>
 
+          {/* Inline create form */}
+          {showCreate && (
+            <form onSubmit={handleCreateRoom} className="flex items-center gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
+              <Input value={newRoomName} onChange={e => setNewRoomName(e.target.value)}
+                placeholder="Room name…" autoFocus
+                className="h-8 rounded-xl text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1" />
+              <Button type="submit" size="sm" className="h-8 rounded-xl text-xs px-4" disabled={createRoom.isPending || !newRoomName.trim()}>
+                {createRoom.isPending ? "…" : "Create"}
+              </Button>
+            </form>
+          )}
+
+          {/* Inline join form */}
+          {showJoin && (
+            <form onSubmit={handleJoinRoom} className="flex items-center gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
+              <Input value={inviteCode} onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                placeholder="Invite code…" autoFocus
+                className="h-8 rounded-xl text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 uppercase tracking-wider" />
+              <Button type="submit" size="sm" variant="secondary" className="h-8 rounded-xl text-xs px-4" disabled={joinRoom.isPending || !inviteCode.trim()}>
+                {joinRoom.isPending ? "…" : "Join"}
+              </Button>
+            </form>
+          )}
+
+          {/* Rooms */}
           {isLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-20 bg-muted/10 animate-pulse rounded-sm border border-primary/10" />
+            <div className="space-y-px">
+              {[1, 2].map(i => (
+                <div key={i} className="flex items-center gap-3 px-5 py-4 animate-pulse">
+                  <div className="w-9 h-9 rounded-xl bg-muted/50 shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3.5 bg-muted/50 rounded w-24" />
+                    <div className="h-3 bg-muted/30 rounded w-16" />
+                  </div>
+                </div>
               ))}
             </div>
           ) : rooms?.length === 0 ? (
-            <div className="text-center py-12 border border-dashed border-primary/20 bg-muted/5 rounded-sm">
-              <p className="font-mono text-sm text-muted-foreground">NO ACTIVE CONNECTIONS</p>
-              <p className="font-mono text-xs text-muted-foreground/60 mt-2">Create or join a room to begin</p>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-muted/30 flex items-center justify-center mb-3">
+                <MonitorUp className="w-6 h-6 text-muted-foreground/40" />
+              </div>
+              <p className="text-sm text-muted-foreground">No rooms yet</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Create one or join with an invite code</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
               {rooms?.map(room => {
                 const lastVisited = getLastVisited(room.id);
-                const hasUnread = room.lastMessageAt
-                  ? !lastVisited || new Date(room.lastMessageAt) > lastVisited
-                  : false;
+                const hasUnread = room.lastMessageAt ? !lastVisited || new Date(room.lastMessageAt) > lastVisited : false;
 
                 return (
                   <Link key={room.id} href={`/room/${room.id}`}>
-                    <div className="group block p-4 border border-primary/20 bg-card hover:bg-primary/5 hover:border-primary/50 transition-all cursor-pointer rounded-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-8 h-8 bg-primary/10 translate-x-4 -translate-y-4 rotate-45 group-hover:bg-primary/20 transition-colors" />
-                      <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-mono text-lg font-bold group-hover:text-primary transition-colors">{room.name}</h3>
-                        {hasUnread && (
-                          <span className="shrink-0 ml-2 mt-1 inline-flex items-center gap-1 bg-primary/20 text-primary border border-primary/30 font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm animate-pulse">
-                            NEW
-                          </span>
-                        )}
+                    <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/20 transition-colors border-b border-border/20 last:border-0 cursor-pointer">
+                      <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0">
+                        <MonitorUp className="w-4.5 h-4.5 text-primary/80" />
                       </div>
-                      <div className="flex items-center justify-between text-xs font-mono text-muted-foreground">
-                        <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {room.memberCount} members</span>
-                        <button
-                          onClick={(e) => copyInviteCode(e, room.inviteCode)}
-                          className={`flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 transition-all ${copiedCode === room.inviteCode ? "text-primary bg-primary/10" : "opacity-50 hover:opacity-100 hover:bg-primary/10 hover:text-primary"}`}
-                          title="Copy invite code"
-                        >
-                          {copiedCode === room.inviteCode ? (
-                            <><Check className="w-3 h-3" /> Copied!</>
-                          ) : (
-                            <><Hash className="w-3.5 h-3.5" />{room.inviteCode}<Copy className="w-3 h-3 ml-0.5" /></>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">{room.name}</p>
+                          {hasUnread && (
+                            <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />
                           )}
-                        </button>
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <Users className="w-3 h-3 text-muted-foreground/50" />
+                          <span className="text-xs text-muted-foreground/60">{room.memberCount} members</span>
+                        </div>
                       </div>
+                      <button onClick={(e) => copyInviteCode(e, room.inviteCode)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground/40 hover:text-muted-foreground px-2 py-1 rounded-lg hover:bg-muted/40 transition-colors shrink-0"
+                        title="Copy invite code">
+                        <Hash className="w-3 h-3" />
+                        <span className="font-mono">{room.inviteCode}</span>
+                        {copiedCode === room.inviteCode ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
                     </div>
                   </Link>
                 );
@@ -134,43 +195,6 @@ export default function Rooms() {
             </div>
           )}
         </div>
-
-        <div className="space-y-8">
-          <div className="bg-card border border-primary/20 p-5 rounded-sm">
-            <h2 className="font-mono text-sm text-primary uppercase mb-4 flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Initialize Room
-            </h2>
-            <form onSubmit={handleCreateRoom} className="space-y-3">
-              <Input
-                value={newRoomName}
-                onChange={e => setNewRoomName(e.target.value)}
-                placeholder="Room Designation"
-                className="font-mono text-sm rounded-sm bg-background border-primary/20 h-9 focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0"
-              />
-              <Button type="submit" className="w-full font-mono text-xs uppercase h-9 rounded-sm" disabled={createRoom.isPending || !newRoomName}>
-                {createRoom.isPending ? "Initializing..." : "Create"}
-              </Button>
-            </form>
-          </div>
-
-          <div className="bg-card border border-primary/20 p-5 rounded-sm">
-            <h2 className="font-mono text-sm text-primary uppercase mb-4 flex items-center gap-2">
-              <Hash className="w-4 h-4" /> Connect via Code
-            </h2>
-            <form onSubmit={handleJoinRoom} className="space-y-3">
-              <Input
-                value={inviteCode}
-                onChange={e => setInviteCode(e.target.value)}
-                placeholder="Access Code"
-                className="font-mono text-sm rounded-sm bg-background border-primary/20 h-9 focus-visible:ring-1 focus-visible:ring-primary focus-visible:ring-offset-0 uppercase"
-              />
-              <Button type="submit" variant="secondary" className="w-full font-mono text-xs uppercase h-9 rounded-sm border border-secondary-border hover:border-primary/50" disabled={joinRoom.isPending || !inviteCode}>
-                {joinRoom.isPending ? "Connecting..." : "Join"}
-              </Button>
-            </form>
-          </div>
-        </div>
-
       </div>
     </div>
   );
