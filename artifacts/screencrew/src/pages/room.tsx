@@ -77,6 +77,23 @@ const CHAT_COLORS = [
 function avatarBg(userId: number) { return AVATAR_BG[userId % AVATAR_BG.length]; }
 function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.length]; }
 
+type OverlayToastData = {
+  key: number;
+  userId: number;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  content: string;
+};
+
+function toastPreview(content: string) {
+  const text = content
+    .replace(/\[screencrew:image:[^\]]+\]/g, "\u{1F4F7} Photo")
+    .replace(/\[screencrew:file:[^:]+:([^\]]+)\]/g, "\u{1F4CE} $1")
+    .trim();
+  return text || "\u{1F4F7} Photo";
+}
+
 // ─── Helper components ───────────────────────────────────────────────────────
 
 function Avatar({ username, userId, size = 36, square = false, avatarUrl }: { username: string; userId: number; size?: number; square?: boolean; avatarUrl?: string | null }) {
@@ -200,9 +217,11 @@ export default function Room() {
 
   const [overlayMode, setOverlayMode] = useState(false);
   const [unreadOverlay, setUnreadOverlay] = useState(0);
+  const [overlayToasts, setOverlayToasts] = useState<OverlayToastData[]>([]);
+  const toastKeyRef = useRef(0);
   const [pillPos, setPillPos] = useState(() => settings.overlayPillPos);
   const pillDragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
-  const prevMsgCountRef = useRef(0);
+  const lastSeenMsgIdRef = useRef(0);
 
   // ─── Refs ──────────────────────────────────────────────────────────────────
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -541,15 +560,34 @@ export default function Room() {
   }, [settings.overlayHotkey]);
 
   useEffect(() => {
-    if (overlayMode && messages.length > prevMsgCountRef.current) {
-      setUnreadOverlay(u => u + (messages.length - prevMsgCountRef.current));
+    const maxId = messages.reduce((mx, m) => (m.id > mx ? m.id : mx), 0);
+    if (overlayMode && maxId > lastSeenMsgIdRef.current) {
+      const fresh = messages.filter(m => m.id > lastSeenMsgIdRef.current && m.userId !== me?.id);
+      if (fresh.length) {
+        setUnreadOverlay(u => u + fresh.length);
+        setOverlayToasts(prev => [
+          ...prev,
+          ...fresh.map(m => ({
+            key: ++toastKeyRef.current,
+            userId: m.userId,
+            username: m.username,
+            displayName: m.displayName ?? null,
+            avatarUrl: m.avatarUrl ?? null,
+            content: m.content,
+          })),
+        ].slice(-3));
+      }
     }
-    prevMsgCountRef.current = messages.length;
-  }, [messages.length, overlayMode]);
+    if (maxId > lastSeenMsgIdRef.current) lastSeenMsgIdRef.current = maxId;
+  }, [messages, overlayMode, me?.id]);
 
   useEffect(() => {
-    if (!overlayMode) setUnreadOverlay(0);
+    if (!overlayMode) { setUnreadOverlay(0); setOverlayToasts([]); }
   }, [overlayMode]);
+
+  const dismissToast = useCallback((key: number) => {
+    setOverlayToasts(prev => prev.filter(t => t.key !== key));
+  }, []);
 
   const pillOnPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1011,6 +1049,20 @@ export default function Room() {
       </Dialog>
 
       {/* ── Overlay Pill ── */}
+      {overlayMode && overlayToasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2 pointer-events-none">
+          {overlayToasts.map(t => (
+            <OverlayToast
+              key={t.key}
+              toast={t}
+              square={classic}
+              onDismiss={dismissToast}
+              onOpen={() => { setOverlayMode(false); setUnreadOverlay(0); }}
+            />
+          ))}
+        </div>
+      )}
+
       {overlayMode && (
         <div className="fixed z-50 select-none"
           style={{ left: pillPos.x, top: pillPos.y }}>
@@ -1086,6 +1138,46 @@ export default function Room() {
           messagesEndRef={messagesEndRef}
         />
       )}
+    </div>
+  );
+}
+
+function OverlayToast({ toast, square, onDismiss, onOpen }: {
+  toast: OverlayToastData;
+  square: boolean;
+  onDismiss: (key: number) => void;
+  onOpen: () => void;
+}) {
+  const [paused, setPaused] = useState(false);
+  const key = toast.key;
+  useEffect(() => {
+    if (paused) return;
+    const t = setTimeout(() => onDismiss(key), 5000);
+    return () => clearTimeout(t);
+  }, [paused, onDismiss, key]);
+
+  const name = displayNameOf({ displayName: toast.displayName, username: toast.username }) || toast.username;
+
+  return (
+    <div
+      onClick={onOpen}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      className="pointer-events-auto w-[260px] flex items-start gap-2.5 bg-card/95 border border-primary/30 rounded-2xl pl-2.5 pr-2 py-2.5 shadow-2xl backdrop-blur-sm cursor-pointer hover:border-primary/50 transition-colors animate-in slide-in-from-right-4 fade-in duration-300">
+      <Avatar username={toast.username} userId={toast.userId} size={34} square={square} avatarUrl={toast.avatarUrl} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-xs font-semibold truncate ${chatColor(toast.userId)}`}>{name}</span>
+          <MessageSquare className="w-3 h-3 text-primary/40 shrink-0 ml-auto" />
+        </div>
+        <p className="text-xs text-foreground/75 mt-0.5 line-clamp-2 break-words">{toastPreview(toast.content)}</p>
+      </div>
+      <button
+        onClick={e => { e.stopPropagation(); onDismiss(key); }}
+        className="text-muted-foreground/30 hover:text-foreground transition-colors shrink-0 -mt-0.5"
+        title="Dismiss">
+        <X className="w-3 h-3" />
+      </button>
     </div>
   );
 }
