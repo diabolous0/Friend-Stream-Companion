@@ -60,6 +60,7 @@ export interface PresenceEntry {
   online: boolean;
   speaking: boolean;
   streaming: boolean;
+  inVoice: boolean;
 }
 
 export interface Reaction {
@@ -75,6 +76,7 @@ export interface Message {
   username: string;
   content: string;
   createdAt: string;
+  editedAt?: string | null;
   reactions: Reaction[];
 }
 
@@ -83,7 +85,20 @@ export interface MessageInput {
   content: string;
 }
 
+export interface EditMessageInput {
+  /** @minLength 1 */
+  content: string;
+}
+
 export interface ReactionInput {
   emoji: string;
 }
+
+export type GetRoomMessagesParams = {
+/**
+ * Fetch messages with ID less than this value (cursor pagination)
+ */
+before?: number;
+limit?: number;
+};
 

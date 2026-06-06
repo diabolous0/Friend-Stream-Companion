@@ -205,7 +205,8 @@ export const GetRoomPresenceResponseItem = zod.object({
   "username": zod.string(),
   "online": zod.boolean(),
   "speaking": zod.boolean(),
-  "streaming": zod.boolean()
+  "streaming": zod.boolean(),
+  "inVoice": zod.boolean()
 })
 export const GetRoomPresenceResponse = zod.array(GetRoomPresenceResponseItem)
 
@@ -217,6 +218,13 @@ export const GetRoomMessagesParams = zod.object({
   "roomId": zod.coerce.number()
 })
 
+export const getRoomMessagesQueryLimitDefault = 50;
+
+export const GetRoomMessagesQueryParams = zod.object({
+  "before": zod.coerce.number().optional().describe('Fetch messages with ID less than this value (cursor pagination)'),
+  "limit": zod.coerce.number().default(getRoomMessagesQueryLimitDefault)
+})
+
 export const GetRoomMessagesResponseItem = zod.object({
   "id": zod.number(),
   "roomId": zod.number(),
@@ -224,6 +232,7 @@ export const GetRoomMessagesResponseItem = zod.object({
   "username": zod.string(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
+  "editedAt": zod.coerce.date().nullish(),
   "reactions": zod.array(zod.object({
   "emoji": zod.string(),
   "count": zod.number(),
@@ -245,6 +254,46 @@ export const SendMessageParams = zod.object({
 
 export const SendMessageBody = zod.object({
   "content": zod.string().min(1)
+})
+
+
+/**
+ * @summary Edit a message (owner only, within 15 minutes)
+ */
+export const EditMessageParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "messageId": zod.coerce.number()
+})
+
+
+
+
+export const EditMessageBody = zod.object({
+  "content": zod.string().min(1)
+})
+
+export const EditMessageResponse = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "userId": zod.number(),
+  "username": zod.string(),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "editedAt": zod.coerce.date().nullish(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+}))
+})
+
+
+/**
+ * @summary Delete a message (owner only)
+ */
+export const DeleteMessageParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "messageId": zod.coerce.number()
 })
 
 

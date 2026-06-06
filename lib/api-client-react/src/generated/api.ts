@@ -22,6 +22,8 @@ import type {
 import type {
   AuthInput,
   AuthResponse,
+  EditMessageInput,
+  GetRoomMessagesParams,
   HealthStatus,
   JoinByCodeInput,
   JoinRoomInput,
@@ -1009,20 +1011,29 @@ export function useGetRoomPresence<TData = Awaited<ReturnType<typeof getRoomPres
 
 
 
-export const getGetRoomMessagesUrl = (roomId: number,) => {
+export const getGetRoomMessagesUrl = (roomId: number,
+    params?: GetRoomMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/rooms/${roomId}/messages`
+  return stringifiedParams.length > 0 ? `/api/rooms/${roomId}/messages?${stringifiedParams}` : `/api/rooms/${roomId}/messages`
 }
 
 /**
  * @summary Get recent messages in a room
  */
-export const getRoomMessages = async (roomId: number, options?: RequestInit): Promise<Message[]> => {
+export const getRoomMessages = async (roomId: number,
+    params?: GetRoomMessagesParams, options?: RequestInit): Promise<Message[]> => {
 
-  return customFetch<Message[]>(getGetRoomMessagesUrl(roomId),
+  return customFetch<Message[]>(getGetRoomMessagesUrl(roomId,params),
   {
     ...options,
     method: 'GET'
@@ -1035,23 +1046,25 @@ export const getRoomMessages = async (roomId: number, options?: RequestInit): Pr
 
 
 
-export const getGetRoomMessagesQueryKey = (roomId: number,) => {
+export const getGetRoomMessagesQueryKey = (roomId: number,
+    params?: GetRoomMessagesParams,) => {
     return [
-    `/api/rooms/${roomId}/messages`
+    `/api/rooms/${roomId}/messages`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetRoomMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getRoomMessages>>, TError = ErrorType<unknown>>(roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetRoomMessagesQueryOptions = <TData = Awaited<ReturnType<typeof getRoomMessages>>, TError = ErrorType<unknown>>(roomId: number,
+    params?: GetRoomMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetRoomMessagesQueryKey(roomId);
+  const queryKey =  queryOptions?.queryKey ?? getGetRoomMessagesQueryKey(roomId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRoomMessages>>> = ({ signal }) => getRoomMessages(roomId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRoomMessages>>> = ({ signal }) => getRoomMessages(roomId,params, { signal, ...requestOptions });
 
 
 
@@ -1069,11 +1082,12 @@ export type GetRoomMessagesQueryError = ErrorType<unknown>
  */
 
 export function useGetRoomMessages<TData = Awaited<ReturnType<typeof getRoomMessages>>, TError = ErrorType<unknown>>(
- roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ roomId: number,
+    params?: GetRoomMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetRoomMessagesQueryOptions(roomId,options)
+  const queryOptions = getGetRoomMessagesQueryOptions(roomId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -1156,6 +1170,152 @@ export const useSendMessage = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSendMessageMutationOptions(options));
+    }
+
+export const getEditMessageUrl = (roomId: number,
+    messageId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/messages/${messageId}`
+}
+
+/**
+ * @summary Edit a message (owner only, within 15 minutes)
+ */
+export const editMessage = async (roomId: number,
+    messageId: number,
+    editMessageInput: EditMessageInput, options?: RequestInit): Promise<Message> => {
+
+  return customFetch<Message>(getEditMessageUrl(roomId,messageId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      editMessageInput,)
+  }
+);}
+
+
+
+
+export const getEditMessageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof editMessage>>, TError,{roomId: number;messageId: number;data: BodyType<EditMessageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof editMessage>>, TError,{roomId: number;messageId: number;data: BodyType<EditMessageInput>}, TContext> => {
+
+const mutationKey = ['editMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof editMessage>>, {roomId: number;messageId: number;data: BodyType<EditMessageInput>}> = (props) => {
+          const {roomId,messageId,data} = props ?? {};
+
+          return  editMessage(roomId,messageId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EditMessageMutationResult = NonNullable<Awaited<ReturnType<typeof editMessage>>>
+    export type EditMessageMutationBody = BodyType<EditMessageInput>
+    export type EditMessageMutationError = ErrorType<void>
+
+    /**
+ * @summary Edit a message (owner only, within 15 minutes)
+ */
+export const useEditMessage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof editMessage>>, TError,{roomId: number;messageId: number;data: BodyType<EditMessageInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof editMessage>>,
+        TError,
+        {roomId: number;messageId: number;data: BodyType<EditMessageInput>},
+        TContext
+      > => {
+      return useMutation(getEditMessageMutationOptions(options));
+    }
+
+export const getDeleteMessageUrl = (roomId: number,
+    messageId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/messages/${messageId}`
+}
+
+/**
+ * @summary Delete a message (owner only)
+ */
+export const deleteMessage = async (roomId: number,
+    messageId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteMessageUrl(roomId,messageId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteMessageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMessage>>, TError,{roomId: number;messageId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteMessage>>, TError,{roomId: number;messageId: number}, TContext> => {
+
+const mutationKey = ['deleteMessage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteMessage>>, {roomId: number;messageId: number}> = (props) => {
+          const {roomId,messageId} = props ?? {};
+
+          return  deleteMessage(roomId,messageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteMessageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteMessage>>>
+
+    export type DeleteMessageMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a message (owner only)
+ */
+export const useDeleteMessage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteMessage>>, TError,{roomId: number;messageId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteMessage>>,
+        TError,
+        {roomId: number;messageId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteMessageMutationOptions(options));
     }
 
 export const getToggleReactionUrl = (roomId: number,

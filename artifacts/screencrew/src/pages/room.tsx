@@ -5,8 +5,10 @@ import {
   useGetRoomMembers, getGetRoomMembersQueryKey,
   useGetRoomPresence, getGetRoomPresenceQueryKey,
   useGetRoomMessages, getGetRoomMessagesQueryKey,
+  getRoomMessages,
   useSendMessage, useToggleReaction,
   useUpdateRoom, useLeaveRoom,
+  useEditMessage, useDeleteMessage,
   useGetMe
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,36 +21,26 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  MonitorUp, Volume2, VolumeX,
-  ChevronLeft, Mic, MicOff, Share2, Copy, Check,
-  Pin, PinOff, X, Settings, Search, LogOut,
+  MonitorUp, Volume2, VolumeX, ChevronLeft, Mic, MicOff,
+  Share2, Copy, Check, Pin, PinOff, X, Settings, Search,
+  LogOut, Phone, PhoneOff, Headphones, Pencil, Trash2, Bell,
 } from "lucide-react";
 
 const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
-
 const USER_COLORS = [
-  "text-cyan-400", "text-violet-400", "text-green-400",
-  "text-orange-400", "text-pink-400", "text-yellow-400",
-  "text-blue-400", "text-rose-400",
+  "text-cyan-400", "text-violet-400", "text-green-400", "text-orange-400",
+  "text-pink-400", "text-yellow-400", "text-blue-400", "text-rose-400",
 ];
-function getUserColor(userId: number) {
-  return USER_COLORS[userId % USER_COLORS.length];
-}
+function getUserColor(userId: number) { return USER_COLORS[userId % USER_COLORS.length]; }
 
 function highlight(text: string, query: string): React.ReactNode {
   if (!query.trim()) return text;
-  const lc = text.toLowerCase();
-  const lq = query.toLowerCase();
   const parts: React.ReactNode[] = [];
-  let start = 0;
-  let idx = lc.indexOf(lq, start);
+  const lc = text.toLowerCase(), lq = query.toLowerCase();
+  let start = 0, idx = lc.indexOf(lq, 0);
   while (idx !== -1) {
     if (idx > start) parts.push(text.slice(start, idx));
-    parts.push(
-      <mark key={idx} className="bg-primary/30 text-foreground not-italic rounded-sm px-0">
-        {text.slice(idx, idx + query.length)}
-      </mark>
-    );
+    parts.push(<mark key={idx} className="bg-primary/30 text-foreground not-italic rounded-sm px-0">{text.slice(idx, idx + query.length)}</mark>);
     start = idx + query.length;
     idx = lc.indexOf(lq, start);
   }
@@ -80,6 +72,12 @@ function StreamVideo({ stream, muted }: { stream: MediaStream; muted: boolean })
   return <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-contain bg-black" />;
 }
 
+function AudioPlayer({ stream }: { stream: MediaStream }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
+  return <audio ref={ref} autoPlay />;
+}
+
 export default function Room() {
   const [, params] = useRoute("/room/:roomId");
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
@@ -90,52 +88,77 @@ export default function Room() {
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
   const { data: members } = useGetRoomMembers(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMembersQueryKey(roomId) } });
   const { data: initialPresence } = useGetRoomPresence(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomPresenceQueryKey(roomId) } });
-  const { data: initialMessages } = useGetRoomMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
+  const { data: initialMessages } = useGetRoomMessages(roomId, undefined, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
 
-  const sendMessage = useSendMessage();
+  const sendMessageMutation = useSendMessage();
   const toggleReactionMutation = useToggleReaction();
   const updateRoomMutation = useUpdateRoom();
   const leaveRoomMutation = useLeaveRoom();
+  const editMessageMutation = useEditMessage();
+  const deleteMessageMutation = useDeleteMessage();
 
+  // ─── Core state ────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
 
+  // ─── Search ────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // ─── Pagination ────────────────────────────────────────────────────────────
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  // ─── Edit / delete ─────────────────────────────────────────────────────────
+  const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+
+  // ─── Sounds ────────────────────────────────────────────────────────────────
   const [soundsMuted, setSoundsMuted] = useState(false);
   const { playMessage, playReaction, playJoin } = useSounds(soundsMuted);
 
+  // ─── Notifications ─────────────────────────────────────────────────────────
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
+  const notifPermRef = useRef<NotificationPermission>("default");
+
+  // ─── Settings / invite ─────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
 
+  // ─── Stream window ─────────────────────────────────────────────────────────
   const [localSpeaking, setLocalSpeaking] = useState(false);
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
 
+  // ─── Refs ──────────────────────────────────────────────────────────────────
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sendRef = useRef<((msg: any) => void) | null>(null);
   const isSharingRef = useRef(false);
   const isTypingRef = useRef(false);
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevOnlineRef = useRef<Set<number>>(new Set());
+  const presenceRef = useRef<Record<number, any>>({});
 
   const streamWindow = useDraggable({ x: Math.min(420, window.innerWidth - 440), y: 80 });
 
+  // ─── Presence ref sync ─────────────────────────────────────────────────────
+  useEffect(() => { presenceRef.current = presence; }, [presence]);
+
+  // ─── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (roomId) localStorage.setItem(`screencrew_visited_${roomId}`, new Date().toISOString());
   }, [roomId]);
 
   useEffect(() => {
-    if (initialMessages) setMessages(initialMessages);
+    if (initialMessages) { setMessages(initialMessages); setHasMore(initialMessages.length >= 50); }
   }, [initialMessages]);
 
   useEffect(() => {
@@ -147,13 +170,16 @@ export default function Room() {
     }
   }, [initialPresence]);
 
-  useEffect(() => {
-    if (room) setRenameValue(room.name);
-  }, [room]);
+  useEffect(() => { if (room) setRenameValue(room.name); }, [room]);
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (typeof Notification !== "undefined") {
+      setNotifPermission(Notification.permission);
+      notifPermRef.current = Notification.permission;
+    }
+  }, []);
 
   useEffect(() => {
     if (showSearch) setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -170,25 +196,22 @@ export default function Room() {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  // ─── Voice activity ────────────────────────────────────────────────────────
   const handleSpeakingChange = useCallback((speaking: boolean) => {
     setLocalSpeaking(speaking);
-    sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current });
+    sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current, inVoice: false });
   }, []);
 
-  const { isActive: micActive, hasPermission: micPermission, startDetection, stopDetection } = useVoiceActivity({
+  const { isActive: micActive, startDetection, stopDetection } = useVoiceActivity({
     onSpeakingChange: handleSpeakingChange, threshold: 12, silenceDelay: 500,
   });
 
   const toggleMic = useCallback(async () => {
-    if (micActive) { stopDetection(); sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current }); }
+    if (micActive) { stopDetection(); sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: false }); }
     else await startDetection();
   }, [micActive, startDetection, stopDetection]);
 
-  const applyReactionUpdate = useCallback((messageId: number, reactions: any[]) => {
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-    playReaction();
-  }, [playReaction]);
-
+  // ─── Typing ────────────────────────────────────────────────────────────────
   const sendTypingStop = useCallback(() => {
     if (typingStopTimerRef.current) { clearTimeout(typingStopTimerRef.current); typingStopTimerRef.current = null; }
     if (isTypingRef.current) { isTypingRef.current = false; sendRef.current?.({ type: "typing", isTyping: false }); }
@@ -202,25 +225,59 @@ export default function Room() {
     typingStopTimerRef.current = setTimeout(sendTypingStop, 4000);
   }, [sendTypingStop]);
 
+  // ─── Reactions ─────────────────────────────────────────────────────────────
+  const applyReactionUpdate = useCallback((messageId: number, reactions: any[]) => {
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+    playReaction();
+  }, [playReaction]);
+
+  // ─── WebRTC ────────────────────────────────────────────────────────────────
+  const {
+    remoteStreams, remoteAudioStreams,
+    isSharing, isInVoice,
+    startSharing, stopSharing,
+    handleOffer, handleAnswer, handleIceCandidate, sendOffer,
+    joinVoice, leaveVoice,
+    sendAudioOffer, handleAudioOffer, handleAudioAnswer, handleAudioIce,
+    cleanup,
+  } = useWebRTC(
+    (msg) => sendRef.current?.(msg),
+    () => { isSharingRef.current = true; sendRef.current?.({ type: "presence", speaking: false, streaming: true, inVoice: isInVoice }); },
+    () => { isSharingRef.current = false; sendRef.current?.({ type: "presence", speaking: false, streaming: false, inVoice: isInVoice }); },
+  );
+
+  // ─── WebSocket ─────────────────────────────────────────────────────────────
   const { isConnected, send } = useWebSocket({
     onPresenceUpdate: (rid, entries) => {
       if (rid !== roomId) return;
+      const voiceOfferTargets: number[] = [];
+      let doPlayJoin = false;
       setPresence(prev => {
         const next = { ...prev };
         entries.forEach((e: any) => {
           const wasOnline = prevOnlineRef.current.has(e.userId);
-          if (e.online && !wasOnline && e.userId !== me?.id) playJoin();
-          if (e.online) prevOnlineRef.current.add(e.userId);
-          else prevOnlineRef.current.delete(e.userId);
+          if (e.online && !wasOnline && e.userId !== me?.id) doPlayJoin = true;
+          if (e.online) prevOnlineRef.current.add(e.userId); else prevOnlineRef.current.delete(e.userId);
+          if (e.inVoice && !prev[e.userId]?.inVoice && e.userId !== me?.id && isInVoice) voiceOfferTargets.push(e.userId);
           next[e.userId] = e;
         });
         return next;
       });
+      if (doPlayJoin) playJoin();
+      voiceOfferTargets.forEach(id => sendAudioOffer(id));
     },
     onNewMessage: (msg) => {
-      if (msg.roomId === roomId) {
-        setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
-        if (msg.userId !== me?.id) playMessage();
+      if (msg.roomId !== roomId) return;
+      setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+      if (msg.userId !== me?.id) {
+        playMessage();
+        if (document.visibilityState === "hidden" && notifPermRef.current === "granted") {
+          new Notification(msg.username, {
+            body: msg.content,
+            tag: `screencrew-room-${roomId}`,
+            silent: true,
+          });
+        }
       }
     },
     onReactionUpdate: applyReactionUpdate,
@@ -230,22 +287,26 @@ export default function Room() {
         const next = { ...prev }; delete next[userId]; return next;
       });
     },
+    onMessageUpdated: (msg) => {
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...msg } : m));
+    },
+    onMessageDeleted: (messageId) => {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    },
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
     onStreamAnswer: async (from, sdp) => { await handleAnswer(from, sdp); },
     onIceCandidate: async (from, candidate) => { await handleIceCandidate(from, candidate); },
+    onAudioOffer: async (from, sdp) => { await handleAudioOffer(from, sdp); },
+    onAudioAnswer: async (from, sdp) => { await handleAudioAnswer(from, sdp); },
+    onAudioIce: async (from, candidate) => { await handleAudioIce(from, candidate); },
   });
-
-  const { remoteStreams, isSharing, startSharing, stopSharing, handleOffer, handleAnswer, handleIceCandidate, sendOffer, cleanup } = useWebRTC(
-    send,
-    () => { isSharingRef.current = true; send({ type: "presence", speaking: false, streaming: true }); },
-    () => { isSharingRef.current = false; send({ type: "presence", speaking: false, streaming: false }); },
-  );
 
   useEffect(() => { sendRef.current = send; }, [send]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
   useEffect(() => { if (isConnected && roomId) send({ type: "join_room", roomId }); }, [isConnected, roomId, send]);
-  useEffect(() => () => { cleanup(); stopDetection(); }, [cleanup, stopDetection]);
+  useEffect(() => () => { cleanup(); stopDetection(); }, []);
 
+  // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleStartShare = async () => {
     await startSharing(roomId);
     if (members && me) members.forEach(m => { if (m.id !== me.id) sendOffer(m.id); });
@@ -255,7 +316,7 @@ export default function Room() {
     e.preventDefault();
     if (!msgInput.trim()) return;
     sendTypingStop();
-    sendMessage.mutate({ roomId, data: { content: msgInput } });
+    sendMessageMutation.mutate({ roomId, data: { content: msgInput } });
     setMsgInput("");
   };
 
@@ -278,41 +339,79 @@ export default function Room() {
     toggleReactionMutation.mutate({ roomId, messageId, data: { emoji } });
   }, [me, roomId, toggleReactionMutation]);
 
+  const loadMoreMessages = useCallback(async () => {
+    if (!messages.length || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const oldest = messages[0].id;
+      const older = await getRoomMessages(roomId, { before: oldest, limit: 50 });
+      if (!older || older.length < 50) setHasMore(false);
+      if (older && older.length > 0) setMessages(prev => [...older, ...prev]);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [messages, loadingMore, hasMore, roomId]);
+
+  const handleEditMsg = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMsgId || !editContent.trim()) return;
+    editMessageMutation.mutate(
+      { roomId, messageId: editingMsgId, data: { content: editContent } },
+      { onSuccess: () => { setEditingMsgId(null); setEditContent(""); } }
+    );
+  };
+
+  const handleDeleteMsg = useCallback((messageId: number) => {
+    deleteMessageMutation.mutate({ roomId, messageId });
+  }, [roomId, deleteMessageMutation]);
+
+  const handleJoinVoice = useCallback(async () => {
+    const stream = await joinVoice();
+    if (!stream) return;
+    send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: true });
+    Object.values(presenceRef.current)
+      .filter((p: any) => p.inVoice && p.userId !== me?.id)
+      .forEach((p: any) => sendAudioOffer(p.userId));
+  }, [joinVoice, send, me?.id, sendAudioOffer]);
+
+  const handleLeaveVoice = useCallback(() => {
+    leaveVoice();
+    send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: false });
+  }, [leaveVoice, send]);
+
   const handleRename = (e: React.FormEvent) => {
     e.preventDefault();
     if (!renameValue.trim() || renameValue === room?.name) return;
     updateRoomMutation.mutate({ roomId, data: { name: renameValue } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) });
-        setShowSettings(false);
-      },
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) }); setShowSettings(false); },
     });
   };
 
-  const handleLeave = () => {
-    leaveRoomMutation.mutate({ roomId }, {
-      onSuccess: () => setLocation("/rooms"),
-    });
+  const handleLeaveRoom = () => {
+    leaveRoomMutation.mutate({ roomId }, { onSuccess: () => setLocation("/rooms") });
   };
 
   const copyCode = useCallback(() => {
     if (!room) return;
     navigator.clipboard.writeText(room.inviteCode).then(() => {
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 2000);
+      setCodeCopied(true); setTimeout(() => setCodeCopied(false), 2000);
     });
   }, [room]);
 
+  const requestNotifPermission = useCallback(async () => {
+    if (typeof Notification === "undefined") return;
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    notifPermRef.current = perm;
+  }, []);
+
+  // ─── Derived ───────────────────────────────────────────────────────────────
   const filteredMessages = searchQuery.trim()
     ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
   if (!me || !room) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center font-mono text-primary text-xs tracking-widest">
-        CONNECTING TO NODE...
-      </div>
-    );
+    return <div className="min-h-screen bg-background flex items-center justify-center font-mono text-primary text-xs tracking-widest">CONNECTING TO NODE...</div>;
   }
 
   const activeStream = viewingStreamOf ? remoteStreams[viewingStreamOf] : null;
@@ -320,6 +419,13 @@ export default function Room() {
 
   return (
     <div className="h-[100dvh] bg-background flex items-center justify-center relative overflow-hidden">
+
+      {/* Hidden audio elements for voice call */}
+      <div className="hidden" aria-hidden>
+        {Object.entries(remoteAudioStreams).map(([userId, stream]) => (
+          <AudioPlayer key={userId} stream={stream} />
+        ))}
+      </div>
 
       {/* ── Compact Panel ── */}
       <div className="w-[360px] h-[620px] flex flex-col bg-card border border-border/60 rounded-lg shadow-2xl overflow-hidden">
@@ -334,7 +440,7 @@ export default function Room() {
             <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" : "bg-muted-foreground/40"}`} />
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={toggleMic} title={micPermission === false ? "Mic permission denied" : micActive ? "Mute mic" : "Activate mic"}
+            <button onClick={toggleMic} title={micActive ? "Mute mic" : "Activate mic"}
               className={`p-1.5 rounded-sm transition-colors ${micActive ? (localSpeaking ? "text-green-400" : "text-primary/70") : "text-muted-foreground hover:text-foreground"}`}>
               {micActive ? <Mic className={`w-3.5 h-3.5 ${localSpeaking ? "animate-pulse" : ""}`} /> : <MicOff className="w-3.5 h-3.5" />}
             </button>
@@ -342,9 +448,18 @@ export default function Room() {
               className={`p-1.5 rounded-sm transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground hover:text-foreground"}`}>
               <MonitorUp className="w-3.5 h-3.5" />
             </button>
+            <button onClick={isInVoice ? handleLeaveVoice : handleJoinVoice} title={isInVoice ? "Leave voice call" : "Join voice call"}
+              className={`p-1.5 rounded-sm transition-colors ${isInVoice ? "text-violet-400 animate-pulse" : "text-muted-foreground hover:text-foreground"}`}>
+              {isInVoice ? <PhoneOff className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
+            </button>
             <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute sounds" : "Mute sounds"}
               className={`p-1.5 rounded-sm transition-colors ${soundsMuted ? "text-muted-foreground/40" : "text-muted-foreground hover:text-foreground"}`}>
               {soundsMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+            <button onClick={notifPermission === "default" ? requestNotifPermission : undefined}
+              title={notifPermission === "granted" ? "Notifications on" : notifPermission === "denied" ? "Notifications blocked" : "Enable notifications"}
+              className={`p-1.5 rounded-sm transition-colors ${notifPermission === "granted" ? "text-primary/70" : notifPermission === "denied" ? "text-muted-foreground/20" : "text-muted-foreground/50 hover:text-muted-foreground"}`}>
+              <Bell className="w-3.5 h-3.5" />
             </button>
             <button onClick={() => setShowInvite(true)} className="p-1.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors">
               <Share2 className="w-3.5 h-3.5" />
@@ -357,7 +472,7 @@ export default function Room() {
 
         {/* Friends */}
         <div className="shrink-0 px-4 pt-3 pb-1">
-          <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest mb-2">Friends</p>
+          <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest mb-2">Crew</p>
           <div className="space-y-0.5">
             {members?.map(member => {
               const isMe = member.id === me.id;
@@ -365,9 +480,12 @@ export default function Room() {
               const online = isMe ? isConnected : p?.online;
               const speaking = isMe ? localSpeaking : p?.speaking;
               const streaming = isMe ? isSharing : p?.streaming;
+              const inVoice = isMe ? isInVoice : p?.inVoice;
               const initials = member.username.substring(0, 2).toUpperCase();
+              const statusLabel = speaking ? "Speaking" : streaming ? "Streaming" : inVoice ? "In Voice" : online ? "Online" : "Offline";
+              const statusColor = speaking ? "text-green-400" : streaming ? "text-primary" : inVoice ? "text-violet-400" : online ? "text-muted-foreground/60" : "text-muted-foreground/30";
               return (
-                <div key={member.id} className="flex items-center gap-2.5 py-1.5 px-1 rounded-sm hover:bg-muted/20 transition-colors group">
+                <div key={member.id} className="flex items-center gap-2.5 py-1 px-1 rounded-sm hover:bg-muted/20 transition-colors group">
                   <div className="relative shrink-0">
                     <div className="w-8 h-8 rounded-full bg-muted/50 border border-border/40 flex items-center justify-center">
                       <span className="font-mono text-[11px] font-bold text-foreground/80">{initials}</span>
@@ -376,17 +494,17 @@ export default function Room() {
                     {speaking && <div className="absolute -inset-1 rounded-full border border-green-400/50 animate-ping" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`font-sans text-sm truncate leading-none ${isMe ? "font-semibold text-foreground" : "text-foreground/90"}`}>
-                      {member.username}{isMe && " (You)"}
-                    </p>
-                    <p className={`text-[11px] font-mono mt-0.5 leading-none ${speaking ? "text-green-400" : streaming ? "text-primary" : online ? "text-muted-foreground/60" : "text-muted-foreground/30"}`}>
-                      {speaking ? "Speaking" : streaming ? "Streaming" : online ? "Online" : "Offline"}
-                    </p>
+                    <div className="flex items-center gap-1">
+                      <p className={`font-sans text-sm truncate leading-none ${isMe ? "font-semibold text-foreground" : "text-foreground/90"}`}>
+                        {member.username}{isMe && " (You)"}
+                      </p>
+                      {inVoice && <Headphones className="w-3 h-3 text-violet-400/80 shrink-0" />}
+                    </div>
+                    <p className={`text-[11px] font-mono mt-0.5 leading-none ${statusColor}`}>{statusLabel}</p>
                   </div>
                   {streaming && !isMe && (
                     <button onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(380, window.innerWidth - 440), y: 80 }); }}
-                      className="p-1 rounded-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
-                      title={`Watch ${member.username}'s stream`}>
+                      className="p-1 rounded-sm text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100">
                       <MonitorUp className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -397,7 +515,6 @@ export default function Room() {
                       ))}
                     </div>
                   )}
-                  {streaming && isMe && <MonitorUp className="w-3.5 h-3.5 text-primary/60 shrink-0" />}
                 </div>
               );
             })}
@@ -414,8 +531,7 @@ export default function Room() {
                 <span className="text-primary/70">{filteredMessages.length}/{messages.length}</span>
               )}
             </p>
-            <button
-              onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
+            <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
               className={`p-1 rounded-sm transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-muted-foreground"}`}
               title="Search messages (/)">
               <Search className="w-3 h-3" />
@@ -423,14 +539,10 @@ export default function Room() {
           </div>
           {showSearch && (
             <div className="flex items-center gap-1 mb-1.5">
-              <Input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+              <Input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => { if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); } }}
-                placeholder="Search messages..."
-                className="h-7 text-xs bg-background/60 border-border/30 focus-visible:ring-primary/40 rounded-sm font-mono flex-1"
-              />
+                placeholder="Search messages…"
+                className="h-7 text-xs bg-background/60 border-border/30 focus-visible:ring-primary/40 rounded-sm font-mono flex-1" />
               {searchQuery && (
                 <button onClick={() => setSearchQuery("")} className="p-1 text-muted-foreground/50 hover:text-muted-foreground">
                   <X className="w-3 h-3" />
@@ -444,6 +556,13 @@ export default function Room() {
         <div className="flex-1 min-h-0 px-4 pb-0">
           <ScrollArea className="h-full">
             <div className="space-y-0.5 pr-2 pb-2">
+              {/* Load more */}
+              {hasMore && !searchQuery && (
+                <button onClick={loadMoreMessages} disabled={loadingMore}
+                  className="w-full text-center font-mono text-[10px] text-primary/40 hover:text-primary/70 py-1.5 transition-colors disabled:opacity-40">
+                  {loadingMore ? "Loading…" : "↑ Load older messages"}
+                </button>
+              )}
               {filteredMessages.length === 0 && (
                 <p className="font-mono text-[11px] text-muted-foreground/40 text-center py-4">
                   {searchQuery ? "No messages match" : "No messages yet"}
@@ -451,6 +570,8 @@ export default function Room() {
               )}
               {filteredMessages.map(msg => {
                 const isHovered = hoveredMsgId === msg.id;
+                const isEditing = editingMsgId === msg.id;
+                const isOwn = msg.userId === me.id;
                 const reactions: any[] = msg.reactions ?? [];
                 return (
                   <div key={msg.id}
@@ -463,28 +584,54 @@ export default function Room() {
                       </span>
                       <div className="flex-1 min-w-0">
                         <span className={`font-mono text-[11px] font-semibold mr-1.5 ${getUserColor(msg.userId)}`}>{msg.username}</span>
-                        <span className="font-sans text-sm text-foreground/90 break-words">
-                          {highlight(msg.content, searchQuery)}
-                        </span>
+                        {isEditing ? (
+                          <form onSubmit={handleEditMsg} className="mt-0.5">
+                            <Input value={editContent} onChange={e => setEditContent(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Escape") { setEditingMsgId(null); setEditContent(""); } }}
+                              className="h-6 text-sm bg-background/80 border-primary/30 rounded-sm focus-visible:ring-primary/40 font-sans"
+                              autoFocus />
+                            <span className="font-mono text-[9px] text-muted-foreground/30">Enter to save · Esc to cancel</span>
+                          </form>
+                        ) : (
+                          <span className="font-sans text-sm text-foreground/90 break-words">
+                            {highlight(msg.content, searchQuery)}
+                            {msg.editedAt && <span className="font-mono text-[9px] text-muted-foreground/30 ml-1">(edited)</span>}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    {isHovered && (
+                    {/* Own message actions */}
+                    {isOwn && !isEditing && isHovered && (
+                      <div className="absolute right-1 top-1 flex items-center gap-0.5 bg-card/95 border border-border/30 rounded-sm px-1 py-0.5">
+                        <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
+                          className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
+                          <Pencil className="w-2.5 h-2.5" />
+                        </button>
+                        <button onClick={() => handleDeleteMsg(msg.id)}
+                          className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
+                          <Trash2 className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    )}
+                    {/* Quick reactions */}
+                    {isHovered && !isEditing && (
                       <div className="flex items-center gap-0.5 mt-1 ml-12 flex-wrap">
                         {QUICK_REACTIONS.map(emoji => (
                           <button key={emoji} onClick={() => handleToggleReaction(msg.id, emoji)}
-                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all" title={`React ${emoji}`}>
+                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all">
                             {emoji}
                           </button>
                         ))}
                       </div>
                     )}
+                    {/* Reaction bubbles */}
                     {reactions.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap mt-1 ml-12">
                         {reactions.map((r: any) => {
                           const isMine = (r.userIds as number[]).includes(me.id);
                           return (
                             <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
-                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}>
+                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30"}`}>
                               <span>{r.emoji}</span>
                               <span className="font-mono text-[10px] ml-0.5">{r.count}</span>
                             </button>
@@ -522,7 +669,7 @@ export default function Room() {
         <div className="px-4 py-3 border-t border-border/20 shrink-0">
           <form onSubmit={handleSendMsg} className="flex gap-2">
             <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
-              placeholder="Message..." disabled={!isConnected}
+              placeholder="Message…" disabled={!isConnected}
               className="h-8 text-sm bg-background/60 border-border/40 focus-visible:ring-primary/50 rounded-sm font-sans" />
             <Button type="submit" size="sm" disabled={!msgInput.trim() || !isConnected}
               className="h-8 px-4 rounded-sm font-mono text-xs uppercase shrink-0">Send</Button>
@@ -558,7 +705,7 @@ export default function Room() {
             {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
               <div className="w-full h-full bg-black flex flex-col items-center justify-center text-primary/40 font-mono text-xs gap-2">
                 <MonitorUp className="w-8 h-8 opacity-40" />
-                <span>Waiting for signal...</span>
+                <span>Waiting for signal…</span>
               </div>
             )}
           </div>
@@ -599,26 +746,18 @@ export default function Room() {
             </DialogTitle>
           </DialogHeader>
           <div className="px-6 py-6 space-y-6">
-            {/* Rename */}
             <div>
               <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Rename Room</p>
               <form onSubmit={handleRename} className="flex gap-2">
-                <Input
-                  value={renameValue}
-                  onChange={e => setRenameValue(e.target.value)}
-                  placeholder="Room name"
-                  className="h-9 font-mono text-sm rounded-sm bg-background border-border/40 focus-visible:ring-primary/50 flex-1"
-                />
+                <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} placeholder="Room name"
+                  className="h-9 font-mono text-sm rounded-sm bg-background border-border/40 focus-visible:ring-primary/50 flex-1" />
                 <Button type="submit" size="sm" className="h-9 px-4 rounded-sm font-mono text-xs uppercase shrink-0"
                   disabled={updateRoomMutation.isPending || !renameValue.trim() || renameValue === room.name}>
                   {updateRoomMutation.isPending ? "Saving…" : "Save"}
                 </Button>
               </form>
             </div>
-
             <div className="border-t border-border/20" />
-
-            {/* Leave */}
             <div>
               <p className="font-mono text-xs text-muted-foreground uppercase tracking-widest mb-3">Danger Zone</p>
               {!showLeaveConfirm ? (
@@ -628,12 +767,12 @@ export default function Room() {
                 </Button>
               ) : (
                 <div className="space-y-2">
-                  <p className="font-mono text-xs text-muted-foreground text-center">Are you sure? You'll need the invite code to rejoin.</p>
+                  <p className="font-mono text-xs text-muted-foreground text-center">You'll need the invite code to rejoin.</p>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="flex-1 rounded-sm font-mono text-xs" onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
                     <Button size="sm" className="flex-1 rounded-sm font-mono text-xs uppercase bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                      onClick={handleLeave} disabled={leaveRoomMutation.isPending}>
-                      {leaveRoomMutation.isPending ? "Leaving…" : "Confirm Leave"}
+                      onClick={handleLeaveRoom} disabled={leaveRoomMutation.isPending}>
+                      {leaveRoomMutation.isPending ? "Leaving…" : "Confirm"}
                     </Button>
                   </div>
                 </div>

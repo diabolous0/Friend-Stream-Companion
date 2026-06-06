@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable } from "@workspace/db";
-import { eq, and, count, desc, max, inArray } from "drizzle-orm";
+import { eq, and, count, desc, max, inArray, lt } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody } from "@workspace/api-zod";
 import { randomBytes } from "node:crypto";
@@ -273,6 +273,13 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
     .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, authReq.userId!)));
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
+  const beforeParam = req.query.before ? parseInt(req.query.before as string, 10) : undefined;
+  const limitParam = req.query.limit ? Math.min(parseInt(req.query.limit as string, 10), 100) : 50;
+
+  const whereClause = beforeParam
+    ? and(eq(messagesTable.roomId, roomId), lt(messagesTable.id, beforeParam))
+    : eq(messagesTable.roomId, roomId);
+
   const messages = await db
     .select({
       id: messagesTable.id,
@@ -281,12 +288,13 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       username: usersTable.username,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
+      editedAt: messagesTable.editedAt,
     })
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
-    .where(eq(messagesTable.roomId, roomId))
-    .orderBy(desc(messagesTable.createdAt))
-    .limit(50);
+    .where(whereClause)
+    .orderBy(desc(messagesTable.id))
+    .limit(limitParam);
 
   const msgIds = messages.map((m) => m.id);
   const reactionRows = msgIds.length > 0
@@ -299,6 +307,62 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
   const reactionsMap = groupReactions(reactionRows);
 
   res.json(messages.reverse().map((m) => ({ ...m, reactions: reactionsMap.get(m.id) ?? [] })));
+});
+
+router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const messageId = parseInt(Array.isArray(req.params.messageId) ? req.params.messageId[0] : req.params.messageId, 10);
+  if (isNaN(roomId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [message] = await db
+    .select()
+    .from(messagesTable)
+    .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
+  if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+  if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
+
+  const ageMs = Date.now() - new Date(message.createdAt).getTime();
+  if (ageMs > 15 * 60 * 1000) { res.status(403).json({ error: "Edit window expired (15 min)" }); return; }
+
+  const content = (req.body?.content as string)?.trim();
+  if (!content) { res.status(400).json({ error: "Content is required" }); return; }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(messagesTable)
+    .set({ content, editedAt: now })
+    .where(eq(messagesTable.id, messageId))
+    .returning();
+
+  const [user] = await db.select({ username: usersTable.username }).from(usersTable).where(eq(usersTable.id, updated.userId));
+  const reactionRows = await db
+    .select({ messageId: messageReactionsTable.messageId, userId: messageReactionsTable.userId, emoji: messageReactionsTable.emoji })
+    .from(messageReactionsTable)
+    .where(eq(messageReactionsTable.messageId, messageId));
+  const reactions = groupReactions(reactionRows).get(messageId) ?? [];
+
+  const result = { ...updated, username: user.username, reactions };
+  broadcastToRoom(roomId, { type: "message_updated", message: result });
+  res.json(result);
+});
+
+router.delete("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const messageId = parseInt(Array.isArray(req.params.messageId) ? req.params.messageId[0] : req.params.messageId, 10);
+  if (isNaN(roomId) || isNaN(messageId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const [message] = await db
+    .select()
+    .from(messagesTable)
+    .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
+  if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+  if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
+
+  await db.delete(messagesTable).where(eq(messagesTable.id, messageId));
+  broadcastToRoom(roomId, { type: "message_deleted", messageId });
+  res.status(204).end();
 });
 
 router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<void> => {

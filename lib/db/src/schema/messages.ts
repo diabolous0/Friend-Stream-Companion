@@ -10,6 +10,7 @@ export const messagesTable = pgTable("messages", {
   userId: integer("user_id").notNull().references(() => usersTable.id),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  editedAt: timestamp("edited_at"),
 });
 
 export const messageReactionsTable = pgTable("message_reactions", {

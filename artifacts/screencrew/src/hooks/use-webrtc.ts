@@ -7,120 +7,177 @@ export function useWebRTC(
 ) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
-  const peerConnections = useRef<Record<number, RTCPeerConnection>>({});
+  const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<number, MediaStream>>({});
   const [isSharing, setIsSharing] = useState(false);
+  const [isInVoice, setIsInVoice] = useState(false);
 
-  const cleanup = useCallback(() => {
-    Object.values(peerConnections.current).forEach(pc => pc.close());
-    peerConnections.current = {};
-    if (localStream) {
-      localStream.getTracks().forEach(t => t.stop());
-      setLocalStream(null);
+  const screenPCsRef = useRef<Record<number, RTCPeerConnection>>({});
+  const audioPCsRef = useRef<Record<number, RTCPeerConnection>>({});
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const wsSendRef = useRef(wsSend);
+  wsSendRef.current = wsSend;
+
+  const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+
+  // ─── Screen share PCs ───────────────────────────────────────────────────────
+
+  const getScreenPC = useCallback((userId: number) => {
+    if (!screenPCsRef.current[userId]) {
+      const pc = new RTCPeerConnection(ICE);
+      pc.onicecandidate = (e) => {
+        if (e.candidate) wsSendRef.current({ type: "ice_candidate", to: userId, candidate: e.candidate });
+      };
+      pc.ontrack = (e) => {
+        setRemoteStreams(prev => ({ ...prev, [userId]: e.streams[0] }));
+      };
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
+          setRemoteStreams(prev => { const n = { ...prev }; delete n[userId]; return n; });
+        }
+      };
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+      screenPCsRef.current[userId] = pc;
     }
-    setIsSharing(false);
-    setRemoteStreams({});
+    return screenPCsRef.current[userId];
   }, [localStream]);
 
-  const startSharing = useCallback(async (roomId: number) => {
+  const startSharing = useCallback(async (_roomId: number) => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       setLocalStream(stream);
       setIsSharing(true);
       onStreamStart?.();
-
-      stream.getVideoTracks()[0].onended = () => {
-        stopSharing();
-      };
-      
-      // Need to notify room that we are streaming. The backend handles presence update.
-      // And we wait for others to request stream or we broadcast offer to everyone?
-      // "When receiving an offer: create RTCPeerConnection..."
-      // But the prompt says: "create offer, set localDescription, send offer via WebSocket to all room members"
-      // Wait, we need to know who is in the room to send offers to them? 
-      // The prompt says: `{ type: "stream_offer", to: userId, sdp: string }`
-      // We'll expose `createOffer` for a specific user.
+      stream.getVideoTracks()[0].onended = () => stopSharing();
     } catch (e) {
       console.error("Failed to start screen share", e);
     }
   }, [onStreamStart]);
 
   const stopSharing = useCallback(() => {
-    cleanup();
+    Object.values(screenPCsRef.current).forEach(pc => pc.close());
+    screenPCsRef.current = {};
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); setLocalStream(null); }
+    setIsSharing(false);
+    setRemoteStreams({});
     onStreamStop?.();
-  }, [cleanup, onStreamStop]);
-
-  const getPeerConnection = useCallback((userId: number) => {
-    if (!peerConnections.current[userId]) {
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-      });
-
-      pc.onicecandidate = (e) => {
-        if (e.candidate) {
-          wsSend({ type: "ice_candidate", to: userId, candidate: e.candidate });
-        }
-      };
-
-      pc.ontrack = (e) => {
-        setRemoteStreams(prev => ({ ...prev, [userId]: e.streams[0] }));
-      };
-
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
-          setRemoteStreams(prev => {
-            const next = { ...prev };
-            delete next[userId];
-            return next;
-          });
-        }
-      };
-
-      if (localStream) {
-        localStream.getTracks().forEach(track => {
-          pc.addTrack(track, localStream);
-        });
-      }
-
-      peerConnections.current[userId] = pc;
-    }
-    return peerConnections.current[userId];
-  }, [localStream, wsSend]);
+  }, [localStream, onStreamStop]);
 
   const handleOffer = useCallback(async (from: number, sdp: string) => {
-    const pc = getPeerConnection(from);
+    const pc = getScreenPC(from);
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    wsSend({ type: "stream_answer", to: from, sdp: answer.sdp });
-  }, [getPeerConnection, wsSend]);
+    wsSendRef.current({ type: "stream_answer", to: from, sdp: answer.sdp });
+  }, [getScreenPC]);
 
   const handleAnswer = useCallback(async (from: number, sdp: string) => {
-    const pc = getPeerConnection(from);
+    const pc = getScreenPC(from);
     await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
-  }, [getPeerConnection]);
+  }, [getScreenPC]);
 
   const handleIceCandidate = useCallback(async (from: number, candidate: RTCIceCandidateInit) => {
-    const pc = getPeerConnection(from);
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  }, [getPeerConnection]);
+    const pc = getScreenPC(from);
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+  }, [getScreenPC]);
 
   const sendOffer = useCallback(async (to: number) => {
-    const pc = getPeerConnection(to);
+    const pc = getScreenPC(to);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    wsSend({ type: "stream_offer", to, sdp: offer.sdp });
-  }, [getPeerConnection, wsSend]);
+    wsSendRef.current({ type: "stream_offer", to, sdp: offer.sdp });
+  }, [getScreenPC]);
+
+  // ─── Audio call PCs ─────────────────────────────────────────────────────────
+
+  const getAudioPC = useCallback((userId: number) => {
+    if (!audioPCsRef.current[userId]) {
+      const pc = new RTCPeerConnection(ICE);
+      pc.onicecandidate = (e) => {
+        if (e.candidate) wsSendRef.current({ type: "audio_ice", to: userId, candidate: e.candidate });
+      };
+      pc.ontrack = (e) => {
+        if (e.streams[0]) setRemoteAudioStreams(prev => ({ ...prev, [userId]: e.streams[0] }));
+      };
+      pc.oniceconnectionstatechange = () => {
+        if (["disconnected", "failed", "closed"].includes(pc.iceConnectionState)) {
+          setRemoteAudioStreams(prev => { const n = { ...prev }; delete n[userId]; return n; });
+        }
+      };
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => pc.addTrack(t, micStreamRef.current!));
+      }
+      audioPCsRef.current[userId] = pc;
+    }
+    return audioPCsRef.current[userId];
+  }, []);
+
+  const joinVoice = useCallback(async (): Promise<MediaStream | null> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      micStreamRef.current = stream;
+      setIsInVoice(true);
+      return stream;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const leaveVoice = useCallback(() => {
+    if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    Object.values(audioPCsRef.current).forEach(pc => pc.close());
+    audioPCsRef.current = {};
+    setRemoteAudioStreams({});
+    setIsInVoice(false);
+  }, []);
+
+  const sendAudioOffer = useCallback(async (to: number) => {
+    const pc = getAudioPC(to);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    wsSendRef.current({ type: "audio_offer", to, sdp: offer.sdp });
+  }, [getAudioPC]);
+
+  const handleAudioOffer = useCallback(async (from: number, sdp: string) => {
+    const pc = getAudioPC(from);
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp }));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    wsSendRef.current({ type: "audio_answer", to: from, sdp: answer.sdp });
+  }, [getAudioPC]);
+
+  const handleAudioAnswer = useCallback(async (from: number, sdp: string) => {
+    const pc = getAudioPC(from);
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp }));
+  }, [getAudioPC]);
+
+  const handleAudioIce = useCallback(async (from: number, candidate: RTCIceCandidateInit) => {
+    const pc = getAudioPC(from);
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+  }, [getAudioPC]);
+
+  const cleanup = useCallback(() => {
+    Object.values(screenPCsRef.current).forEach(pc => pc.close());
+    screenPCsRef.current = {};
+    Object.values(audioPCsRef.current).forEach(pc => pc.close());
+    audioPCsRef.current = {};
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); }
+    if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    setLocalStream(null);
+    setIsSharing(false);
+    setIsInVoice(false);
+    setRemoteStreams({});
+    setRemoteAudioStreams({});
+  }, [localStream]);
 
   return {
-    localStream,
-    remoteStreams,
-    isSharing,
-    startSharing,
-    stopSharing,
-    handleOffer,
-    handleAnswer,
-    handleIceCandidate,
-    sendOffer,
-    cleanup
+    localStream, remoteStreams, remoteAudioStreams,
+    isSharing, isInVoice,
+    startSharing, stopSharing,
+    handleOffer, handleAnswer, handleIceCandidate, sendOffer,
+    joinVoice, leaveVoice,
+    sendAudioOffer, handleAudioOffer, handleAudioAnswer, handleAudioIce,
+    cleanup,
   };
 }

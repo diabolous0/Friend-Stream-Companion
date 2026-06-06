@@ -13,6 +13,7 @@ interface ClientState {
   roomId: number | null;
   speaking: boolean;
   streaming: boolean;
+  inVoice: boolean;
 }
 
 const clients = new Map<WebSocket, ClientState>();
@@ -38,12 +39,22 @@ function broadcastPresence(roomId: number): void {
     online: true,
     speaking: c.speaking,
     streaming: c.streaming,
+    inVoice: c.inVoice,
   }));
   const payload = JSON.stringify({ type: "presence_update", roomId, entries });
   for (const client of getRoomClients(roomId)) {
     if (client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(payload);
     }
+  }
+}
+
+function relayTo(state: ClientState, toUserId: number, message: object): void {
+  const target = Array.from(clients.values()).find(
+    (c) => c.userId === toUserId && c.roomId === state.roomId
+  );
+  if (target && target.ws.readyState === WebSocket.OPEN) {
+    target.ws.send(JSON.stringify(message));
   }
 }
 
@@ -85,6 +96,7 @@ export function setupSignaling(server: Server): void {
             roomId: null,
             speaking: false,
             streaming: false,
+            inVoice: false,
           });
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
@@ -121,6 +133,7 @@ export function setupSignaling(server: Server): void {
           state.roomId = null;
           state.speaking = false;
           state.streaming = false;
+          state.inVoice = false;
           broadcastPresence(prevRoom);
           break;
         }
@@ -129,6 +142,7 @@ export function setupSignaling(server: Server): void {
           if (!state || !state.roomId) return;
           state.speaking = Boolean(msg.speaking);
           state.streaming = Boolean(msg.streaming);
+          state.inVoice = Boolean(msg.inVoice);
           broadcastPresence(state.roomId);
           break;
         }
@@ -175,6 +189,7 @@ export function setupSignaling(server: Server): void {
               username: state.username,
               content: saved.content,
               createdAt: saved.createdAt,
+              editedAt: null,
               reactions: [],
             },
           });
@@ -183,49 +198,37 @@ export function setupSignaling(server: Server): void {
 
         case "stream_offer": {
           if (!state || !state.roomId) return;
-          const toUserId = msg.to as number;
-          const target = Array.from(clients.values()).find(
-            (c) => c.userId === toUserId && c.roomId === state.roomId
-          );
-          if (target && target.ws.readyState === WebSocket.OPEN) {
-            target.ws.send(JSON.stringify({
-              type: "stream_offer",
-              from: state.userId,
-              sdp: msg.sdp,
-            }));
-          }
+          relayTo(state, msg.to as number, { type: "stream_offer", from: state.userId, sdp: msg.sdp });
           break;
         }
 
         case "stream_answer": {
           if (!state || !state.roomId) return;
-          const toUserId = msg.to as number;
-          const target = Array.from(clients.values()).find(
-            (c) => c.userId === toUserId && c.roomId === state.roomId
-          );
-          if (target && target.ws.readyState === WebSocket.OPEN) {
-            target.ws.send(JSON.stringify({
-              type: "stream_answer",
-              from: state.userId,
-              sdp: msg.sdp,
-            }));
-          }
+          relayTo(state, msg.to as number, { type: "stream_answer", from: state.userId, sdp: msg.sdp });
           break;
         }
 
         case "ice_candidate": {
           if (!state || !state.roomId) return;
-          const toUserId = msg.to as number;
-          const target = Array.from(clients.values()).find(
-            (c) => c.userId === toUserId && c.roomId === state.roomId
-          );
-          if (target && target.ws.readyState === WebSocket.OPEN) {
-            target.ws.send(JSON.stringify({
-              type: "ice_candidate",
-              from: state.userId,
-              candidate: msg.candidate,
-            }));
-          }
+          relayTo(state, msg.to as number, { type: "ice_candidate", from: state.userId, candidate: msg.candidate });
+          break;
+        }
+
+        case "audio_offer": {
+          if (!state || !state.roomId) return;
+          relayTo(state, msg.to as number, { type: "audio_offer", from: state.userId, sdp: msg.sdp });
+          break;
+        }
+
+        case "audio_answer": {
+          if (!state || !state.roomId) return;
+          relayTo(state, msg.to as number, { type: "audio_answer", from: state.userId, sdp: msg.sdp });
+          break;
+        }
+
+        case "audio_ice": {
+          if (!state || !state.roomId) return;
+          relayTo(state, msg.to as number, { type: "audio_ice", from: state.userId, candidate: msg.candidate });
           break;
         }
 
@@ -243,6 +246,7 @@ export function setupSignaling(server: Server): void {
         broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
         state.streaming = false;
         state.speaking = false;
+        state.inVoice = false;
         broadcastPresence(state.roomId);
       }
       clients.delete(ws);
@@ -268,5 +272,6 @@ export function getPresenceSnapshot(roomId: number) {
     online: true,
     speaking: c.speaking,
     streaming: c.streaming,
+    inVoice: c.inVoice,
   }));
 }

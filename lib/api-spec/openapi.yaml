@@ -286,6 +286,18 @@ paths:
           required: true
           schema:
             type: integer
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Fetch messages with ID less than this value (cursor pagination)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
       responses:
         "200":
           description: List of messages
@@ -318,6 +330,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Message"
+
+  /rooms/{roomId}/messages/{messageId}:
+    patch:
+      operationId: editMessage
+      tags: [messages]
+      summary: Edit a message (owner only, within 15 minutes)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMessageInput"
+      responses:
+        "200":
+          description: Edited message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "403":
+          description: Not the message owner or edit window expired
+        "404":
+          description: Message not found
+    delete:
+      operationId: deleteMessage
+      tags: [messages]
+      summary: Delete a message (owner only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Not the message owner
+        "404":
+          description: Message not found
 
   /rooms/{roomId}/messages/{messageId}/reactions:
     post:
@@ -449,7 +517,7 @@ components:
 
     PresenceEntry:
       type: object
-      required: [userId, username, online, speaking, streaming]
+      required: [userId, username, online, speaking, streaming, inVoice]
       properties:
         userId:
           type: integer
@@ -460,6 +528,8 @@ components:
         speaking:
           type: boolean
         streaming:
+          type: boolean
+        inVoice:
           type: boolean
 
     Reaction:
@@ -492,12 +562,24 @@ components:
         createdAt:
           type: string
           format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
         reactions:
           type: array
           items:
             $ref: "#/components/schemas/Reaction"
 
     MessageInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+
+    EditMessageInput:
       type: object
       required: [content]
       properties:
