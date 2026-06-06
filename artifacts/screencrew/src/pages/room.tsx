@@ -156,6 +156,8 @@ export default function Room() {
   const [msgInput, setMsgInput] = useState("");
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
+  const [reads, setReads] = useState<Record<number, number>>({});
+  const [isDragging, setIsDragging] = useState(false);
   const [localSpeaking, setLocalSpeaking] = useState(false);
 
   const [loadingMore, setLoadingMore] = useState(false);
@@ -224,6 +226,8 @@ export default function Room() {
 
   useEffect(() => { if (room) setRenameValue(room.name); }, [room]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const lastMsgId = messages.length ? messages[messages.length - 1].id : null;
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
@@ -326,6 +330,14 @@ export default function Room() {
         const next = { ...prev }; delete next[userId]; return next;
       });
     },
+    onReadsSnapshot: (rs) => {
+      const map: Record<number, number> = {};
+      rs.forEach(r => { map[r.userId] = r.lastReadMessageId; });
+      setReads(map);
+    },
+    onReadUpdate: (userId, lastReadMessageId) => {
+      setReads(prev => (prev[userId] ?? 0) >= lastReadMessageId ? prev : { ...prev, [userId]: lastReadMessageId });
+    },
     onMessageUpdated: (msg) => { setMessages(prev => prev.map(m => m.id === msg.id ? { ...msg } : m)); },
     onMessageDeleted: (messageId) => { setMessages(prev => prev.filter(m => m.id !== messageId)); },
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
@@ -339,6 +351,23 @@ export default function Room() {
   useEffect(() => { sendRef.current = send; }, [send]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
   useEffect(() => { if (isConnected && roomId) send({ type: "join_room", roomId }); }, [isConnected, roomId, send]);
+
+  // ─── Read receipts ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isConnected || !roomId || lastMsgId == null) return;
+    if (document.visibilityState !== "visible" || overlayMode) return;
+    sendRef.current?.({ type: "read", messageId: lastMsgId });
+  }, [isConnected, roomId, lastMsgId, overlayMode]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && !overlayMode && lastMsgId != null) {
+        sendRef.current?.({ type: "read", messageId: lastMsgId });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [lastMsgId, overlayMode]);
   useEffect(() => () => { cleanup(); stopDetection(); }, []);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
@@ -376,6 +405,18 @@ export default function Room() {
     if (e.target.files) handleFiles(Array.from(e.target.files));
     e.target.value = "";
   };
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setIsDragging(true); }
+  }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setIsDragging(false);
+  }, []);
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files?.length) handleFiles(Array.from(e.dataTransfer.files));
+  }, [handleFiles]);
 
   const handleToggleReaction = useCallback((messageId: number, emoji: string) => {
     if (!me) return;
@@ -530,6 +571,16 @@ export default function Room() {
   const activeStream = viewingStreamOf ? remoteStreams[viewingStreamOf] : null;
   const viewingUser = members?.find(m => m.id === viewingStreamOf);
 
+  const readersByMessage: Record<number, { id: number; username: string }[]> = {};
+  if (members) {
+    for (const member of members) {
+      if (member.id === me.id) continue;
+      const rid = reads[member.id];
+      if (rid == null) continue;
+      (readersByMessage[rid] ??= []).push(member);
+    }
+  }
+
   return (
     <div className={`h-[100dvh] flex items-center justify-center relative overflow-hidden transition-colors ${overlayMode ? "bg-transparent" : "bg-background"}`}>
 
@@ -541,11 +592,19 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden transition-all ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
+      <div className={`relative w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden transition-all ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
+        onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
         style={settings.panelOpacity < 100 ? {
           backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
           ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
         } : undefined}>
+
+        {isDragging && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary/60 rounded-2xl pointer-events-none">
+            <Paperclip className="w-8 h-8 text-primary" />
+            <span className="text-sm font-semibold text-primary">Drop files to share</span>
+          </div>
+        )}
 
         {/* Title bar */}
         {classic ? (
@@ -796,6 +855,17 @@ export default function Room() {
                             })}
                           </div>
                         )}
+                        {/* Read receipts */}
+                        {readersByMessage[msg.id]?.length > 0 && (
+                          <div className="flex items-center gap-0.5 mt-1">
+                            {readersByMessage[msg.id].map(r => (
+                              <div key={r.id} title={`Seen by ${r.username}`}
+                                className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ${avatarBg(r.id)}`}>
+                                {r.username[0]?.toUpperCase()}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -963,6 +1033,8 @@ export default function Room() {
           messages={filteredMessages}
           me={me}
           members={members ?? []}
+          readersByMessage={readersByMessage}
+          onFilesDropped={handleFiles}
           settings={settings}
           isConnected={isConnected}
           typingNames={typingNames}

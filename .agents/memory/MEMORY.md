@@ -1,1 +1,2 @@
 - [Object-storage attachments](object-storage-attachments.md) — chat uploads use authed request-url → PUT → finalize(public ACL); downloads enforce ACL so `<img>`/`<a>` (no auth header) only see finalized/public objects.
+- [Read receipts over WebSocket](read-receipts-signaling.md) — validate `read` messageId belongs to room + monotonic atomic GREATEST update; client-supplied read position must be server-validated.

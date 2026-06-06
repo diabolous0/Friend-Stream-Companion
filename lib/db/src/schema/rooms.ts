@@ -16,6 +16,7 @@ export const roomMembersTable = pgTable("room_members", {
   roomId: integer("room_id").notNull().references(() => roomsTable.id),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  lastReadMessageId: integer("last_read_message_id"),
 });
 
 export const insertRoomSchema = createInsertSchema(roomsTable).omit({ id: true, createdAt: true });

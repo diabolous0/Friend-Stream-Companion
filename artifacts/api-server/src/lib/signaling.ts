@@ -4,7 +4,7 @@ import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
 import { db, messagesTable, usersTable, roomMembersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 interface ClientState {
   ws: WebSocket;
@@ -124,6 +124,12 @@ export function setupSignaling(server: Server): void {
           state.roomId = roomId;
           ws.send(JSON.stringify({ type: "joined_room", roomId }));
           broadcastPresence(roomId);
+
+          const reads = await db
+            .select({ userId: roomMembersTable.userId, lastReadMessageId: roomMembersTable.lastReadMessageId })
+            .from(roomMembersTable)
+            .where(eq(roomMembersTable.roomId, roomId));
+          ws.send(JSON.stringify({ type: "reads_snapshot", reads: reads.filter((r) => r.lastReadMessageId != null) }));
           break;
         }
 
@@ -161,6 +167,29 @@ export function setupSignaling(server: Server): void {
               broadcast(state.roomId!, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
             }, 5000);
             typingTimers.set(key, timer);
+          }
+          break;
+        }
+
+        case "read": {
+          if (!state || !state.roomId) return;
+          const messageId = Number(msg.messageId);
+          if (!Number.isInteger(messageId) || messageId <= 0) return;
+          try {
+            const [message] = await db
+              .select({ id: messagesTable.id })
+              .from(messagesTable)
+              .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, state.roomId)));
+            if (!message) return;
+            const updated = await db
+              .update(roomMembersTable)
+              .set({ lastReadMessageId: sql`GREATEST(COALESCE(${roomMembersTable.lastReadMessageId}, 0), ${messageId})` })
+              .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)))
+              .returning({ lastReadMessageId: roomMembersTable.lastReadMessageId });
+            if (!updated.length) return;
+            broadcast(state.roomId, { type: "read_update", userId: state.userId, lastReadMessageId: updated[0].lastReadMessageId });
+          } catch (err) {
+            logger.error({ err }, "failed to handle read receipt");
           }
           break;
         }

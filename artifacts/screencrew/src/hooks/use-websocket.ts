@@ -5,6 +5,8 @@ type WebSocketMessage =
   | { type: "new_message"; message: any }
   | { type: "reaction_update"; messageId: number; reactions: any[] }
   | { type: "typing_update"; userId: number; username: string; isTyping: boolean }
+  | { type: "reads_snapshot"; reads: { userId: number; lastReadMessageId: number }[] }
+  | { type: "read_update"; userId: number; lastReadMessageId: number }
   | { type: "message_updated"; message: any }
   | { type: "message_deleted"; messageId: number }
   | { type: "stream_offer"; from: number; sdp: string }
@@ -19,6 +21,8 @@ interface UseWebSocketOptions {
   onNewMessage?: (message: any) => void;
   onReactionUpdate?: (messageId: number, reactions: any[]) => void;
   onTypingUpdate?: (userId: number, username: string, isTyping: boolean) => void;
+  onReadsSnapshot?: (reads: { userId: number; lastReadMessageId: number }[]) => void;
+  onReadUpdate?: (userId: number, lastReadMessageId: number) => void;
   onMessageUpdated?: (message: any) => void;
   onMessageDeleted?: (messageId: number) => void;
   onStreamOffer?: (from: number, sdp: string) => void;
@@ -58,6 +62,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "new_message":       o.onNewMessage?.(data.message); break;
           case "reaction_update":   o.onReactionUpdate?.(data.messageId, data.reactions); break;
           case "typing_update":     o.onTypingUpdate?.(data.userId, data.username, data.isTyping); break;
+          case "reads_snapshot":    o.onReadsSnapshot?.(data.reads); break;
+          case "read_update":       o.onReadUpdate?.(data.userId, data.lastReadMessageId); break;
           case "message_updated":   o.onMessageUpdated?.(data.message); break;
           case "message_deleted":   o.onMessageDeleted?.(data.messageId); break;
           case "stream_offer":      o.onStreamOffer?.(data.from, data.sdp); break;

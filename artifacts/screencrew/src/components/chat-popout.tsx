@@ -14,10 +14,18 @@ const CHAT_COLORS = [
 ];
 function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.length]; }
 
+const AVATAR_BG = [
+  "bg-violet-600", "bg-blue-500", "bg-emerald-600", "bg-orange-500",
+  "bg-pink-600", "bg-amber-500", "bg-cyan-600", "bg-rose-600",
+];
+function avatarBg(userId: number) { return AVATAR_BG[userId % AVATAR_BG.length]; }
+
 export interface ChatPopoutProps {
   messages: any[];
   me: { id: number; username: string };
   members?: { id: number; username: string }[];
+  readersByMessage?: Record<number, { id: number; username: string }[]>;
+  onFilesDropped?: (files: File[]) => void;
   settings: AppSettings;
   isConnected: boolean;
   typingNames: string[];
@@ -44,7 +52,7 @@ export interface ChatPopoutProps {
 }
 
 export function ChatPopout({
-  messages, me, members, settings, isConnected,
+  messages, me, members, readersByMessage, onFilesDropped, settings, isConnected,
   typingNames, msgInput, onMsgInputChange, onSend, onFiles, isUploading,
   editingMsgId, editContent, onEditStart, onEditSave, onEditCancel, onEditContentChange,
   onDelete, onReaction,
@@ -57,12 +65,25 @@ export function ChatPopout({
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && onFiles) onFiles(Array.from(e.target.files));
     e.target.value = "";
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (onFilesDropped && e.dataTransfer.types.includes("Files")) { e.preventDefault(); setIsDragging(true); }
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setIsDragging(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (onFilesDropped && e.dataTransfer.files?.length) onFilesDropped(Array.from(e.dataTransfer.files));
   };
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -98,7 +119,15 @@ export function ChatPopout({
 
   return (
     <div className="fixed z-40 w-[300px] flex flex-col bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden"
-      style={{ left: pos.x, top: pos.y, ...bgStyle }}>
+      style={{ left: pos.x, top: pos.y, ...bgStyle }}
+      onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary/60 rounded-2xl pointer-events-none">
+          <Paperclip className="w-6 h-6 text-primary" />
+          <span className="text-xs font-semibold text-primary">Drop files to share</span>
+        </div>
+      )}
 
       {/* Header (draggable) */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/20 cursor-grab active:cursor-grabbing select-none shrink-0"
@@ -224,6 +253,17 @@ export function ChatPopout({
                           })}
                         </div>
                       )}
+                      {/* Read receipts */}
+                      {readersByMessage?.[msg.id]?.length ? (
+                        <div className="flex items-center gap-0.5 mt-0.5">
+                          {readersByMessage[msg.id].map(r => (
+                            <div key={r.id} title={`Seen by ${r.username}`}
+                              className={`w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold text-white ${avatarBg(r.id)}`}>
+                              {r.username[0]?.toUpperCase()}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
