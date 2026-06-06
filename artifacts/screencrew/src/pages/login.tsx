@@ -5,12 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { MonitorUp } from "lucide-react";
+import { useTheme, ThemeToggle } from "@/lib/theme";
 
 setAuthTokenGetter(() => localStorage.getItem("screencrew_token"));
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { theme } = useTheme();
+  const classic = theme === "classic";
+
   const [tab, setTab] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -28,73 +32,111 @@ export default function Login() {
     if (tab === "login") {
       loginMutation.mutate({ data: { username, password } }, {
         onSuccess: (data) => handleSuccess(data.token),
-        onError: () => toast({ title: "Wrong username or password", variant: "destructive" }),
+        onError: () => toast({ title: classic ? "AUTH FAILED" : "Wrong username or password", variant: "destructive" }),
       });
     } else {
       registerMutation.mutate({ data: { username, password } }, {
         onSuccess: (data) => handleSuccess(data.token),
-        onError: (err) => toast({ title: "Registration failed", description: err.message, variant: "destructive" }),
+        onError: (err) => toast({ title: classic ? "REG FAILED" : "Registration failed", description: err.message, variant: "destructive" }),
       });
     }
   };
 
   const { data: me, isLoading } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() } });
   if (me) { setLocation("/rooms"); return null; }
+
   if (isLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      {classic
+        ? <div className="text-primary font-mono text-sm tracking-widest animate-pulse">INIT SYSTEM…</div>
+        : <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />}
     </div>
   );
 
   const isPending = loginMutation.isPending || registerMutation.isPending;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-80 bg-card border border-border/60 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4">
+      {classic && (
+        <div className="absolute top-0 w-full h-0.5 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+      )}
+
+      <div className={`w-80 bg-card border border-border/50 shadow-2xl overflow-hidden ${classic ? "rounded-sm" : "rounded-2xl"}`}>
+
         {/* App header */}
-        <div className="flex items-center gap-3 px-6 pt-7 pb-6">
-          <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center">
+        <div className={`flex items-center gap-3 px-6 pt-7 pb-6 ${classic ? "border-b border-primary/20" : ""}`}>
+          <div className={`w-10 h-10 bg-primary/15 border border-primary/30 flex items-center justify-center ${classic ? "rounded-sm" : "rounded-xl"}`}>
             <MonitorUp className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-semibold text-base text-foreground">ScreenCrew</h1>
-            <p className="text-xs text-muted-foreground">Watch together, anywhere</p>
+            <h1 className={`font-semibold text-base text-foreground ${classic ? "font-mono tracking-widest uppercase text-primary" : ""}`}>
+              {classic ? "SCREENCREW" : "ScreenCrew"}
+            </h1>
+            <p className={`text-xs text-muted-foreground ${classic ? "font-mono tracking-wider" : ""}`}>
+              {classic ? "LAN PARTY CLIENT" : "Watch together, anywhere"}
+            </p>
           </div>
         </div>
 
         {/* Tab switcher */}
-        <div className="flex mx-6 mb-5 bg-muted/40 rounded-xl p-1">
+        <div className={`flex mx-6 mb-5 bg-muted/40 p-1 ${classic ? "rounded-sm mt-5" : "rounded-xl"}`}>
           {(["login", "register"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              {t === "login" ? "Sign in" : "Register"}
+              className={`flex-1 py-1.5 text-sm font-medium transition-all ${
+                tab === t
+                  ? classic
+                    ? "bg-primary/20 text-primary border border-primary/30 rounded-sm"
+                    : "bg-card text-foreground shadow-sm rounded-lg"
+                  : classic
+                    ? "text-muted-foreground hover:text-primary font-mono text-xs uppercase"
+                    : "text-muted-foreground hover:text-foreground"
+              }`}>
+              {t === "login"
+                ? (classic ? "AUTH" : "Sign in")
+                : (classic ? "REGISTER" : "Register")}
             </button>
           ))}
         </div>
 
         {/* Form */}
-        <form onSubmit={onSubmit} className="px-6 pb-7 space-y-3">
+        <form onSubmit={onSubmit} className="px-6 pb-5 space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Username</label>
+            <label className={`text-xs font-medium text-muted-foreground ${classic ? "font-mono uppercase tracking-wider text-primary/70" : ""}`}>
+              {classic ? "Username" : "Username"}
+            </label>
             <Input value={username} onChange={e => setUsername(e.target.value)}
-              placeholder="your_handle" required minLength={tab === "register" ? 2 : 1}
-              className="h-10 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0 text-sm" />
+              placeholder={classic ? "handle_" : "your_handle"}
+              required minLength={tab === "register" ? 2 : 1}
+              className={`h-10 text-sm ${classic
+                ? "rounded-sm bg-background border-primary/20 font-mono focus-visible:ring-primary"
+                : "rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0"}`} />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Password</label>
+            <label className={`text-xs font-medium text-muted-foreground ${classic ? "font-mono uppercase tracking-wider text-primary/70" : ""}`}>
+              Password
+            </label>
             <Input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••" required minLength={tab === "register" ? 4 : 1}
-              className="h-10 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0 text-sm" />
+              placeholder={classic ? "••••••••" : "••••••••"}
+              required minLength={tab === "register" ? 4 : 1}
+              className={`h-10 text-sm ${classic
+                ? "rounded-sm bg-background border-primary/20 font-mono focus-visible:ring-primary"
+                : "rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0"}`} />
           </div>
           <Button type="submit" disabled={isPending || !username || !password}
-            className="w-full h-10 rounded-xl text-sm font-semibold mt-1">
+            className={`w-full h-10 text-sm font-semibold mt-1 ${classic ? "rounded-sm font-mono uppercase tracking-widest" : "rounded-xl"}`}>
             {isPending ? (
-              <><div className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin mr-2" /> {tab === "login" ? "Signing in…" : "Creating…"}</>
+              classic ? (tab === "login" ? "CONNECTING…" : "CREATING…") : (tab === "login" ? "Signing in…" : "Creating…")
             ) : (
-              tab === "login" ? "Sign in" : "Create account"
+              tab === "login" ? (classic ? "INITIALIZE" : "Sign in") : (classic ? "CREATE NODE" : "Create account")
             )}
           </Button>
         </form>
+
+        {/* Theme toggle */}
+        <div className="flex items-center justify-center gap-2 px-6 pb-5">
+          <span className="text-[10px] text-muted-foreground/40">UI:</span>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   );

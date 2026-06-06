@@ -25,8 +25,9 @@ import {
   Plus, Bell, VolumeX, Volume2,
   Pin, PinOff, X, Settings, Search, LogOut,
   Users, MessageSquare, Pencil, Trash2, Smile,
-  Copy, Check, Share2,
+  Copy, Check, Share2, ChevronLeft,
 } from "lucide-react";
+import { useTheme, ThemeToggle } from "@/lib/theme";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -46,9 +47,9 @@ function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.len
 
 // ─── Helper components ───────────────────────────────────────────────────────
 
-function Avatar({ username, userId, size = 36 }: { username: string; userId: number; size?: number }) {
+function Avatar({ username, userId, size = 36, square = false }: { username: string; userId: number; size?: number; square?: boolean }) {
   return (
-    <div className={`${avatarBg(userId)} rounded-full flex items-center justify-center text-white font-bold select-none shrink-0`}
+    <div className={`${avatarBg(userId)} ${square ? "rounded-sm" : "rounded-full"} flex items-center justify-center text-white font-bold select-none shrink-0`}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.35) }}>
       {username.slice(0, 2).toUpperCase()}
     </div>
@@ -118,6 +119,8 @@ export default function Room() {
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { theme, setTheme } = useTheme();
+  const classic = theme === "classic";
 
   const { data: me } = useGetMe();
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
@@ -438,26 +441,43 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className="w-[320px] h-[580px] flex flex-col bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden">
+      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"}`}>
 
         {/* Title bar */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
-              <MonitorUp className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <span className="text-sm font-semibold text-foreground truncate">{room.name}</span>
-            <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_5px_#4ade80]" : "bg-muted-foreground/30"}`} />
-          </div>
-          {/* macOS-style window controls */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute" : "Mute sounds"}
-              className="w-3 h-3 rounded-full bg-yellow-400/80 hover:bg-yellow-400 transition-colors" />
+        {classic ? (
+          <div className="flex items-center justify-between px-4 pt-3 pb-3 border-b border-primary/20 shrink-0">
             <Link href="/rooms">
-              <div className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-500 transition-colors cursor-pointer" />
+              <button className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary font-mono transition-colors">
+                <ChevronLeft className="w-3.5 h-3.5" /> ROOMS
+              </button>
             </Link>
+            <span className="font-mono text-sm text-primary tracking-widest uppercase truncate max-w-[120px]">{room.name}</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute sounds" : "Mute sounds"}
+                className={`text-muted-foreground/50 hover:text-muted-foreground transition-colors ${soundsMuted ? "text-muted-foreground/25" : ""}`}>
+                {soundsMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </button>
+              <div className={`w-2 h-2 rounded-full transition-colors ${isConnected ? "bg-primary shadow-[0_0_5px_theme(colors.primary)]" : "bg-muted-foreground/30"}`} />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center justify-between px-4 pt-4 pb-3 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+                <MonitorUp className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <span className="text-sm font-semibold text-foreground truncate">{room.name}</span>
+              <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_5px_#4ade80]" : "bg-muted-foreground/30"}`} />
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute" : "Mute sounds"}
+                className="w-3 h-3 rounded-full bg-yellow-400/80 hover:bg-yellow-400 transition-colors" />
+              <Link href="/rooms">
+                <div className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-500 transition-colors cursor-pointer" />
+              </Link>
+            </div>
+          </div>
+        )}
 
         {/* ── FRIENDS ── */}
         <div className="px-4 shrink-0">
@@ -505,7 +525,7 @@ export default function Room() {
                 <div key={member.id} className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-muted/20 transition-colors group">
                   {/* Avatar */}
                   <div className="relative shrink-0">
-                    <Avatar username={member.username} userId={member.id} size={36} />
+                    <Avatar username={member.username} userId={member.id} size={36} square={classic} />
                     <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/20"}`} />
                     {speaking && <div className="absolute inset-0 rounded-full border border-green-400/40 animate-ping" />}
                   </div>
@@ -768,6 +788,11 @@ export default function Room() {
             </DialogTitle>
           </DialogHeader>
           <div className="px-6 py-5 space-y-5">
+            <div>
+              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Appearance</p>
+              <ThemeToggle className="w-full justify-center" />
+            </div>
+            <div className="border-t border-border/20" />
             <div>
               <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Rename</p>
               <form onSubmit={handleRename} className="flex gap-2">
