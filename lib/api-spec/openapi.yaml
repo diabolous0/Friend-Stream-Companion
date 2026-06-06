@@ -279,6 +279,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/Message"
 
+  /rooms/{roomId}/messages/{messageId}/reactions:
+    post:
+      operationId: toggleReaction
+      tags: [messages]
+      summary: Toggle an emoji reaction on a message (add if absent, remove if present)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReactionInput"
+      responses:
+        "200":
+          description: Updated reactions for the message
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reaction"
+        "403":
+          description: Not a member of this room
+        "404":
+          description: Message not found
+
 components:
   schemas:
     HealthStatus:
@@ -378,9 +414,22 @@ components:
         streaming:
           type: boolean
 
+    Reaction:
+      type: object
+      required: [emoji, count, userIds]
+      properties:
+        emoji:
+          type: string
+        count:
+          type: integer
+        userIds:
+          type: array
+          items:
+            type: integer
+
     Message:
       type: object
-      required: [id, roomId, userId, username, content, createdAt]
+      required: [id, roomId, userId, username, content, createdAt, reactions]
       properties:
         id:
           type: integer
@@ -395,6 +444,10 @@ components:
         createdAt:
           type: string
           format: date-time
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
 
     MessageInput:
       type: object
@@ -403,3 +456,10 @@ components:
         content:
           type: string
           minLength: 1
+
+    ReactionInput:
+      type: object
+      required: [emoji]
+      properties:
+        emoji:
+          type: string

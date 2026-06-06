@@ -5,6 +5,7 @@
  * ScreenCrew API - friend-group screen sharing app
  * OpenAPI spec version: 0.1.0
  */
+import type { Reaction } from './reaction';
 
 export interface Message {
   id: number;
@@ -13,4 +14,5 @@ export interface Message {
   username: string;
   content: string;
   createdAt: Date;
+  reactions: Reaction[];
 }

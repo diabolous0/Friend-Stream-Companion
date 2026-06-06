@@ -57,6 +57,12 @@ export interface PresenceEntry {
   streaming: boolean;
 }
 
+export interface Reaction {
+  emoji: string;
+  count: number;
+  userIds: number[];
+}
+
 export interface Message {
   id: number;
   roomId: number;
@@ -64,10 +70,15 @@ export interface Message {
   username: string;
   content: string;
   createdAt: string;
+  reactions: Reaction[];
 }
 
 export interface MessageInput {
   /** @minLength 1 */
   content: string;
+}
+
+export interface ReactionInput {
+  emoji: string;
 }
 

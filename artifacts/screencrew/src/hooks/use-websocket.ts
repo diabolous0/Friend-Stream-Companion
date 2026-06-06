@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 type WebSocketMessage =
   | { type: "presence_update"; roomId: number; entries: any[] }
   | { type: "new_message"; message: any }
+  | { type: "reaction_update"; messageId: number; reactions: any[] }
   | { type: "stream_offer"; from: number; sdp: string }
   | { type: "stream_answer"; from: number; sdp: string }
   | { type: "ice_candidate"; from: number; candidate: RTCIceCandidateInit };
@@ -10,6 +11,7 @@ type WebSocketMessage =
 interface UseWebSocketOptions {
   onPresenceUpdate?: (roomId: number, entries: any[]) => void;
   onNewMessage?: (message: any) => void;
+  onReactionUpdate?: (messageId: number, reactions: any[]) => void;
   onStreamOffer?: (from: number, sdp: string) => void;
   onStreamAnswer?: (from: number, sdp: string) => void;
   onIceCandidate?: (from: number, candidate: RTCIceCandidateInit) => void;
@@ -45,6 +47,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "new_message":
             options.onNewMessage?.(data.message);
             break;
+          case "reaction_update":
+            options.onReactionUpdate?.(data.messageId, data.reactions);
+            break;
           case "stream_offer":
             options.onStreamOffer?.(data.from, data.sdp);
             break;
@@ -62,7 +67,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     ws.onclose = () => {
       setIsConnected(false);
-      setTimeout(connect, 3000); // Reconnect
+      setTimeout(connect, 3000);
     };
   }, [options]);
 

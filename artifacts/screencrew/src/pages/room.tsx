@@ -6,9 +6,9 @@ import {
   useGetRoomPresence, getGetRoomPresenceQueryKey,
   useGetRoomMessages, getGetRoomMessagesQueryKey,
   useSendMessage,
+  useToggleReaction,
   useGetMe
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useVoiceActivity } from "@/hooks/use-voice-activity";
@@ -21,6 +21,8 @@ import {
   ChevronLeft, Mic, MicOff, Share2, Copy, Check,
   Pin, PinOff, X
 } from "lucide-react";
+
+const QUICK_REACTIONS = ["👍", "😂", "❤️", "🔥", "👀", "😮", "🎉", "💀"];
 
 const USER_COLORS = [
   "text-cyan-400", "text-violet-400", "text-green-400",
@@ -63,7 +65,6 @@ export default function Room() {
   const [, params] = useRoute("/room/:roomId");
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
   const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
 
   const { data: me } = useGetMe();
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
@@ -71,10 +72,12 @@ export default function Room() {
   const { data: initialPresence } = useGetRoomPresence(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomPresenceQueryKey(roomId) } });
   const { data: initialMessages } = useGetRoomMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
   const sendMessage = useSendMessage();
+  const toggleReactionMutation = useToggleReaction();
 
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
   const [msgInput, setMsgInput] = useState("");
+  const [hoveredMsgId, setHoveredMsgId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [localSpeaking, setLocalSpeaking] = useState(false);
@@ -129,6 +132,10 @@ export default function Room() {
     }
   }, [micActive, startDetection, stopDetection]);
 
+  const applyReactionUpdate = useCallback((messageId: number, reactions: any[]) => {
+    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
+  }, []);
+
   const { isConnected, send } = useWebSocket({
     onPresenceUpdate: (rid, entries) => {
       if (rid === roomId) {
@@ -139,7 +146,10 @@ export default function Room() {
         });
       }
     },
-    onNewMessage: (msg) => { if (msg.roomId === roomId) setMessages(prev => [...prev, msg]); },
+    onNewMessage: (msg) => {
+      if (msg.roomId === roomId) setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
+    },
+    onReactionUpdate: applyReactionUpdate,
     onStreamOffer: async (from, sdp) => { await handleOffer(from, sdp); },
     onStreamAnswer: async (from, sdp) => { await handleAnswer(from, sdp); },
     onIceCandidate: async (from, candidate) => { await handleIceCandidate(from, candidate); },
@@ -167,6 +177,27 @@ export default function Room() {
     sendMessage.mutate({ roomId, data: { content: msgInput } });
     setMsgInput("");
   };
+
+  const handleToggleReaction = useCallback((messageId: number, emoji: string) => {
+    if (!me) return;
+    setMessages(prev => prev.map(m => {
+      if (m.id !== messageId) return m;
+      const reactions: any[] = m.reactions ?? [];
+      const group = reactions.find((r: any) => r.emoji === emoji);
+      if (group) {
+        if ((group.userIds as number[]).includes(me.id)) {
+          const newCount = group.count - 1;
+          if (newCount === 0) return { ...m, reactions: reactions.filter((r: any) => r.emoji !== emoji) };
+          return { ...m, reactions: reactions.map((r: any) => r.emoji === emoji ? { ...r, count: newCount, userIds: r.userIds.filter((id: number) => id !== me.id) } : r) };
+        } else {
+          return { ...m, reactions: reactions.map((r: any) => r.emoji === emoji ? { ...r, count: r.count + 1, userIds: [...r.userIds, me.id] } : r) };
+        }
+      } else {
+        return { ...m, reactions: [...reactions, { emoji, count: 1, userIds: [me.id] }] };
+      }
+    }));
+    toggleReactionMutation.mutate({ roomId, messageId, data: { emoji } });
+  }, [me, roomId, toggleReactionMutation]);
 
   const copyCode = useCallback(() => {
     if (!room) return;
@@ -240,7 +271,6 @@ export default function Room() {
 
               return (
                 <div key={member.id} className="flex items-center gap-2.5 py-1.5 px-1 rounded-sm hover:bg-muted/20 transition-colors group">
-                  {/* Avatar */}
                   <div className="relative shrink-0">
                     <div className="w-8 h-8 rounded-full bg-muted/50 border border-border/40 flex items-center justify-center">
                       <span className="font-mono text-[11px] font-bold text-foreground/80">{initials}</span>
@@ -248,8 +278,6 @@ export default function Room() {
                     <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/30"}`} />
                     {speaking && <div className="absolute -inset-1 rounded-full border border-green-400/50 animate-ping" />}
                   </div>
-
-                  {/* Name + status */}
                   <div className="flex-1 min-w-0">
                     <p className={`font-sans text-sm truncate leading-none ${isMe ? "font-semibold text-foreground" : "text-foreground/90"}`}>
                       {member.username}{isMe && " (You)"}
@@ -258,8 +286,6 @@ export default function Room() {
                       {speaking ? "Speaking" : streaming ? "Streaming" : online ? "Online" : "Offline"}
                     </p>
                   </div>
-
-                  {/* Action icon */}
                   {streaming && !isMe && (
                     <button
                       onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(380, window.innerWidth - 440), y: 80 }); }}
@@ -289,21 +315,72 @@ export default function Room() {
         <div className="flex-1 flex flex-col min-h-0 px-4 pt-1 pb-0">
           <p className="text-[10px] font-mono text-muted-foreground/60 uppercase tracking-widest mb-1.5 shrink-0">Chat</p>
           <ScrollArea className="flex-1">
-            <div className="space-y-1.5 pr-2 pb-2">
+            <div className="space-y-0.5 pr-2 pb-2">
               {messages.length === 0 && (
                 <p className="font-mono text-[11px] text-muted-foreground/40 text-center py-4">No messages yet</p>
               )}
-              {messages.map(msg => (
-                <div key={msg.id} className="flex items-start gap-1.5 group">
-                  <span className="font-mono text-[10px] text-muted-foreground/40 shrink-0 mt-0.5 w-10 text-right">
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <span className={`font-mono text-[11px] font-semibold mr-1.5 ${getUserColor(msg.userId)}`}>{msg.username}</span>
-                    <span className="font-sans text-sm text-foreground/90 break-words">{msg.content}</span>
+              {messages.map(msg => {
+                const isHovered = hoveredMsgId === msg.id;
+                const reactions: any[] = msg.reactions ?? [];
+                return (
+                  <div
+                    key={msg.id}
+                    className="group/msg relative rounded-sm px-1 py-1 -mx-1 hover:bg-muted/10 transition-colors"
+                    onMouseEnter={() => setHoveredMsgId(msg.id)}
+                    onMouseLeave={() => setHoveredMsgId(null)}
+                  >
+                    <div className="flex items-start gap-1.5">
+                      <span className="font-mono text-[10px] text-muted-foreground/40 shrink-0 mt-0.5 w-10 text-right">
+                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className={`font-mono text-[11px] font-semibold mr-1.5 ${getUserColor(msg.userId)}`}>{msg.username}</span>
+                        <span className="font-sans text-sm text-foreground/90 break-words">{msg.content}</span>
+                      </div>
+                    </div>
+
+                    {/* Emoji picker — shown on hover */}
+                    {isHovered && (
+                      <div className="flex items-center gap-0.5 mt-1 ml-12 flex-wrap">
+                        {QUICK_REACTIONS.map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => handleToggleReaction(msg.id, emoji)}
+                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-primary/10 hover:scale-125 transition-all"
+                            title={`React with ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Reaction pills */}
+                    {reactions.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap mt-1 ml-12">
+                        {reactions.map((r: any) => {
+                          const isMine = (r.userIds as number[]).includes(me.id);
+                          return (
+                            <button
+                              key={r.emoji}
+                              onClick={() => handleToggleReaction(msg.id, r.emoji)}
+                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${
+                                isMine
+                                  ? "border-primary/50 bg-primary/10 text-primary"
+                                  : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                              }`}
+                              title={isMine ? `Remove ${r.emoji}` : `React with ${r.emoji}`}
+                            >
+                              <span>{r.emoji}</span>
+                              <span className="font-mono text-[10px] ml-0.5">{r.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
@@ -332,7 +409,6 @@ export default function Room() {
           className="fixed z-50 w-[420px] rounded-lg overflow-hidden border border-primary/30 shadow-2xl bg-black"
           style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}
         >
-          {/* Title bar — draggable */}
           <div
             className="flex items-center justify-between px-3 py-2 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
             onPointerDown={streamPinned ? undefined : streamWindow.onPointerDown}
@@ -357,8 +433,6 @@ export default function Room() {
               </button>
             </div>
           </div>
-
-          {/* Video */}
           <div className="aspect-video">
             {activeStream ? (
               <StreamVideo stream={activeStream} muted={streamMuted} />

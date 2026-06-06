@@ -228,6 +228,10 @@ export function setupSignaling(server: Server): void {
   logger.info("WebSocket signaling server attached at /api/ws");
 }
 
+export function broadcastToRoom(roomId: number, message: object): void {
+  broadcast(roomId, message);
+}
+
 export function getPresenceSnapshot(roomId: number) {
   return getRoomClients(roomId).map((c) => ({
     userId: c.userId,

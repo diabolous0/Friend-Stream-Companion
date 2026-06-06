@@ -191,7 +191,12 @@ export const GetRoomMessagesResponseItem = zod.object({
   "userId": zod.number(),
   "username": zod.string(),
   "content": zod.string(),
-  "createdAt": zod.coerce.date()
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+}))
 })
 export const GetRoomMessagesResponse = zod.array(GetRoomMessagesResponseItem)
 
@@ -209,5 +214,25 @@ export const SendMessageParams = zod.object({
 export const SendMessageBody = zod.object({
   "content": zod.string().min(1)
 })
+
+
+/**
+ * @summary Toggle an emoji reaction on a message (add if absent, remove if present)
+ */
+export const ToggleReactionParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "messageId": zod.coerce.number()
+})
+
+export const ToggleReactionBody = zod.object({
+  "emoji": zod.string()
+})
+
+export const ToggleReactionResponseItem = zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+})
+export const ToggleReactionResponse = zod.array(ToggleReactionResponseItem)
 
 

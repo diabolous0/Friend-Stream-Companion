@@ -28,6 +28,8 @@ import type {
   Message,
   MessageInput,
   PresenceEntry,
+  Reaction,
+  ReactionInput,
   Room,
   RoomInput,
   User
@@ -1011,5 +1013,79 @@ export const useSendMessage = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getSendMessageMutationOptions(options));
+    }
+
+export const getToggleReactionUrl = (roomId: number,
+    messageId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/messages/${messageId}/reactions`
+}
+
+/**
+ * @summary Toggle an emoji reaction on a message (add if absent, remove if present)
+ */
+export const toggleReaction = async (roomId: number,
+    messageId: number,
+    reactionInput: ReactionInput, options?: RequestInit): Promise<Reaction[]> => {
+
+  return customFetch<Reaction[]>(getToggleReactionUrl(roomId,messageId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      reactionInput,)
+  }
+);}
+
+
+
+
+export const getToggleReactionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleReaction>>, TError,{roomId: number;messageId: number;data: BodyType<ReactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof toggleReaction>>, TError,{roomId: number;messageId: number;data: BodyType<ReactionInput>}, TContext> => {
+
+const mutationKey = ['toggleReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof toggleReaction>>, {roomId: number;messageId: number;data: BodyType<ReactionInput>}> = (props) => {
+          const {roomId,messageId,data} = props ?? {};
+
+          return  toggleReaction(roomId,messageId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ToggleReactionMutationResult = NonNullable<Awaited<ReturnType<typeof toggleReaction>>>
+    export type ToggleReactionMutationBody = BodyType<ReactionInput>
+    export type ToggleReactionMutationError = ErrorType<void>
+
+    /**
+ * @summary Toggle an emoji reaction on a message (add if absent, remove if present)
+ */
+export const useToggleReaction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleReaction>>, TError,{roomId: number;messageId: number;data: BodyType<ReactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof toggleReaction>>,
+        TError,
+        {roomId: number;messageId: number;data: BodyType<ReactionInput>},
+        TContext
+      > => {
+      return useMutation(getToggleReactionMutationOptions(options));
     }
 

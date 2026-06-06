@@ -14,6 +14,8 @@ export * from './joinRoomInput';
 export * from './message';
 export * from './messageInput';
 export * from './presenceEntry';
+export * from './reaction';
+export * from './reactionInput';
 export * from './room';
 export * from './roomInput';
 export * from './user';
