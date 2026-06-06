@@ -38,6 +38,9 @@ import { MentionInput, type MentionInputHandle } from "@/components/mention-inpu
 import { MessageContent, containsMention } from "@/lib/markdown";
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useUpload } from "@/hooks/use-upload";
+import { ProfileHoverCard, StatusPicker, STATUS_META } from "@/components/profile-hover";
+import type { UserStatus } from "@/lib/settings";
+import { ChevronDown } from "lucide-react";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -199,7 +202,7 @@ export default function Room() {
   const msgInputRef = useRef<MentionInputHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { playMessage, playReaction, playJoin } = useSounds(!settings.soundEnabled);
+  const { playEvent, playForUser } = useSounds(settings);
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const notifPermRef = useRef<NotificationPermission>("default");
@@ -317,8 +320,8 @@ export default function Room() {
   // ─── Reactions ─────────────────────────────────────────────────────────────
   const applyReactionUpdate = useCallback((messageId: number, reactions: any[]) => {
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
-    playReaction();
-  }, [playReaction]);
+    playEvent("reaction");
+  }, [playEvent]);
 
   // ─── WebRTC ────────────────────────────────────────────────────────────────
   const {
@@ -352,15 +355,15 @@ export default function Room() {
         });
         return next;
       });
-      if (doPlayJoin) playJoin();
+      if (doPlayJoin) playEvent("join");
       voiceOfferTargets.forEach(id => sendAudioOffer(id));
     },
     onNewMessage: (msg) => {
       if (msg.roomId !== roomId) return;
       setMessages(prev => [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
       if (msg.userId !== me?.id) {
-        playMessage();
         const mentioned = me?.username ? containsMention(msg.content, me.username) : false;
+        playForUser(msg.userId, mentioned ? "mention" : "message");
         if (notifPermRef.current === "granted" && (document.visibilityState === "hidden" || mentioned)) {
           new Notification(mentioned ? `${msg.username} mentioned you` : msg.username, {
             body: msg.content, tag: `screencrew-room-${roomId}`, silent: !mentioned,
@@ -396,6 +399,17 @@ export default function Room() {
   useEffect(() => { sendRef.current = send; }, [send]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
   useEffect(() => { if (isConnected && roomId) send({ type: "join_room", roomId }); }, [isConnected, roomId, send]);
+
+  // Broadcast our chosen status to the room
+  useEffect(() => {
+    if (!isConnected || !roomId) return;
+    send({ type: "status", status: settings.myStatus, statusMessage: settings.myStatusMessage });
+  }, [isConnected, roomId, settings.myStatus, settings.myStatusMessage, send]);
+
+  const setMyStatus = useCallback((status: UserStatus, message: string) => {
+    setSetting("myStatus", status);
+    setSetting("myStatusMessage", message);
+  }, [setSetting]);
 
   // ─── Read receipts ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -757,16 +771,41 @@ export default function Room() {
               const streaming = isMe ? isSharing : p?.streaming;
               const inVoice = isMe ? isInVoice : p?.inVoice;
 
-              const statusLabel = speaking ? "Speaking" : streaming ? "Streaming" : inVoice ? "In Voice" : online ? "Online" : "Offline";
-              const statusColor = speaking ? "text-green-400" : streaming ? "text-primary" : inVoice ? "text-violet-400" : online ? "text-muted-foreground/50" : "text-muted-foreground/25";
+              const userStatus: UserStatus = isMe ? settings.myStatus : ((p?.status as UserStatus) ?? "online");
+              const statusMsg = isMe ? settings.myStatusMessage : (p?.statusMessage ?? "");
 
-              return (
-                <div key={member.id} className="flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-muted/20 transition-colors group">
+              const activityLabel = speaking ? "Speaking" : streaming ? "Streaming" : inVoice ? "In Voice" : null;
+              const activityColor = speaking ? "text-green-400" : streaming ? "text-primary" : inVoice ? "text-violet-400" : "";
+
+              let statusLabel: string, statusColor: string;
+              if (!online) { statusLabel = "Offline"; statusColor = "text-muted-foreground/25"; }
+              else if (activityLabel) { statusLabel = activityLabel; statusColor = activityColor; }
+              else { statusLabel = statusMsg || STATUS_META[userStatus].label; statusColor = STATUS_META[userStatus].text; }
+
+              const dotColor = !online ? "bg-muted-foreground/20"
+                : userStatus === "away" ? "bg-amber-400"
+                : userStatus === "dnd" ? "bg-red-400" : "bg-green-400";
+
+              const profile = {
+                userId: member.id,
+                username: member.username,
+                displayName: isMe ? me.displayName : (p?.displayName ?? member.displayName),
+                avatarUrl: isMe ? me.avatarUrl : (p?.avatarUrl ?? member.avatarUrl),
+                steamUrl: isMe ? me.steamUrl : member.steamUrl,
+                discordUrl: isMe ? me.discordUrl : member.discordUrl,
+                status: userStatus,
+                statusMessage: statusMsg,
+                online,
+                isMe,
+              };
+
+              const rowInner = (
+                <div className={`flex items-center gap-3 px-2 py-1.5 rounded-xl hover:bg-muted/20 transition-colors group ${isMe ? "cursor-pointer" : ""}`}>
                   {/* Avatar */}
                   <div className="relative shrink-0">
                     <Avatar username={member.username} userId={member.id} size={36} square={classic}
-                      avatarUrl={isMe ? me.avatarUrl : p?.avatarUrl} />
-                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${online ? "bg-green-400" : "bg-muted-foreground/20"}`} />
+                      avatarUrl={isMe ? me.avatarUrl : (p?.avatarUrl ?? member.avatarUrl)} />
+                    <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${dotColor}`} />
                     {speaking && <div className="absolute inset-0 rounded-full border border-green-400/40 animate-ping" />}
                   </div>
                   {/* Name + status */}
@@ -775,22 +814,34 @@ export default function Room() {
                       {displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}
                       {isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
                     </p>
-                    <p className={`text-xs leading-tight mt-0.5 ${statusColor}`}>{statusLabel}</p>
+                    <p className={`text-xs leading-tight mt-0.5 truncate ${statusColor}`}>{statusLabel}</p>
                   </div>
                   {/* Right icon */}
                   {speaking ? (
                     <Waveform />
                   ) : streaming && !isMe ? (
                     <button
-                      onClick={() => { setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
+                      onClick={(e) => { e.stopPropagation(); setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
                       className="p-1 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
                       title="Watch stream">
                       <MonitorUp className="w-4 h-4" />
                     </button>
                   ) : inVoice ? (
                     <Headphones className="w-3.5 h-3.5 text-violet-400/60 shrink-0" />
+                  ) : isMe ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/30 shrink-0" />
                   ) : null}
                 </div>
+              );
+
+              return isMe ? (
+                <StatusPicker key={member.id} status={settings.myStatus} statusMessage={settings.myStatusMessage} onChange={setMyStatus}>
+                  {rowInner}
+                </StatusPicker>
+              ) : (
+                <ProfileHoverCard key={member.id} user={profile} square={classic} enableUserSound>
+                  {rowInner}
+                </ProfileHoverCard>
               );
             })}
           </div>

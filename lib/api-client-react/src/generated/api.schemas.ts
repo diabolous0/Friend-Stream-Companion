@@ -51,6 +51,16 @@ export interface PublicUser {
   createdAt: string;
 }
 
+export interface MemberUser {
+  id: number;
+  username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  steamUrl?: string | null;
+  discordUrl?: string | null;
+  createdAt: string;
+}
+
 export interface UpdateProfileInput {
   /** @maxLength 40 */
   displayName?: string | null;
@@ -87,6 +97,15 @@ export interface JoinByCodeInput {
   inviteCode: string;
 }
 
+export type PresenceEntryStatus = typeof PresenceEntryStatus[keyof typeof PresenceEntryStatus] | null;
+
+
+export const PresenceEntryStatus = {
+  online: 'online',
+  away: 'away',
+  dnd: 'dnd',
+} as const;
+
 export interface PresenceEntry {
   userId: number;
   username: string;
@@ -96,6 +115,8 @@ export interface PresenceEntry {
   speaking: boolean;
   streaming: boolean;
   inVoice: boolean;
+  status?: PresenceEntryStatus;
+  statusMessage?: string | null;
 }
 
 export interface Reaction {

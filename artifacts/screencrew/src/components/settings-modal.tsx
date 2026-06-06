@@ -4,8 +4,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun } from "lucide-react";
-import { useSettings, ACCENT_COLORS, type AccentPreset, type FontSize, type VideoQuality, type VideoCodec, type ColorMode, type WindowControls } from "@/lib/settings";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Play, Trash2, Volume2 } from "lucide-react";
+import {
+  useSettings, ACCENT_COLORS, FONT_OPTIONS, CUSTOM_COLOR_FIELDS, DEFAULT_CUSTOM_COLORS,
+  BUILTIN_SOUNDS, SOUND_EVENTS,
+  type AccentPreset, type FontSize, type VideoQuality, type VideoCodec, type ColorMode,
+  type WindowControls, type WindowStyle, type CustomColors, type SoundEvent,
+} from "@/lib/settings";
+import { useSounds } from "@/hooks/use-sounds";
 import { VIDEO_QUALITY_LABELS, VIDEO_BITRATE_OPTIONS } from "@/lib/media";
 import { useGetMe, useUpdateMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useUpload } from "@/hooks/use-upload";
@@ -198,6 +204,172 @@ const VIDEO_QUALITY_OPTIONS: { value: VideoQuality; label: string }[] =
 
 const VIDEO_CODEC_OPTIONS: { value: VideoCodec; label: string }[] =
   (["auto", "VP9", "VP8", "H264", "AV1"] as VideoCodec[]).map(v => ({ value: v, label: v === "auto" ? "Auto" : v }));
+
+// ─── Custom look helpers ──────────────────────────────────────────────────────
+
+function ColorPicker({ label, value, onChange }: { label: string; value: string; onChange: (hex: string) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm text-foreground/90">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="w-20 bg-input/60 border border-border/50 rounded-md px-2 py-1 text-xs font-mono uppercase outline-none focus:border-primary/50"
+        />
+        <label className="relative w-7 h-7 rounded-md border border-border/50 overflow-hidden cursor-pointer shrink-0" style={{ backgroundColor: value }}>
+          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#000000"}
+            onChange={e => onChange(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer" />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function CustomLookSection() {
+  const { settings, set } = useSettings();
+  const c = settings.customColors;
+  const updateColor = (key: keyof CustomColors, hex: string) => set("customColors", { ...c, [key]: hex });
+
+  return (
+    <>
+      <Divider />
+      <Section title="Custom Builder">
+        <Field label="Font" description="Typeface used across the app">
+          <div className="relative">
+            <select value={settings.fontFamily} onChange={e => set("fontFamily", e.target.value)}
+              className="w-full h-9 px-3 rounded-xl bg-muted/25 border border-transparent text-sm text-foreground outline-none focus:border-primary/30 appearance-none cursor-pointer"
+              style={{ fontFamily: FONT_OPTIONS.find(f => f.id === settings.fontFamily)?.stack }}>
+              {FONT_OPTIONS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          </div>
+        </Field>
+        <Row label="Font size" description="Scale all text">
+          <div className="flex items-center gap-3">
+            <input type="range" min={80} max={130} step={5}
+              value={settings.fontScale}
+              onChange={e => set("fontScale", Number(e.target.value))}
+              className="w-24 accent-primary h-1 rounded-full" />
+            <span className="text-xs text-muted-foreground/70 w-10 text-right">{settings.fontScale}%</span>
+          </div>
+        </Row>
+        <Row label="Window corners" description="Smooth or squared edges">
+          <Segmented<WindowStyle> value={settings.windowStyle}
+            options={[{ value: "smooth", label: "Smooth" }, { value: "squared", label: "Squared" }]}
+            onChange={v => set("windowStyle", v)} />
+        </Row>
+      </Section>
+
+      <Divider />
+      <Section title="Custom Colors">
+        <div className="space-y-2.5">
+          {CUSTOM_COLOR_FIELDS.map(({ key, label }) => (
+            <ColorPicker key={key} label={label} value={c[key]} onChange={hex => updateColor(key, hex)} />
+          ))}
+        </div>
+        <button onClick={() => set("customColors", { ...DEFAULT_CUSTOM_COLORS })}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">
+          <RotateCcw className="w-3 h-3" /> Reset colors
+        </button>
+      </Section>
+    </>
+  );
+}
+
+function SoundSelect({ value, onChange, allowDefault }: {
+  value: string; onChange: (id: string) => void; allowDefault?: boolean;
+}) {
+  const { settings } = useSettings();
+  const { playSound } = useSounds(settings);
+  return (
+    <div className="flex items-center gap-1.5">
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="h-8 px-2 rounded-lg bg-muted/25 border border-transparent text-xs text-foreground outline-none focus:border-primary/30 appearance-none cursor-pointer max-w-[140px]">
+        {allowDefault && <option value="">Default</option>}
+        {BUILTIN_SOUNDS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+        {settings.customSounds.map(s => <option key={s.id} value={`custom:${s.id}`}>{s.name}</option>)}
+      </select>
+      <button onClick={() => playSound(value || settings.eventSounds.message, true)} title="Preview"
+        className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors">
+        <Play className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function SoundsSection() {
+  const { settings, set } = useSettings();
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const { uploadFile, isUploading } = useUpload({
+    onSuccess: r => {
+      const id = (crypto.randomUUID?.() ?? String(Date.now()));
+      const name = r.name.replace(/\.[^.]+$/, "").slice(0, 32) || "Sound";
+      set("customSounds", [...settings.customSounds, { id, name, objectPath: r.objectPath }]);
+    },
+    onError: () => toast({ title: "Sound upload failed", variant: "destructive" }),
+  });
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    if (!f.type.startsWith("audio/")) { toast({ title: "Pick an audio file", variant: "destructive" }); return; }
+    void uploadFile(f);
+  };
+
+  const removeSound = (id: string) => {
+    const tag = `custom:${id}`;
+    set("customSounds", settings.customSounds.filter(s => s.id !== id));
+    const ev = { ...settings.eventSounds };
+    (Object.keys(ev) as SoundEvent[]).forEach(k => { if (ev[k] === tag) ev[k] = "beep"; });
+    set("eventSounds", ev);
+    const us = { ...settings.userSounds };
+    let changed = false;
+    Object.keys(us).forEach(k => { if (us[k] === tag) { delete us[k]; changed = true; } });
+    if (changed) set("userSounds", us);
+  };
+
+  return (
+    <>
+      <Divider />
+      <Section title="Per-event Sounds">
+        <div className="space-y-2.5">
+          {SOUND_EVENTS.map(({ key, label }) => (
+            <Row key={key} label={label}>
+              <SoundSelect value={settings.eventSounds[key]} onChange={id => set("eventSounds", { ...settings.eventSounds, [key]: id })} />
+            </Row>
+          ))}
+        </div>
+        <p className="text-[10px] text-muted-foreground/40">Per-user sounds can be set from the crew list (hover a member).</p>
+      </Section>
+
+      <Divider />
+      <Section title="Custom Sounds">
+        <input ref={fileRef} type="file" accept="audio/*" onChange={pick} className="hidden" />
+        {settings.customSounds.length > 0 && (
+          <div className="space-y-1.5">
+            {settings.customSounds.map(s => (
+              <div key={s.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-2.5 py-1.5">
+                <Volume2 className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                <span className="text-xs text-foreground/90 truncate flex-1">{s.name}</span>
+                <button onClick={() => removeSound(s.id)} className="p-1 rounded text-muted-foreground/40 hover:text-red-400 transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button onClick={() => fileRef.current?.click()} disabled={isUploading}
+          className="w-full flex items-center justify-center gap-2 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/15 transition-colors disabled:opacity-50">
+          {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4" /> Upload Sound</>}
+        </button>
+      </Section>
+    </>
+  );
+}
 
 // ─── Profile tab ─────────────────────────────────────────────────────────────
 
@@ -448,12 +620,16 @@ export function SettingsModal({
             <Section title="Theme">
               <Row label="UI Style" description="Overall visual design">
                 <div className="flex gap-1">
-                  {(["lynx", "classic"] as const).map(t => (
-                    <button key={t} onClick={() => set("uiTheme", t)}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.uiTheme === t
+                  {([
+                    { v: "lynx" as const, label: "Lynx" },
+                    { v: "classic" as const, label: "Classic" },
+                    { v: "custom" as const, label: "Custom" },
+                  ]).map(({ v, label }) => (
+                    <button key={v} onClick={() => set("uiTheme", v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.uiTheme === v
                         ? "bg-primary/15 text-primary border border-primary/30"
                         : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
-                      {t === "lynx" ? "Lynx" : "Classic"}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -538,6 +714,8 @@ export function SettingsModal({
                 ))}
               </div>
             </Section>
+
+            {settings.uiTheme === "custom" && <CustomLookSection />}
           </TabsContent>
 
           {/* ── Chat ── */}
@@ -657,6 +835,8 @@ export function SettingsModal({
                 <Toggle checked={settings.soundEnabled} onToggle={() => set("soundEnabled", !settings.soundEnabled)} />
               </Row>
             </Section>
+
+            <SoundsSection />
 
             <Divider />
 

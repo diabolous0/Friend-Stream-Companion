@@ -1,1 +1,2 @@
 - [Chat attachment markers](chat-attachment-markers.md) — ScreenCrew encodes images/files/GIFs as inline `[screencrew:<type>:...]` markers; external-URL types need a dual server+client host allowlist.
+- [Vite new-dep optimize crash](vite-new-dep-optimize-crash.md) — adding a new Radix dep (popover/hover-card) triggers a one-time Vite re-optimize whose HMR reload throws "Cannot read properties of null (useMemo)"; restart the web workflow to clear it.

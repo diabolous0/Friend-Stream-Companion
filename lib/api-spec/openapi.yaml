@@ -273,7 +273,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/PublicUser"
+                  $ref: "#/components/schemas/MemberUser"
 
   /rooms/{roomId}/presence:
     get:
@@ -568,6 +568,30 @@ components:
           type: string
           format: date-time
 
+    MemberUser:
+      type: object
+      required: [id, username, createdAt]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        steamUrl:
+          type: string
+          nullable: true
+        discordUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
     UpdateProfileInput:
       type: object
       properties:
@@ -660,6 +684,13 @@ components:
           type: boolean
         inVoice:
           type: boolean
+        status:
+          type: string
+          enum: [online, away, dnd]
+          nullable: true
+        statusMessage:
+          type: string
+          nullable: true
 
     Reaction:
       type: object

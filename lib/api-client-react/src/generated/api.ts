@@ -28,10 +28,10 @@ import type {
   HealthStatus,
   JoinByCodeInput,
   JoinRoomInput,
+  MemberUser,
   Message,
   MessageInput,
   PresenceEntry,
-  PublicUser,
   Reaction,
   ReactionInput,
   Room,
@@ -943,9 +943,9 @@ export const getGetRoomMembersUrl = (roomId: number,) => {
 /**
  * @summary Get members of a room
  */
-export const getRoomMembers = async (roomId: number, options?: RequestInit): Promise<PublicUser[]> => {
+export const getRoomMembers = async (roomId: number, options?: RequestInit): Promise<MemberUser[]> => {
 
-  return customFetch<PublicUser[]>(getGetRoomMembersUrl(roomId),
+  return customFetch<MemberUser[]>(getGetRoomMembersUrl(roomId),
   {
     ...options,
     method: 'GET'

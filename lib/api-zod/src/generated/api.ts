@@ -227,6 +227,8 @@ export const GetRoomMembersResponseItem = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetRoomMembersResponse = zod.array(GetRoomMembersResponseItem)
@@ -247,7 +249,9 @@ export const GetRoomPresenceResponseItem = zod.object({
   "online": zod.boolean(),
   "speaking": zod.boolean(),
   "streaming": zod.boolean(),
-  "inVoice": zod.boolean()
+  "inVoice": zod.boolean(),
+  "status": zod.enum(['online', 'away', 'dnd']).nullish(),
+  "statusMessage": zod.string().nullish()
 })
 export const GetRoomPresenceResponse = zod.array(GetRoomPresenceResponseItem)
 

@@ -2,13 +2,74 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type UITheme = "lynx" | "classic";
+export type UITheme = "lynx" | "classic" | "custom";
 export type ColorMode = "dark" | "light";
 export type WindowControls = "windows" | "mac";
 export type AccentPreset = "cyan" | "blue" | "purple" | "green" | "orange" | "pink" | "red";
 export type FontSize = "sm" | "md" | "lg";
 export type VideoQuality = "auto" | "1080p60" | "1080p30" | "720p30" | "480p30";
 export type VideoCodec = "auto" | "VP9" | "VP8" | "H264" | "AV1";
+
+// Custom UI builder
+export type WindowStyle = "smooth" | "squared";
+export type UserStatus = "online" | "away" | "dnd";
+
+export const FONT_OPTIONS: { id: string; label: string; stack: string }[] = [
+  { id: "space-mono", label: "Space Mono",  stack: "'Space Mono', monospace" },
+  { id: "inter",      label: "Inter",       stack: "'Inter', sans-serif" },
+  { id: "system",     label: "System UI",   stack: "system-ui, -apple-system, sans-serif" },
+  { id: "courier",    label: "Courier",     stack: "'Courier New', Courier, monospace" },
+  { id: "verdana",    label: "Verdana",     stack: "Verdana, Geneva, sans-serif" },
+  { id: "georgia",    label: "Georgia",     stack: "Georgia, 'Times New Roman', serif" },
+];
+
+export interface CustomColors {
+  background: string;
+  card: string;
+  foreground: string;
+  primary: string;
+  border: string;
+  muted: string;
+}
+
+export const DEFAULT_CUSTOM_COLORS: CustomColors = {
+  background: "#11131a",
+  card: "#171a22",
+  foreground: "#e9ecf3",
+  primary: "#00e5ff",
+  border: "#2a2f3a",
+  muted: "#8a93a6",
+};
+
+export const CUSTOM_COLOR_FIELDS: { key: keyof CustomColors; label: string }[] = [
+  { key: "background", label: "Background" },
+  { key: "card",       label: "Panels" },
+  { key: "foreground", label: "Text" },
+  { key: "primary",    label: "Accent" },
+  { key: "border",     label: "Borders" },
+  { key: "muted",      label: "Muted text" },
+];
+
+// Notification sounds
+export type SoundEvent = "message" | "mention" | "reaction" | "join";
+
+export const BUILTIN_SOUNDS: { id: string; label: string }[] = [
+  { id: "beep",  label: "Beep" },
+  { id: "chime", label: "Chime" },
+  { id: "pop",   label: "Pop" },
+  { id: "join",  label: "Join blip" },
+  { id: "none",  label: "Silent" },
+];
+
+export const SOUND_EVENTS: { key: SoundEvent; label: string }[] = [
+  { key: "message",  label: "New message" },
+  { key: "mention",  label: "Mention" },
+  { key: "reaction", label: "Reaction" },
+  { key: "join",     label: "Crew joins" },
+];
+
+export interface CustomSound { id: string; name: string; objectPath: string; }
+export interface EventSounds { message: string; mention: string; reaction: string; join: string; }
 
 export const ACCENT_COLORS: Record<AccentPreset, { hsl: string; hex: string; label: string }> = {
   cyan:   { hsl: "189 100% 50%", hex: "#00e5ff", label: "Cyan"   },
@@ -28,6 +89,21 @@ export interface AppSettings {
   accentPreset: AccentPreset;
   panelOpacity: number;      // 20–100
   blurBackground: boolean;
+
+  // Custom UI builder (active when uiTheme === "custom")
+  fontFamily: string;        // FONT_OPTIONS id
+  fontScale: number;         // 80–130 (%)
+  windowStyle: WindowStyle;
+  customColors: CustomColors;
+
+  // Notification sounds
+  customSounds: CustomSound[];
+  eventSounds: EventSounds;
+  userSounds: Record<string, string>;  // userId -> soundId
+
+  // Status
+  myStatus: UserStatus;
+  myStatusMessage: string;
 
   // Chat
   fontSize: FontSize;
@@ -62,6 +138,15 @@ const DEFAULT: AppSettings = {
   accentPreset: "cyan",
   panelOpacity: 100,
   blurBackground: false,
+  fontFamily: "space-mono",
+  fontScale: 100,
+  windowStyle: "smooth",
+  customColors: { ...DEFAULT_CUSTOM_COLORS },
+  customSounds: [],
+  eventSounds: { message: "beep", mention: "chime", reaction: "pop", join: "join" },
+  userSounds: {},
+  myStatus: "online",
+  myStatusMessage: "",
   fontSize: "md",
   showTimestamps: true,
   compactMessages: false,
@@ -97,14 +182,90 @@ function save(s: AppSettings) {
   try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {}
 }
 
+function hexToHslParts(hex: string): { h: number; s: number; l: number } | null {
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let hue = 0, sat = 0;
+  const lum = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    sat = lum > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: hue = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: hue = (b - r) / d + 2; break;
+      default: hue = (r - g) / d + 4; break;
+    }
+    hue /= 6;
+  }
+  return { h: Math.round(hue * 360), s: Math.round(sat * 100), l: Math.round(lum * 100) };
+}
+
+function hexToHsl(hex: string): string | null {
+  const p = hexToHslParts(hex);
+  return p ? `${p.h} ${p.s}% ${p.l}%` : null;
+}
+
+const CUSTOM_VARS = [
+  "--background", "--foreground", "--card", "--card-foreground",
+  "--popover", "--popover-foreground", "--secondary", "--secondary-foreground",
+  "--muted", "--muted-foreground", "--accent", "--accent-foreground",
+  "--border", "--input", "--primary", "--primary-foreground", "--ring",
+];
+
+function applyCustomTheme(el: HTMLElement, s: AppSettings) {
+  const c = s.customColors;
+  const setVar = (name: string, hex: string) => {
+    const v = hexToHsl(hex);
+    if (v) el.style.setProperty(name, v);
+  };
+  setVar("--background", c.background);
+  setVar("--card", c.card);
+  setVar("--popover", c.card);
+  setVar("--secondary", c.card);
+  setVar("--muted", c.card);
+  setVar("--accent", c.card);
+  setVar("--foreground", c.foreground);
+  setVar("--card-foreground", c.foreground);
+  setVar("--popover-foreground", c.foreground);
+  setVar("--secondary-foreground", c.foreground);
+  setVar("--accent-foreground", c.foreground);
+  setVar("--muted-foreground", c.muted);
+  setVar("--border", c.border);
+  setVar("--input", c.border);
+  setVar("--primary", c.primary);
+  setVar("--ring", c.primary);
+  const pl = hexToHslParts(c.primary);
+  el.style.setProperty("--primary-foreground", pl && pl.l > 60 ? "0 0% 0%" : "0 0% 100%");
+}
+
 function apply(s: AppSettings) {
   const el = document.documentElement;
   el.classList.toggle("dark", s.colorMode === "dark");
   el.dataset.ui = s.uiTheme;
   el.dataset.windowControls = s.windowControls;
-  const { hsl } = ACCENT_COLORS[s.accentPreset];
-  el.style.setProperty("--primary", hsl);
-  el.style.setProperty("--ring", hsl);
+
+  if (s.uiTheme === "custom") {
+    const font = FONT_OPTIONS.find((f) => f.id === s.fontFamily)?.stack ?? FONT_OPTIONS[0].stack;
+    el.style.setProperty("--app-font-sans", font);
+    el.style.setProperty("--app-font-mono", font);
+    el.style.fontSize = `${s.fontScale}%`;
+    el.style.setProperty("--radius", s.windowStyle === "squared" ? "0px" : "0.5rem");
+    applyCustomTheme(el, s);
+  } else {
+    el.style.removeProperty("--app-font-sans");
+    el.style.removeProperty("--app-font-mono");
+    el.style.fontSize = "";
+    el.style.removeProperty("--radius");
+    for (const v of CUSTOM_VARS) el.style.removeProperty(v);
+    const { hsl } = ACCENT_COLORS[s.accentPreset];
+    el.style.setProperty("--primary", hsl);
+    el.style.setProperty("--ring", hsl);
+  }
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────

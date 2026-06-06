@@ -225,6 +225,8 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
       username: usersTable.username,
       displayName: usersTable.displayName,
       avatarUrl: usersTable.avatarUrl,
+      steamUrl: usersTable.steamUrl,
+      discordUrl: usersTable.discordUrl,
       createdAt: usersTable.createdAt,
     })
     .from(roomMembersTable)
@@ -261,15 +263,21 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
   const livePresence = getPresenceSnapshot(roomId);
   const liveMap = new Map(livePresence.map((p) => [p.userId, p]));
 
-  const entries = members.map((m) => ({
-    userId: m.id,
-    username: m.username,
-    displayName: m.displayName,
-    avatarUrl: m.avatarUrl,
-    online: onlineIds.has(m.id),
-    speaking: liveMap.get(m.id)?.speaking ?? false,
-    streaming: liveMap.get(m.id)?.streaming ?? false,
-  }));
+  const entries = members.map((m) => {
+    const live = liveMap.get(m.id);
+    return {
+      userId: m.id,
+      username: m.username,
+      displayName: m.displayName,
+      avatarUrl: m.avatarUrl,
+      online: onlineIds.has(m.id),
+      speaking: live?.speaking ?? false,
+      streaming: live?.streaming ?? false,
+      inVoice: live?.inVoice ?? false,
+      status: live?.status ?? "online",
+      statusMessage: live?.statusMessage ?? null,
+    };
+  });
 
   res.json(entries);
 });

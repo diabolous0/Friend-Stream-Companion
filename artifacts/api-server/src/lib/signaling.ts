@@ -6,6 +6,8 @@ import { logger } from "./logger";
 import { db, messagesTable, usersTable, roomMembersTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
+type UserStatus = "online" | "away" | "dnd";
+
 interface ClientState {
   ws: WebSocket;
   userId: number;
@@ -16,6 +18,8 @@ interface ClientState {
   speaking: boolean;
   streaming: boolean;
   inVoice: boolean;
+  status: UserStatus;
+  statusMessage: string | null;
 }
 
 const clients = new Map<WebSocket, ClientState>();
@@ -44,6 +48,8 @@ function broadcastPresence(roomId: number): void {
     speaking: c.speaking,
     streaming: c.streaming,
     inVoice: c.inVoice,
+    status: c.status,
+    statusMessage: c.statusMessage,
   }));
   const payload = JSON.stringify({ type: "presence_update", roomId, entries });
   for (const client of getRoomClients(roomId)) {
@@ -103,6 +109,8 @@ export function setupSignaling(server: Server): void {
             speaking: false,
             streaming: false,
             inVoice: false,
+            status: "online",
+            statusMessage: null,
           });
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
@@ -156,6 +164,17 @@ export function setupSignaling(server: Server): void {
           state.streaming = Boolean(msg.streaming);
           state.inVoice = Boolean(msg.inVoice);
           broadcastPresence(state.roomId);
+          break;
+        }
+
+        case "status": {
+          if (!state) return;
+          const allowed: UserStatus[] = ["online", "away", "dnd"];
+          const next = allowed.includes(msg.status as UserStatus) ? (msg.status as UserStatus) : "online";
+          state.status = next;
+          const rawMsg = typeof msg.statusMessage === "string" ? msg.statusMessage.trim().slice(0, 120) : "";
+          state.statusMessage = rawMsg.length > 0 ? rawMsg : null;
+          if (state.roomId) broadcastPresence(state.roomId);
           break;
         }
 
@@ -325,5 +344,7 @@ export function getPresenceSnapshot(roomId: number) {
     speaking: c.speaking,
     streaming: c.streaming,
     inVoice: c.inVoice,
+    status: c.status,
+    statusMessage: c.statusMessage,
   }));
 }
