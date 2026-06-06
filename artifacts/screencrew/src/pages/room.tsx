@@ -23,11 +23,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   MonitorUp, Mic, MicOff, Phone, PhoneOff, Headphones,
   Plus, Bell, VolumeX, Volume2,
-  Pin, PinOff, X, Settings, Search, LogOut,
+  Pin, PinOff, X, Settings, Search,
   Users, MessageSquare, Pencil, Trash2, Smile,
-  Copy, Check, Share2, ChevronLeft,
+  Copy, Check, Share2, ChevronLeft, ExternalLink,
 } from "lucide-react";
-import { useTheme, ThemeToggle } from "@/lib/theme";
+import { useSettings } from "@/lib/settings";
+import { ThemeToggle } from "@/lib/theme";
+import { SettingsModal } from "@/components/settings-modal";
+import { ChatPopout } from "@/components/chat-popout";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -119,8 +122,8 @@ export default function Room() {
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { theme, setTheme } = useTheme();
-  const classic = theme === "classic";
+  const { settings, set: setSetting } = useSettings();
+  const classic = settings.uiTheme === "classic";
 
   const { data: me } = useGetMe();
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
@@ -149,8 +152,7 @@ export default function Room() {
   const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
 
-  const [soundsMuted, setSoundsMuted] = useState(false);
-  const { playMessage, playReaction, playJoin } = useSounds(soundsMuted);
+  const { playMessage, playReaction, playJoin } = useSounds(!settings.soundEnabled);
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const notifPermRef = useRef<NotificationPermission>("default");
@@ -393,6 +395,13 @@ export default function Room() {
     });
   };
 
+  const handleRenameByName = (name: string) => {
+    if (!name.trim() || name === room?.name) return;
+    updateRoomMutation.mutate({ roomId, data: { name } }, {
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetRoomQueryKey(roomId) }); setShowSettings(false); },
+    });
+  };
+
   const handleLeaveRoom = () => {
     leaveRoomMutation.mutate({ roomId }, { onSuccess: () => setLocation("/rooms") });
   };
@@ -441,7 +450,11 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"}`}>
+      <div className={`w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"}`}
+        style={settings.panelOpacity < 100 ? {
+          backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
+          ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
+        } : undefined}>
 
         {/* Title bar */}
         {classic ? (
@@ -453,9 +466,9 @@ export default function Room() {
             </Link>
             <span className="font-mono text-sm text-primary tracking-widest uppercase truncate max-w-[120px]">{room.name}</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute sounds" : "Mute sounds"}
-                className={`text-muted-foreground/50 hover:text-muted-foreground transition-colors ${soundsMuted ? "text-muted-foreground/25" : ""}`}>
-                {soundsMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              <button onClick={() => setSetting("soundEnabled", !settings.soundEnabled)} title={settings.soundEnabled ? "Mute sounds" : "Unmute sounds"}
+                className={`text-muted-foreground/50 hover:text-muted-foreground transition-colors ${!settings.soundEnabled ? "text-muted-foreground/25" : ""}`}>
+                {!settings.soundEnabled ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
               <div className={`w-2 h-2 rounded-full transition-colors ${isConnected ? "bg-primary shadow-[0_0_5px_theme(colors.primary)]" : "bg-muted-foreground/30"}`} />
             </div>
@@ -470,7 +483,7 @@ export default function Room() {
               <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_5px_#4ade80]" : "bg-muted-foreground/30"}`} />
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <button onClick={() => setSoundsMuted(m => !m)} title={soundsMuted ? "Unmute" : "Mute sounds"}
+              <button onClick={() => setSetting("soundEnabled", !settings.soundEnabled)} title={settings.soundEnabled ? "Mute sounds" : "Unmute sounds"}
                 className="w-3 h-3 rounded-full bg-yellow-400/80 hover:bg-yellow-400 transition-colors" />
               <Link href="/rooms">
                 <div className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-500 transition-colors cursor-pointer" />
@@ -559,158 +572,178 @@ export default function Room() {
         <div className="mx-4 border-t border-border/25 shrink-0" />
 
         {/* ── CHAT ── */}
-        <div className="px-4 pt-3 shrink-0">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">
-              Chat
-              {searchQuery && filteredMessages.length !== messages.length && (
-                <span className="ml-1.5 text-primary/60">{filteredMessages.length}/{messages.length}</span>
-              )}
-            </span>
-            <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
-              className={`p-1 rounded-md transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
-              <Search className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {showSearch && (
-            <div className="mb-2 relative">
-              <Input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={e => e.key === "Escape" && (setShowSearch(false), setSearchQuery(""))}
-                placeholder="Search…"
-                className="h-8 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs pr-8" />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40">
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 min-h-0 px-4">
-          <ScrollArea className="h-full">
-            <div className="space-y-0.5 pr-1 pb-2">
-              {hasMore && !searchQuery && (
-                <button onClick={loadMoreMessages} disabled={loadingMore}
-                  className="w-full text-center text-[11px] text-muted-foreground/40 hover:text-muted-foreground/70 py-1 transition-colors disabled:opacity-30">
-                  {loadingMore ? "Loading…" : "↑ Load older"}
-                </button>
-              )}
-              {filteredMessages.length === 0 && (
-                <p className="text-xs text-muted-foreground/40 text-center py-4">
-                  {searchQuery ? "No messages match" : "No messages yet — say hi!"}
-                </p>
-              )}
-              {filteredMessages.map(msg => {
-                const isOwn = msg.userId === me.id;
-                const isHovered = hoveredMsgId === msg.id;
-                const isEditing = editingMsgId === msg.id;
-                const reactions: any[] = msg.reactions ?? [];
-                const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                return (
-                  <div key={msg.id}
-                    className="relative group/msg px-2 py-1 -mx-2 rounded-xl hover:bg-muted/15 transition-colors"
-                    onMouseEnter={() => setHoveredMsgId(msg.id)}
-                    onMouseLeave={() => setHoveredMsgId(null)}>
-                    {isEditing ? (
-                      <form onSubmit={handleEditMsg}>
-                        <div className="flex items-baseline gap-1.5 mb-0.5">
-                          <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>
-                          <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
-                        </div>
-                        <Input value={editContent} onChange={e => setEditContent(e.target.value)}
-                          onKeyDown={e => e.key === "Escape" && (setEditingMsgId(null), setEditContent(""))}
-                          className="h-7 rounded-lg bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm ml-0"
-                          autoFocus />
-                        <span className="text-[10px] text-muted-foreground/30 ml-0.5">Enter · Esc to cancel</span>
-                      </form>
-                    ) : (
-                      <div className="flex items-baseline flex-wrap gap-x-1.5 leading-relaxed">
-                        <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>
-                        <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
-                        <span className="text-sm text-foreground/85 break-all">
-                          {highlight(msg.content, searchQuery)}
-                          {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
-                        </span>
-                      </div>
-                    )}
-                    {/* Own message actions */}
-                    {isOwn && !isEditing && isHovered && (
-                      <div className="absolute right-1 top-0.5 flex items-center gap-0.5 bg-card border border-border/40 rounded-lg px-1 py-0.5 shadow-sm">
-                        <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
-                          className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button onClick={() => handleDeleteMsg(msg.id)}
-                          className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                    {/* Quick reactions on hover */}
-                    {isHovered && !isEditing && (
-                      <div className="flex items-center gap-0.5 mt-1 flex-wrap">
-                        {QUICK_REACTIONS.map(emoji => (
-                          <button key={emoji} onClick={() => handleToggleReaction(msg.id, emoji)}
-                            className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded-lg hover:bg-primary/10 hover:scale-125 transition-all">
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {/* Reaction bubbles */}
-                    {reactions.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap mt-1">
-                        {reactions.map((r: any) => {
-                          const isMine = (r.userIds as number[]).includes(me.id);
-                          return (
-                            <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
-                              className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30"}`}>
-                              <span>{r.emoji}</span>
-                              <span className="text-[10px] ml-0.5">{r.count}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-          </ScrollArea>
-        </div>
-
-        {/* Typing indicator */}
-        {typingNames.length > 0 && (
-          <div className="px-5 pb-1 shrink-0 flex items-center gap-1.5">
-            <div className="flex gap-0.5 items-end">
-              {[0, 1, 2].map(i => (
-                <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40"
-                  style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
-              ))}
-            </div>
-            <span className="text-[11px] text-muted-foreground/50 truncate">
-              {typingNames.length === 1 ? `${typingNames[0]} is typing` : `${typingNames[0]} and ${typingNames.length - 1} others are typing`}
-            </span>
-          </div>
-        )}
-
-        {/* Message input */}
-        <div className="px-4 py-3 shrink-0">
-          <form onSubmit={handleSendMsg}>
-            <div className="relative">
-              <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
-                placeholder="Message…" disabled={!isConnected}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMsg(e as any); } }}
-                className="h-10 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/25 focus-visible:ring-0 text-sm pr-10 placeholder:text-muted-foreground/40" />
-              <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
-                <Smile className="w-4 h-4" />
+        {settings.chatPopout ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground/40 px-4">
+            <ExternalLink className="w-8 h-8 opacity-30" />
+            <p className="text-xs text-center">Chat is floating<br />
+              <button onClick={() => setSetting("chatPopout", false)} className="text-primary/60 hover:text-primary underline underline-offset-2 mt-1 text-xs">
+                Dock it back
               </button>
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="px-4 pt-3 shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">
+                  Chat
+                  {searchQuery && filteredMessages.length !== messages.length && (
+                    <span className="ml-1.5 text-primary/60">{filteredMessages.length}/{messages.length}</span>
+                  )}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setSetting("chatPopout", true)} title="Pop out chat"
+                    className="p-1 rounded-md text-muted-foreground/30 hover:text-muted-foreground transition-colors">
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                  <button onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery(""); }}
+                    className={`p-1 rounded-md transition-colors ${showSearch ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {showSearch && (
+                <div className="mb-2 relative">
+                  <Input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => e.key === "Escape" && (setShowSearch(false), setSearchQuery(""))}
+                    placeholder="Search…"
+                    className="h-8 rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs pr-8" />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          </form>
-        </div>
+
+            {/* Messages */}
+            <div className="flex-1 min-h-0 px-4">
+              <ScrollArea className="h-full">
+                <div className={`pr-1 pb-2 ${settings.compactMessages ? "space-y-0" : "space-y-0.5"}`}>
+                  {hasMore && !searchQuery && (
+                    <button onClick={loadMoreMessages} disabled={loadingMore}
+                      className="w-full text-center text-[11px] text-muted-foreground/40 hover:text-muted-foreground/70 py-1 transition-colors disabled:opacity-30">
+                      {loadingMore ? "Loading…" : "↑ Load older"}
+                    </button>
+                  )}
+                  {filteredMessages.length === 0 && (
+                    <p className="text-xs text-muted-foreground/40 text-center py-4">
+                      {searchQuery ? "No messages match" : "No messages yet — say hi!"}
+                    </p>
+                  )}
+                  {filteredMessages.map(msg => {
+                    const isOwn = msg.userId === me.id;
+                    const isHovered = hoveredMsgId === msg.id;
+                    const isEditing = editingMsgId === msg.id;
+                    const reactions: any[] = msg.reactions ?? [];
+                    const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                    const tSize = settings.fontSize === "sm" ? "text-xs" : settings.fontSize === "lg" ? "text-base" : "text-sm";
+                    return (
+                      <div key={msg.id}
+                        className={`relative group/msg px-2 -mx-2 rounded-xl hover:bg-muted/15 transition-colors ${settings.compactMessages ? "py-0.5" : "py-1"}`}
+                        onMouseEnter={() => setHoveredMsgId(msg.id)}
+                        onMouseLeave={() => setHoveredMsgId(null)}>
+                        {isEditing ? (
+                          <form onSubmit={handleEditMsg}>
+                            <div className="flex items-baseline gap-1.5 mb-0.5">
+                              {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
+                              <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                            </div>
+                            <Input value={editContent} onChange={e => setEditContent(e.target.value)}
+                              onKeyDown={e => e.key === "Escape" && (setEditingMsgId(null), setEditContent(""))}
+                              className="h-7 rounded-lg bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm ml-0"
+                              autoFocus />
+                            <span className="text-[10px] text-muted-foreground/30 ml-0.5">Enter · Esc to cancel</span>
+                          </form>
+                        ) : (
+                          <div className={`flex items-baseline flex-wrap gap-x-1.5 leading-relaxed ${tSize}`}>
+                            {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
+                            <span className={`font-semibold shrink-0 ${chatColor(msg.userId)}`}>{msg.username}</span>
+                            <span className={`${tSize} text-foreground/85 break-all`}>
+                              {highlight(msg.content, searchQuery)}
+                              {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
+                            </span>
+                          </div>
+                        )}
+                        {/* Own message actions */}
+                        {isOwn && !isEditing && isHovered && (
+                          <div className="absolute right-1 top-0.5 flex items-center gap-0.5 bg-card border border-border/40 rounded-lg px-1 py-0.5 shadow-sm">
+                            <button onClick={() => { setEditingMsgId(msg.id); setEditContent(msg.content); }}
+                              className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground transition-colors" title="Edit">
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button onClick={() => handleDeleteMsg(msg.id)}
+                              className="p-0.5 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+                        {/* Quick reactions on hover */}
+                        {isHovered && !isEditing && (
+                          <div className="flex items-center gap-0.5 mt-1 flex-wrap">
+                            {QUICK_REACTIONS.map(emoji => (
+                              <button key={emoji} onClick={() => handleToggleReaction(msg.id, emoji)}
+                                className="text-sm leading-none w-6 h-6 flex items-center justify-center rounded-lg hover:bg-primary/10 hover:scale-125 transition-all">
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {/* Reaction bubbles */}
+                        {reactions.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap mt-1">
+                            {reactions.map((r: any) => {
+                              const isMine = (r.userIds as number[]).includes(me.id);
+                              return (
+                                <button key={r.emoji} onClick={() => handleToggleReaction(msg.id, r.emoji)}
+                                  className={`flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border transition-colors ${isMine ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30"}`}>
+                                  <span>{r.emoji}</span>
+                                  <span className="text-[10px] ml-0.5">{r.count}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Typing indicator */}
+            {typingNames.length > 0 && (
+              <div className="px-5 pb-1 shrink-0 flex items-center gap-1.5">
+                <div className="flex gap-0.5 items-end">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40"
+                      style={{ animation: "typing-bounce 1s ease-in-out infinite", animationDelay: `${i * 200}ms` }} />
+                  ))}
+                </div>
+                <span className="text-[11px] text-muted-foreground/50 truncate">
+                  {typingNames.length === 1 ? `${typingNames[0]} is typing` : `${typingNames[0]} and ${typingNames.length - 1} others are typing`}
+                </span>
+              </div>
+            )}
+
+            {/* Message input */}
+            <div className="px-4 py-3 shrink-0">
+              <form onSubmit={handleSendMsg}>
+                <div className="relative">
+                  <Input value={msgInput} onChange={e => handleMsgInputChange(e.target.value)}
+                    placeholder="Message…" disabled={!isConnected}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMsg(e as any); } }}
+                    className="h-10 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/25 focus-visible:ring-0 text-sm pr-10 placeholder:text-muted-foreground/40" />
+                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
+                    <Smile className="w-4 h-4" />
+                  </button>
+                </div>
+              </form>
+            </div>
+          </>
+        )}
 
         {/* Bottom nav */}
         <div className="flex items-center justify-around border-t border-border/20 px-4 pb-4 pt-2 shrink-0">
@@ -780,54 +813,47 @@ export default function Room() {
       </Dialog>
 
       {/* ── Settings Modal ── */}
-      <Dialog open={showSettings} onOpenChange={setShowSettings}>
-        <DialogContent className="bg-card border-border/50 rounded-2xl max-w-xs p-0 overflow-hidden shadow-2xl">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/20">
-            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
-              <Settings className="w-4 h-4 text-primary" /> Room Settings
-            </DialogTitle>
-          </DialogHeader>
-          <div className="px-6 py-5 space-y-5">
-            <div>
-              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Appearance</p>
-              <ThemeToggle className="w-full justify-center" />
-            </div>
-            <div className="border-t border-border/20" />
-            <div>
-              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Rename</p>
-              <form onSubmit={handleRename} className="flex gap-2">
-                <Input value={renameValue} onChange={e => setRenameValue(e.target.value)}
-                  className="h-9 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm flex-1" />
-                <Button type="submit" size="sm" className="h-9 rounded-xl text-xs px-4"
-                  disabled={updateRoomMutation.isPending || !renameValue.trim() || renameValue === room.name}>
-                  {updateRoomMutation.isPending ? "…" : "Save"}
-                </Button>
-              </form>
-            </div>
-            <div className="border-t border-border/20" />
-            <div>
-              <p className="text-[11px] text-muted-foreground/60 uppercase tracking-widest mb-2.5">Danger</p>
-              {!showLeaveConfirm ? (
-                <button className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-destructive/25 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
-                  onClick={() => setShowLeaveConfirm(true)}>
-                  <LogOut className="w-3.5 h-3.5" /> Leave Room
-                </button>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground/60 text-center">You'll need the invite code to rejoin.</p>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 rounded-xl text-xs" onClick={() => setShowLeaveConfirm(false)}>Cancel</Button>
-                    <Button size="sm" className="flex-1 rounded-xl text-xs bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                      onClick={handleLeaveRoom} disabled={leaveRoomMutation.isPending}>
-                      {leaveRoomMutation.isPending ? "…" : "Confirm"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SettingsModal
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        roomName={room.name}
+        onRename={handleRenameByName}
+        isRenaming={updateRoomMutation.isPending}
+        showLeaveConfirm={showLeaveConfirm}
+        onLeaveStart={() => setShowLeaveConfirm(true)}
+        onLeaveCancel={() => setShowLeaveConfirm(false)}
+        onLeaveConfirm={handleLeaveRoom}
+        isLeaving={leaveRoomMutation.isPending}
+      />
+
+      {/* ── Chat Pop-out ── */}
+      {settings.chatPopout && (
+        <ChatPopout
+          messages={filteredMessages}
+          me={me}
+          settings={settings}
+          isConnected={isConnected}
+          typingNames={typingNames}
+          msgInput={msgInput}
+          onMsgInputChange={handleMsgInputChange}
+          onSend={handleSendMsg}
+          editingMsgId={editingMsgId}
+          editContent={editContent}
+          onEditStart={(id, content) => { setEditingMsgId(id); setEditContent(content); }}
+          onEditSave={handleEditMsg}
+          onEditCancel={() => { setEditingMsgId(null); setEditContent(""); }}
+          onEditContentChange={setEditContent}
+          onDelete={handleDeleteMsg}
+          onReaction={handleToggleReaction}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMoreMessages}
+          defaultPos={settings.chatPopoutPos}
+          onPosChange={pos => setSetting("chatPopoutPos", pos)}
+          onClose={() => setSetting("chatPopout", false)}
+          messagesEndRef={messagesEndRef}
+        />
+      )}
     </div>
   );
 }
