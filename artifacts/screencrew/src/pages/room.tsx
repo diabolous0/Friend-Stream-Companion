@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import { 
   useGetRoom, getGetRoomQueryKey,
@@ -11,9 +11,10 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useWebRTC } from "@/hooks/use-webrtc";
+import { useVoiceActivity } from "@/hooks/use-voice-activity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogOut, MonitorUp, StopCircle, Video, Volume2, VolumeX, ChevronLeft, Mic, MicOff } from "lucide-react";
+import { MonitorUp, StopCircle, Video, Volume2, VolumeX, ChevronLeft, Mic, MicOff } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
@@ -38,6 +39,9 @@ export default function Room() {
   
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
+  const [localSpeaking, setLocalSpeaking] = useState(false);
+  const sendRef = useRef<((msg: any) => void) | null>(null);
+  const isSharingRef = useRef(false);
 
   useEffect(() => {
     if (initialMessages) {
@@ -56,6 +60,26 @@ export default function Room() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const handleSpeakingChange = useCallback((speaking: boolean) => {
+    setLocalSpeaking(speaking);
+    sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current });
+  }, []);
+
+  const { isActive: micActive, hasPermission: micPermission, startDetection, stopDetection } = useVoiceActivity({
+    onSpeakingChange: handleSpeakingChange,
+    threshold: 12,
+    silenceDelay: 500,
+  });
+
+  const toggleMic = useCallback(async () => {
+    if (micActive) {
+      stopDetection();
+      sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current });
+    } else {
+      await startDetection();
+    }
+  }, [micActive, startDetection, stopDetection]);
 
   const { isConnected, send } = useWebSocket({
     onPresenceUpdate: (rid, entries) => {
@@ -95,9 +119,17 @@ export default function Room() {
     sendOffer,
     cleanup
   } = useWebRTC(send, 
-    () => send({ type: "presence", speaking: false, streaming: true }),
-    () => send({ type: "presence", speaking: false, streaming: false })
+    () => { isSharingRef.current = true;  send({ type: "presence", speaking: false, streaming: true }); },
+    () => { isSharingRef.current = false; send({ type: "presence", speaking: false, streaming: false }); }
   );
+
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
+
+  useEffect(() => {
+    isSharingRef.current = isSharing;
+  }, [isSharing]);
 
   useEffect(() => {
     if (isConnected && roomId) {
@@ -108,8 +140,9 @@ export default function Room() {
   useEffect(() => {
     return () => {
       cleanup();
+      stopDetection();
     };
-  }, [cleanup]);
+  }, [cleanup, stopDetection]);
 
   const handleStartShare = async () => {
     await startSharing(roomId);
@@ -155,6 +188,19 @@ export default function Room() {
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-primary shadow-[0_0_8px_rgba(0,229,255,0.8)]' : 'bg-destructive shadow-[0_0_8px_rgba(255,0,60,0.8)]'}`} />
             <span className="font-mono text-xs text-muted-foreground uppercase hidden sm:inline-block">{isConnected ? 'Uplink Active' : 'Disconnected'}</span>
           </div>
+          <Button
+            size="sm"
+            variant={micActive ? (localSpeaking ? "default" : "secondary") : "outline"}
+            className={`h-7 px-3 rounded-sm font-mono text-xs uppercase transition-all ${micActive && localSpeaking ? "shadow-[0_0_10px_rgba(0,229,255,0.6)]" : ""} ${micPermission === false ? "opacity-50 cursor-not-allowed" : ""}`}
+            onClick={toggleMic}
+            title={micPermission === false ? "Microphone permission denied" : micActive ? "Mute mic" : "Activate mic"}
+          >
+            {micActive ? (
+              <><Mic className={`w-3.5 h-3.5 mr-1.5 ${localSpeaking ? "animate-pulse" : ""}`} /> {localSpeaking ? "Speaking" : "Mic On"}</>
+            ) : (
+              <><MicOff className="w-3.5 h-3.5 mr-1.5" /> Mic Off</>
+            )}
+          </Button>
           <Button 
             size="sm" 
             variant={isSharing ? "destructive" : "default"}
@@ -183,7 +229,7 @@ export default function Room() {
                 const isMe = member.id === me.id;
                 const p = presence[member.id];
                 const isOnline = isMe ? isConnected : p?.online;
-                const isSpeaking = isMe ? false : p?.speaking; // me speaking is handled locally if we add it
+                const isSpeaking = isMe ? localSpeaking : p?.speaking;
                 const isStreaming = isMe ? isSharing : p?.streaming;
                 
                 return (
