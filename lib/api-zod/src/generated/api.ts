@@ -56,6 +56,8 @@ export const LoginResponse = zod.object({
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 })
@@ -72,6 +74,8 @@ export const GetMeResponse = zod.object({
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -81,6 +85,8 @@ export const GetMeResponse = zod.object({
  */
 export const updateMeBodyDisplayNameMax = 40;
 
+export const updateMeBodyNameColorMax = 9;
+
 
 
 export const UpdateMeBody = zod.object({
@@ -88,7 +94,9 @@ export const UpdateMeBody = zod.object({
   "email": zod.string().nullish(),
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
-  "avatarUrl": zod.string().nullish()
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().max(updateMeBodyNameColorMax).nullish(),
+  "avatarStyle": zod.enum(['initials', 'pixel']).nullish()
 })
 
 export const UpdateMeResponse = zod.object({
@@ -99,6 +107,8 @@ export const UpdateMeResponse = zod.object({
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -271,6 +281,8 @@ export const GetRoomMembersResponseItem = zod.object({
   "avatarUrl": zod.string().nullish(),
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetRoomMembersResponse = zod.array(GetRoomMembersResponseItem)
@@ -288,6 +300,8 @@ export const GetRoomPresenceResponseItem = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "online": zod.boolean(),
   "speaking": zod.boolean(),
   "streaming": zod.boolean(),
@@ -319,6 +333,8 @@ export const GetRoomMessagesResponseItem = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -373,6 +389,8 @@ export const EditMessageResponse = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -432,6 +450,8 @@ export const TogglePinResponse = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -461,6 +481,8 @@ export const GetPinnedMessagesResponseItem = zod.object({
   "username": zod.string(),
   "displayName": zod.string().nullish(),
   "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -491,6 +513,8 @@ export const GetPendingMembersResponseItem = zod.object({
   "avatarUrl": zod.string().nullish(),
   "steamUrl": zod.string().nullish(),
   "discordUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetPendingMembersResponse = zod.array(GetPendingMembersResponseItem)

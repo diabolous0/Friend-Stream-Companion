@@ -3,6 +3,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useSettings, BUILTIN_SOUNDS, type UserStatus } from "@/lib/settings";
 import { useSounds } from "@/hooks/use-sounds";
+import { PixelAvatar } from "@/components/pixel-avatar";
 import { Gamepad2, Circle, Play, Volume2, VolumeX, Star } from "lucide-react";
 
 function safeHref(url?: string | null): string | null {
@@ -27,13 +28,16 @@ export const STATUS_META: Record<UserStatus, { label: string; dot: string; text:
   dnd:    { label: "Do Not Disturb", dot: "bg-red-400",    text: "text-red-400" },
 };
 
-function ProfileAvatar({ username, userId, avatarUrl, size, square }: {
-  username: string; userId: number; avatarUrl?: string | null; size: number; square?: boolean;
+function ProfileAvatar({ username, userId, avatarUrl, avatarStyle, size, square }: {
+  username: string; userId: number; avatarUrl?: string | null; avatarStyle?: string | null; size: number; square?: boolean;
 }) {
   const src = avatarSrc(avatarUrl);
   const rounded = square ? "rounded-md" : "rounded-full";
   if (src) {
     return <img src={src} alt={username} className={`${rounded} object-cover select-none shrink-0`} style={{ width: size, height: size }} />;
+  }
+  if (avatarStyle === "pixel") {
+    return <PixelAvatar userId={userId} size={size} square={square} />;
   }
   return (
     <div className={`${avatarBg(userId)} ${rounded} flex items-center justify-center text-white font-bold select-none shrink-0`}
@@ -48,6 +52,8 @@ export interface ProfileInfo {
   username: string;
   displayName?: string | null;
   avatarUrl?: string | null;
+  avatarStyle?: string | null;
+  nameColor?: string | null;
   steamUrl?: string | null;
   discordUrl?: string | null;
   status?: UserStatus | null;
@@ -103,11 +109,11 @@ export function ProfileHoverCard({ user, square, enableUserSound, children, volu
         <div className="p-4">
           <div className="flex items-center gap-3">
             <div className="relative shrink-0">
-              <ProfileAvatar username={user.username} userId={user.userId} avatarUrl={user.avatarUrl} size={48} square={square} />
+              <ProfileAvatar username={user.username} userId={user.userId} avatarUrl={user.avatarUrl} avatarStyle={user.avatarStyle} size={48} square={square} />
               <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-popover ${meta.dot}`} />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold leading-tight truncate">
+              <p className="text-sm font-semibold leading-tight truncate" style={user.nameColor ? { color: user.nameColor } : undefined}>
                 {displayNameOf(user) || user.username}
                 {user.isMe && <span className="text-muted-foreground/40 font-normal"> (you)</span>}
               </p>

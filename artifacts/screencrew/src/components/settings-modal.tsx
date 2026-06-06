@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Play, Trash2, Volume2 } from "lucide-react";
 import {
   useSettings, ACCENT_COLORS, FONT_OPTIONS, CUSTOM_COLOR_FIELDS, DEFAULT_CUSTOM_COLORS,
-  BUILTIN_SOUNDS, SOUND_EVENTS,
+  BUILTIN_SOUNDS, SOUND_EVENTS, SOUND_THEMES, SKIN_PRESETS,
   type AccentPreset, type FontSize, type VideoQuality, type VideoCodec, type ColorMode,
   type WindowControls, type WindowStyle, type CustomColors, type SoundEvent,
 } from "@/lib/settings";
@@ -335,6 +335,19 @@ function SoundsSection() {
   return (
     <>
       <Divider />
+      <Section title="Sound Themes">
+        <p className="text-xs text-muted-foreground/50 -mt-1">Apply a full set of event sounds at once.</p>
+        <div className="grid grid-cols-2 gap-2">
+          {SOUND_THEMES.map(theme => (
+            <button key={theme.id} onClick={() => set("eventSounds", { ...theme.sounds })}
+              className="rounded-xl border border-border/40 hover:border-primary/40 px-3 py-2 text-left text-xs font-medium text-foreground/90 transition-all">
+              {theme.label}
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Divider />
       <Section title="Per-event Sounds">
         <div className="space-y-2.5">
           {SOUND_EVENTS.map(({ key, label }) => (
@@ -382,6 +395,8 @@ function ProfileTab() {
 
   const [form, setForm] = useState({ displayName: "", email: "", steamUrl: "", discordUrl: "" });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [nameColor, setNameColor] = useState<string>("");
+  const [avatarStyle, setAvatarStyle] = useState<"initials" | "pixel">("initials");
   const [seeded, setSeeded] = useState(false);
 
   useEffect(() => {
@@ -393,6 +408,8 @@ function ProfileTab() {
         discordUrl: me.discordUrl ?? "",
       });
       setAvatarUrl(me.avatarUrl ?? null);
+      setNameColor(me.nameColor ?? "");
+      setAvatarStyle((me.avatarStyle as "initials" | "pixel") ?? "initials");
       setSeeded(true);
     }
   }, [me, seeded]);
@@ -422,6 +439,8 @@ function ProfileTab() {
           steamUrl: form.steamUrl.trim() || null,
           discordUrl: form.discordUrl.trim() || null,
           avatarUrl: avatarUrl || null,
+          nameColor: nameColor || null,
+          avatarStyle,
         },
       },
       {
@@ -470,6 +489,42 @@ function ProfileTab() {
           </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePick} />
         </div>
+        <Row label="Fallback style" description="Shown when you have no photo">
+          <div className="flex gap-1">
+            {([
+              { v: "initials" as const, label: "Initials" },
+              { v: "pixel" as const, label: "Pixel" },
+            ]).map(({ v, label }) => (
+              <button key={v} onClick={() => setAvatarStyle(v)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${avatarStyle === v
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </Row>
+      </Section>
+
+      <Divider />
+
+      <Section title="Name Color">
+        <Row label="Your color" description="Tint your name in chat & crew">
+          <div className="flex items-center gap-2">
+            <input type="color" value={nameColor || "#00e5ff"}
+              onChange={e => setNameColor(e.target.value)}
+              className="w-8 h-8 rounded-lg bg-transparent border border-border/40 cursor-pointer p-0.5" />
+            {nameColor && (
+              <button onClick={() => setNameColor("")}
+                className="text-[11px] text-muted-foreground/50 hover:text-destructive transition-colors">
+                Clear
+              </button>
+            )}
+          </div>
+        </Row>
+        <p className="text-xs" style={nameColor ? { color: nameColor } : undefined}>
+          {previewName || "Preview"}
+        </p>
       </Section>
 
       <Divider />
@@ -547,7 +602,7 @@ export function SettingsModal({
   roomName, onRename, isRenaming,
   showLeaveConfirm, onLeaveStart, onLeaveCancel, onLeaveConfirm, isLeaving,
 }: SettingsModalProps) {
-  const { settings, set, reset, exportCode, importCode } = useSettings();
+  const { settings, set, applyMany, reset, exportCode, importCode } = useSettings();
   const { toast } = useToast();
 
   const [renameValue, setRenameValue] = useState(roomName ?? "");
@@ -617,6 +672,32 @@ export function SettingsModal({
 
           {/* ── Appearance ── */}
           <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Skins">
+              <p className="text-xs text-muted-foreground/50 -mt-1">One-tap full retro skins (sets a custom palette + font).</p>
+              <div className="grid grid-cols-3 gap-2">
+                {SKIN_PRESETS.map(skin => {
+                  const isActive = settings.uiTheme === "custom"
+                    && settings.customColors.primary?.toLowerCase() === skin.colors.primary.toLowerCase()
+                    && settings.customColors.background?.toLowerCase() === skin.colors.background.toLowerCase();
+                  return (
+                    <button key={skin.id}
+                      onClick={() => applyMany({ uiTheme: "custom", customColors: { ...skin.colors }, fontFamily: skin.font, windowStyle: skin.windowStyle })}
+                      className={`rounded-xl border p-2 text-left transition-all ${isActive ? "border-primary/60 ring-1 ring-primary/30" : "border-border/40 hover:border-border"}`}
+                      style={{ background: skin.colors.background }}>
+                      <div className="flex gap-1 mb-1.5">
+                        <span className="w-3 h-3 rounded-full" style={{ background: skin.colors.primary }} />
+                        <span className="w-3 h-3 rounded-full" style={{ background: skin.colors.foreground }} />
+                        <span className="w-3 h-3 rounded-full" style={{ background: skin.colors.border }} />
+                      </div>
+                      <span className="text-[10px] font-medium block truncate" style={{ color: skin.colors.foreground }}>{skin.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Section>
+
+            <Divider />
+
             <Section title="Theme">
               <Row label="UI Style" description="Overall visual design">
                 <div className="flex gap-1">
@@ -715,6 +796,46 @@ export function SettingsModal({
               </div>
             </Section>
 
+            <Divider />
+
+            <Section title="Voice Visualizer">
+              <Row label="Spectrum bars" description="Equalizer on speaking crew & streams">
+                <Toggle checked={settings.spectrumViz} onToggle={() => set("spectrumViz", !settings.spectrumViz)} />
+              </Row>
+            </Section>
+
+            <Divider />
+
+            <Section title="Layout">
+              <Row label="Top panel" description="Which section sits on top">
+                <div className="flex gap-1">
+                  {([
+                    { v: "friends" as const, label: "Crew" },
+                    { v: "chat" as const, label: "Chat" },
+                  ]).map(({ v, label }) => (
+                    <button key={v} onClick={() => set("panelOrder", v)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${settings.panelOrder === v
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "text-muted-foreground/50 border border-transparent hover:text-muted-foreground"}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row label="Collapse crew" description="Hide the crew list">
+                <Toggle checked={settings.friendsCollapsed} onToggle={() => set("friendsCollapsed", !settings.friendsCollapsed)} />
+              </Row>
+              <Row label="Collapse chat" description="Hide the chat panel">
+                <Toggle checked={settings.chatCollapsed} onToggle={() => set("chatCollapsed", !settings.chatCollapsed)} />
+              </Row>
+              <Row label="Window size" description="Reset to default dimensions">
+                <button onClick={() => set("windowSize", { w: 320, h: 580 })}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium text-muted-foreground/50 border border-border/30 hover:text-muted-foreground transition-all">
+                  Reset
+                </button>
+              </Row>
+            </Section>
+
             {settings.uiTheme === "custom" && <CustomLookSection />}
           </TabsContent>
 
@@ -726,6 +847,13 @@ export function SettingsModal({
               </Row>
               <Row label="Compact" description="Tighter message spacing">
                 <Toggle checked={settings.compactMessages} onToggle={() => set("compactMessages", !settings.compactMessages)} />
+              </Row>
+              <Row label="Font" description="Typeface for chat messages">
+                <select value={settings.chatFont} onChange={e => set("chatFont", e.target.value)}
+                  className="h-8 px-2 rounded-lg bg-muted/30 border border-border/40 text-xs text-foreground outline-none focus:border-primary/40 appearance-none cursor-pointer"
+                  style={{ fontFamily: FONT_OPTIONS.find(f => f.id === settings.chatFont)?.stack }}>
+                  {FONT_OPTIONS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                </select>
               </Row>
             </Section>
 

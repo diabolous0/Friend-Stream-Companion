@@ -329,6 +329,8 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
       username: usersTable.username,
       displayName: usersTable.displayName,
       avatarUrl: usersTable.avatarUrl,
+      nameColor: usersTable.nameColor,
+      avatarStyle: usersTable.avatarStyle,
       steamUrl: usersTable.steamUrl,
       discordUrl: usersTable.discordUrl,
       createdAt: usersTable.createdAt,
@@ -355,6 +357,8 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
       username: usersTable.username,
       displayName: usersTable.displayName,
       avatarUrl: usersTable.avatarUrl,
+      nameColor: usersTable.nameColor,
+      avatarStyle: usersTable.avatarStyle,
     })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
@@ -371,6 +375,8 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
       username: m.username,
       displayName: m.displayName,
       avatarUrl: m.avatarUrl,
+      nameColor: m.nameColor,
+      avatarStyle: m.avatarStyle,
       online: onlineIds.has(m.id),
       speaking: live?.speaking ?? false,
       streaming: live?.streaming ?? false,
@@ -408,6 +414,8 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       username: usersTable.username,
       displayName: usersTable.displayName,
       avatarUrl: usersTable.avatarUrl,
+      nameColor: usersTable.nameColor,
+      avatarStyle: usersTable.avatarStyle,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
@@ -454,12 +462,12 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
     .from(usersTable)
     .where(eq(usersTable.id, updated.userId));
   const [enriched] = await enrichMessages([updated]);
 
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
   broadcastToRoom(roomId, { type: "message_updated", message: result });
   res.json(result);
 });
@@ -515,11 +523,11 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
     .from(usersTable)
     .where(eq(usersTable.id, authReq.userId!));
   const [enriched] = await enrichMessages([saved]);
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
 
   broadcastToRoom(roomId, { type: "new_message", message: result });
   res.status(201).json(result);
@@ -604,11 +612,11 @@ router.post("/rooms/:roomId/messages/:messageId/pin", requireAuth, async (req, r
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
     .from(usersTable)
     .where(eq(usersTable.id, updated.userId));
   const [enriched] = await enrichMessages([updated]);
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
 
   broadcastToRoom(roomId, { type: "message_updated", message: result });
   res.json(result);
@@ -630,6 +638,8 @@ router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> =
       username: usersTable.username,
       displayName: usersTable.displayName,
       avatarUrl: usersTable.avatarUrl,
+      nameColor: usersTable.nameColor,
+      avatarStyle: usersTable.avatarStyle,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,

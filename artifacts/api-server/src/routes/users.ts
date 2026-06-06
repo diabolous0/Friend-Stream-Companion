@@ -16,6 +16,8 @@ function publicUser(user: typeof usersTable.$inferSelect) {
     steamUrl: user.steamUrl,
     discordUrl: user.discordUrl,
     avatarUrl: user.avatarUrl,
+    nameColor: user.nameColor,
+    avatarStyle: user.avatarStyle,
     createdAt: user.createdAt,
   };
 }
@@ -47,6 +49,8 @@ router.patch("/users/me", requireAuth, async (req, res): Promise<void> => {
     steamUrl: empty(parsed.data.steamUrl),
     discordUrl: empty(parsed.data.discordUrl),
     avatarUrl: empty(parsed.data.avatarUrl),
+    nameColor: empty(parsed.data.nameColor),
+    avatarStyle: empty(parsed.data.avatarStyle),
   };
   for (const key of Object.keys(updates) as (keyof typeof updates)[]) {
     if (updates[key] === undefined) delete updates[key];
@@ -68,7 +72,7 @@ router.patch("/users/me", requireAuth, async (req, res): Promise<void> => {
     res.status(401).json({ error: "User not found" });
     return;
   }
-  refreshUserProfile(user.id, { displayName: user.displayName, avatarUrl: user.avatarUrl });
+  refreshUserProfile(user.id, { displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle });
   res.json(publicUser(user));
 });
 

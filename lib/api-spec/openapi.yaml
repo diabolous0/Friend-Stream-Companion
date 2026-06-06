@@ -640,6 +640,12 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        nameColor:
+          type: string
+          nullable: true
+        avatarStyle:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -656,6 +662,12 @@ components:
           type: string
           nullable: true
         avatarUrl:
+          type: string
+          nullable: true
+        nameColor:
+          type: string
+          nullable: true
+        avatarStyle:
           type: string
           nullable: true
         createdAt:
@@ -682,6 +694,12 @@ components:
         discordUrl:
           type: string
           nullable: true
+        nameColor:
+          type: string
+          nullable: true
+        avatarStyle:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -705,6 +723,14 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        nameColor:
+          type: string
+          nullable: true
+          maxLength: 9
+        avatarStyle:
+          type: string
+          nullable: true
+          enum: [initials, pixel]
 
     Room:
       type: object
@@ -809,6 +835,12 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        nameColor:
+          type: string
+          nullable: true
+        avatarStyle:
+          type: string
+          nullable: true
         online:
           type: boolean
         speaking:
@@ -854,6 +886,12 @@ components:
           type: string
           nullable: true
         avatarUrl:
+          type: string
+          nullable: true
+        nameColor:
+          type: string
+          nullable: true
+        avatarStyle:
           type: string
           nullable: true
         content:

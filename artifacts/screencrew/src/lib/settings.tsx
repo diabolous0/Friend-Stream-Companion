@@ -51,13 +51,15 @@ export const CUSTOM_COLOR_FIELDS: { key: keyof CustomColors; label: string }[] =
 ];
 
 // Notification sounds
-export type SoundEvent = "message" | "mention" | "reaction" | "join";
+export type SoundEvent = "message" | "mention" | "reaction" | "join" | "leave" | "knock";
 
 export const BUILTIN_SOUNDS: { id: string; label: string }[] = [
   { id: "beep",  label: "Beep" },
   { id: "chime", label: "Chime" },
   { id: "pop",   label: "Pop" },
   { id: "join",  label: "Join blip" },
+  { id: "leave", label: "Leave blip" },
+  { id: "knock", label: "Knock" },
   { id: "none",  label: "Silent" },
 ];
 
@@ -66,10 +68,44 @@ export const SOUND_EVENTS: { key: SoundEvent; label: string }[] = [
   { key: "mention",  label: "Mention" },
   { key: "reaction", label: "Reaction" },
   { key: "join",     label: "Crew joins" },
+  { key: "leave",    label: "Crew leaves" },
+  { key: "knock",    label: "Knock to join" },
 ];
 
 export interface CustomSound { id: string; name: string; objectPath: string; }
-export interface EventSounds { message: string; mention: string; reaction: string; join: string; }
+export interface EventSounds { message: string; mention: string; reaction: string; join: string; leave: string; knock: string; }
+
+// Sound theme presets — bundle all event sounds at once
+export const SOUND_THEMES: { id: string; label: string; sounds: EventSounds }[] = [
+  { id: "retro",   label: "Retro",   sounds: { message: "beep",  mention: "chime", reaction: "pop",  join: "join",  leave: "leave", knock: "knock" } },
+  { id: "minimal", label: "Minimal", sounds: { message: "pop",   mention: "pop",   reaction: "none", join: "none",  leave: "none",  knock: "beep"  } },
+  { id: "arcade",  label: "Arcade",  sounds: { message: "chime", mention: "beep",  reaction: "pop",  join: "join",  leave: "leave", knock: "chime" } },
+  { id: "silent",  label: "Silent",  sounds: { message: "none",  mention: "chime", reaction: "none", join: "none",  leave: "none",  knock: "knock" } },
+];
+
+// Winamp-style skin presets — bundle a full custom palette + font + window style
+export interface SkinPreset {
+  id: string;
+  label: string;
+  colors: CustomColors;
+  font: string;
+  windowStyle: WindowStyle;
+}
+
+export const SKIN_PRESETS: SkinPreset[] = [
+  { id: "cyber",    label: "Cyber Cyan", font: "space-mono", windowStyle: "smooth",
+    colors: { background: "#0a0e14", card: "#121823", foreground: "#dbe7f0", primary: "#00e5ff", border: "#1f2b3a", muted: "#6b8299" } },
+  { id: "amber",    label: "Classic Amber", font: "courier", windowStyle: "squared",
+    colors: { background: "#0b0700", card: "#160f02", foreground: "#ffcf6b", primary: "#ffab00", border: "#3a2a08", muted: "#9c7b32" } },
+  { id: "matrix",   label: "Matrix Green", font: "courier", windowStyle: "squared",
+    colors: { background: "#000700", card: "#021202", foreground: "#9dffb0", primary: "#00ff66", border: "#0c3315", muted: "#3f8a52" } },
+  { id: "vaporwave", label: "Vaporwave", font: "space-mono", windowStyle: "smooth",
+    colors: { background: "#1a0b2e", card: "#2a1245", foreground: "#ffe3fb", primary: "#ff5cd6", border: "#46276b", muted: "#9d7bc4" } },
+  { id: "plasma",   label: "Plasma", font: "inter", windowStyle: "smooth",
+    colors: { background: "#0c0f1f", card: "#161a30", foreground: "#dfe4ff", primary: "#7c5cff", border: "#28305a", muted: "#7681b8" } },
+  { id: "hotline",  label: "Hotline", font: "space-mono", windowStyle: "smooth",
+    colors: { background: "#100208", card: "#1d0610", foreground: "#ffd9e6", primary: "#ff3b6b", border: "#451222", muted: "#a85772" } },
+];
 
 export const ACCENT_COLORS: Record<AccentPreset, { hsl: string; hex: string; label: string }> = {
   cyan:   { hsl: "189 100% 50%", hex: "#00e5ff", label: "Cyan"   },
@@ -109,8 +145,18 @@ export interface AppSettings {
   fontSize: FontSize;
   showTimestamps: boolean;
   compactMessages: boolean;
+  chatFont: string;          // FONT_OPTIONS id for chat messages
   chatPopout: boolean;
   chatPopoutPos: { x: number; y: number };
+
+  // Voice visualizer
+  spectrumViz: boolean;      // bouncing-bar equalizer on speaking avatars/streams
+
+  // Layout
+  panelOrder: "friends" | "chat";   // which section sits on top
+  friendsCollapsed: boolean;
+  chatCollapsed: boolean;
+  windowSize: { w: number; h: number };
 
   // Audio
   soundEnabled: boolean;
@@ -155,13 +201,19 @@ const DEFAULT: AppSettings = {
   windowStyle: "smooth",
   customColors: { ...DEFAULT_CUSTOM_COLORS },
   customSounds: [],
-  eventSounds: { message: "beep", mention: "chime", reaction: "pop", join: "join" },
+  eventSounds: { message: "beep", mention: "chime", reaction: "pop", join: "join", leave: "leave", knock: "knock" },
   userSounds: {},
   myStatus: "online",
   myStatusMessage: "",
   fontSize: "md",
   showTimestamps: true,
   compactMessages: false,
+  chatFont: "space-mono",
+  spectrumViz: true,
+  panelOrder: "friends",
+  friendsCollapsed: false,
+  chatCollapsed: false,
+  windowSize: { w: 320, h: 580 },
   soundEnabled: true,
   micDeviceId: "",
   echoCancellation: true,
@@ -269,6 +321,9 @@ function apply(s: AppSettings) {
   el.dataset.ui = s.uiTheme;
   el.dataset.windowControls = s.windowControls;
 
+  const chatFont = FONT_OPTIONS.find((f) => f.id === s.chatFont)?.stack ?? FONT_OPTIONS[0].stack;
+  el.style.setProperty("--chat-font", chatFont);
+
   if (s.uiTheme === "custom") {
     const font = FONT_OPTIONS.find((f) => f.id === s.fontFamily)?.stack ?? FONT_OPTIONS[0].stack;
     el.style.setProperty("--app-font-sans", font);
@@ -293,6 +348,7 @@ function apply(s: AppSettings) {
 interface Ctx {
   settings: AppSettings;
   set: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  applyMany: (patch: Partial<AppSettings>) => void;
   reset: () => void;
   exportCode: () => string;
   importCode: (code: string) => boolean;
@@ -301,6 +357,7 @@ interface Ctx {
 const SettingsCtx = createContext<Ctx>({
   settings: DEFAULT,
   set: () => {},
+  applyMany: () => {},
   reset: () => {},
   exportCode: () => "",
   importCode: () => false,
@@ -316,6 +373,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   const set = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setState(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const applyMany = useCallback((patch: Partial<AppSettings>) => {
+    setState(prev => ({ ...prev, ...patch }));
   }, []);
 
   const reset = useCallback(() => setState({ ...DEFAULT }), []);
@@ -334,7 +395,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SettingsCtx.Provider value={{ settings, set, reset, exportCode, importCode }}>
+    <SettingsCtx.Provider value={{ settings, set, applyMany, reset, exportCode, importCode }}>
       {children}
     </SettingsCtx.Provider>
   );

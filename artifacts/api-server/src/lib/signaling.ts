@@ -14,6 +14,8 @@ interface ClientState {
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  nameColor: string | null;
+  avatarStyle: string | null;
   roomId: number | null;
   speaking: boolean;
   streaming: boolean;
@@ -45,6 +47,8 @@ function broadcastPresence(roomId: number): void {
     username: c.username,
     displayName: c.displayName,
     avatarUrl: c.avatarUrl,
+    nameColor: c.nameColor,
+    avatarStyle: c.avatarStyle,
     online: true,
     speaking: c.speaking,
     streaming: c.streaming,
@@ -107,6 +111,8 @@ export function setupSignaling(server: Server): void {
             username: user.username,
             displayName: user.displayName,
             avatarUrl: user.avatarUrl,
+            nameColor: user.nameColor,
+            avatarStyle: user.avatarStyle,
             roomId: null,
             speaking: false,
             streaming: false,
@@ -287,6 +293,8 @@ export function setupSignaling(server: Server): void {
               username: state.username,
               displayName: state.displayName,
               avatarUrl: state.avatarUrl,
+              nameColor: state.nameColor,
+              avatarStyle: state.avatarStyle,
               content: saved.content,
               createdAt: saved.createdAt,
               editedAt: null,
@@ -371,13 +379,15 @@ export function broadcastToRoom(roomId: number, message: object): void {
 
 export function refreshUserProfile(
   userId: number,
-  profile: { displayName: string | null; avatarUrl: string | null },
+  profile: { displayName: string | null; avatarUrl: string | null; nameColor: string | null; avatarStyle: string | null },
 ): void {
   const affectedRooms = new Set<number>();
   for (const state of clients.values()) {
     if (state.userId === userId) {
       state.displayName = profile.displayName;
       state.avatarUrl = profile.avatarUrl;
+      state.nameColor = profile.nameColor;
+      state.avatarStyle = profile.avatarStyle;
       if (state.roomId !== null) affectedRooms.add(state.roomId);
     }
   }

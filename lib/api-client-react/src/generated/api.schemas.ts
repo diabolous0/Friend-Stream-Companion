@@ -35,6 +35,8 @@ export interface User {
   steamUrl?: string | null;
   discordUrl?: string | null;
   avatarUrl?: string | null;
+  nameColor?: string | null;
+  avatarStyle?: string | null;
   createdAt: string;
 }
 
@@ -48,6 +50,8 @@ export interface PublicUser {
   username: string;
   displayName?: string | null;
   avatarUrl?: string | null;
+  nameColor?: string | null;
+  avatarStyle?: string | null;
   createdAt: string;
 }
 
@@ -58,8 +62,18 @@ export interface MemberUser {
   avatarUrl?: string | null;
   steamUrl?: string | null;
   discordUrl?: string | null;
+  nameColor?: string | null;
+  avatarStyle?: string | null;
   createdAt: string;
 }
+
+export type UpdateProfileInputAvatarStyle = typeof UpdateProfileInputAvatarStyle[keyof typeof UpdateProfileInputAvatarStyle] | null;
+
+
+export const UpdateProfileInputAvatarStyle = {
+  initials: 'initials',
+  pixel: 'pixel',
+} as const;
 
 export interface UpdateProfileInput {
   /** @maxLength 40 */
@@ -68,6 +82,9 @@ export interface UpdateProfileInput {
   steamUrl?: string | null;
   discordUrl?: string | null;
   avatarUrl?: string | null;
+  /** @maxLength 9 */
+  nameColor?: string | null;
+  avatarStyle?: UpdateProfileInputAvatarStyle;
 }
 
 export interface Room {
@@ -125,6 +142,8 @@ export interface PresenceEntry {
   username: string;
   displayName?: string | null;
   avatarUrl?: string | null;
+  nameColor?: string | null;
+  avatarStyle?: string | null;
   online: boolean;
   speaking: boolean;
   streaming: boolean;
@@ -146,6 +165,8 @@ export interface Message {
   username: string;
   displayName?: string | null;
   avatarUrl?: string | null;
+  nameColor?: string | null;
+  avatarStyle?: string | null;
   content: string;
   createdAt: string;
   editedAt?: string | null;

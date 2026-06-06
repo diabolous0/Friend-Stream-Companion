@@ -2,3 +2,5 @@
 - [Vite new-dep optimize crash](vite-new-dep-optimize-crash.md) — adding a new Radix dep (popover/hover-card) triggers a one-time Vite re-optimize whose HMR reload throws "Cannot read properties of null (useMemo)"; restart the web workflow to clear it.
 - [Chat render WS-echo race](chat-render-ws-echo-race.md) — sent messages must be appended on mutation success (id-dedup), not only via WS new_message echo, or a freshly-joined sender never sees their own message.
 - [Room membership access control](room-membership-access-control.md) — active-status filtering + creator-only gating invariants for room/knock/pin/approve routes; room_members has UNIQUE(room_id,user_id).
+- [CSS order vs ARIA in e2e](css-order-vs-aria-testing.md) — CSS flex `order` changes visual position but not DOM/ARIA order; e2e tests must judge such swaps by screenshot, not the ARIA tree.
+- [Presence leave detection](presence-leave-detection.md) — broadcastPresence emits only online users; leave/offline must be inferred client-side by diffing prevOnline against the new snapshot's userIds.

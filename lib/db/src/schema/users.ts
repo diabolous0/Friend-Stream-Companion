@@ -11,6 +11,8 @@ export const usersTable = pgTable("users", {
   steamUrl: text("steam_url"),
   discordUrl: text("discord_url"),
   avatarUrl: text("avatar_url"),
+  nameColor: text("name_color"),
+  avatarStyle: text("avatar_style"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

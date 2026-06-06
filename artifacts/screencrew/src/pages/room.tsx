@@ -48,6 +48,8 @@ import {
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useUpload } from "@/hooks/use-upload";
 import { ProfileHoverCard, StatusPicker, STATUS_META } from "@/components/profile-hover";
+import { PixelAvatar } from "@/components/pixel-avatar";
+import { Spectrum } from "@/components/spectrum";
 import type { UserStatus } from "@/lib/settings";
 import { ChevronDown } from "lucide-react";
 
@@ -97,12 +99,22 @@ const CHAT_COLORS = [
 function avatarBg(userId: number) { return AVATAR_BG[userId % AVATAR_BG.length]; }
 function chatColor(userId: number) { return CHAT_COLORS[userId % CHAT_COLORS.length]; }
 
+// A user-chosen name color (hex) overrides the deterministic class palette.
+function nameStyle(nameColor?: string | null): React.CSSProperties | undefined {
+  return nameColor ? { color: nameColor } : undefined;
+}
+function nameClass(userId: number, nameColor?: string | null) {
+  return nameColor ? "" : chatColor(userId);
+}
+
 type OverlayToastData = {
   key: number;
   userId: number;
   username: string;
   displayName: string | null;
   avatarUrl: string | null;
+  nameColor: string | null;
+  avatarStyle: string | null;
   content: string;
 };
 
@@ -117,7 +129,7 @@ function toastPreview(content: string) {
 
 // ─── Helper components ───────────────────────────────────────────────────────
 
-function Avatar({ username, userId, size = 36, square = false, avatarUrl }: { username: string; userId: number; size?: number; square?: boolean; avatarUrl?: string | null }) {
+function Avatar({ username, userId, size = 36, square = false, avatarUrl, avatarStyle }: { username: string; userId: number; size?: number; square?: boolean; avatarUrl?: string | null; avatarStyle?: string | null }) {
   const src = avatarSrc(avatarUrl);
   if (src) {
     return (
@@ -125,6 +137,9 @@ function Avatar({ username, userId, size = 36, square = false, avatarUrl }: { us
         className={`${square ? "rounded-sm" : "rounded-full"} object-cover select-none shrink-0`}
         style={{ width: size, height: size }} />
     );
+  }
+  if (avatarStyle === "pixel") {
+    return <PixelAvatar userId={userId} size={size} square={square} />;
   }
   return (
     <div className={`${avatarBg(userId)} ${square ? "rounded-sm" : "rounded-full"} flex items-center justify-center text-white font-bold select-none shrink-0`}
@@ -277,6 +292,7 @@ export default function Room() {
   const prevOnlineRef = useRef<Set<number>>(new Set());
   const presenceRef = useRef<Record<number, any>>({});
   const streamWindow = useDraggable({ x: 360, y: 60 });
+  const winResizeRef = useRef<{ sx: number; sy: number; w: number; h: number } | null>(null);
 
   useEffect(() => { presenceRef.current = presence; }, [presence]);
 
@@ -384,18 +400,31 @@ export default function Room() {
       if (rid !== roomId) return;
       const voiceOfferTargets: number[] = [];
       let doPlayJoin = false;
+      let doPlayLeave = false;
+      const presentIds = new Set<number>(entries.map((e: any) => e.userId as number));
       setPresence(prev => {
         const next = { ...prev };
         entries.forEach((e: any) => {
           const wasOnline = prevOnlineRef.current.has(e.userId);
           if (e.online && !wasOnline && e.userId !== me?.id) doPlayJoin = true;
+          if (!e.online && wasOnline && e.userId !== me?.id) doPlayLeave = true;
           if (e.online) prevOnlineRef.current.add(e.userId); else prevOnlineRef.current.delete(e.userId);
           if (e.inVoice && !prev[e.userId]?.inVoice && e.userId !== me?.id && isInVoice) voiceOfferTargets.push(e.userId);
           next[e.userId] = e;
         });
+        // Presence snapshots only include connected users; anyone previously
+        // online but absent from this snapshot has left the room.
+        prevOnlineRef.current.forEach((uid) => {
+          if (!presentIds.has(uid)) {
+            if (uid !== me?.id) doPlayLeave = true;
+            if (next[uid]) next[uid] = { ...next[uid], online: false, speaking: false, streaming: false, inVoice: false };
+          }
+        });
         return next;
       });
+      prevOnlineRef.current.forEach((uid) => { if (!presentIds.has(uid)) prevOnlineRef.current.delete(uid); });
       if (doPlayJoin) playEvent("join");
+      if (doPlayLeave) playEvent("leave");
       voiceOfferTargets.forEach(id => sendAudioOffer(id));
     },
     onNewMessage: (msg) => {
@@ -442,7 +471,7 @@ export default function Room() {
     onKnock: (rid, user) => {
       if (rid !== roomId) return;
       queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) });
-      playEvent("join");
+      playEvent("knock");
       if (notifPermRef.current === "granted") {
         new Notification(`${user?.username ?? "Someone"} wants to join`, { tag: `screencrew-knock-${roomId}`, body: room?.name ?? "" });
       }
@@ -844,6 +873,8 @@ export default function Room() {
             username: m.username,
             displayName: m.displayName ?? null,
             avatarUrl: m.avatarUrl ?? null,
+            nameColor: m.nameColor ?? null,
+            avatarStyle: m.avatarStyle ?? null,
             content: m.content,
           })),
         ].slice(-3));
@@ -900,6 +931,19 @@ export default function Room() {
   const activeStream = viewingStreamOf ? remoteStreams[viewingStreamOf] : null;
   const viewingUser = members?.find(m => m.id === viewingStreamOf);
 
+  const onWinResizeDown = (e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    winResizeRef.current = { sx: e.clientX, sy: e.clientY, w: settings.windowSize.w, h: settings.windowSize.h };
+  };
+  const onWinResizeMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (!winResizeRef.current) return;
+    const w = Math.max(280, Math.min(560, winResizeRef.current.w + e.clientX - winResizeRef.current.sx));
+    const h = Math.max(380, Math.min(900, winResizeRef.current.h + e.clientY - winResizeRef.current.sy));
+    setSetting("windowSize", { w, h });
+  };
+  const onWinResizeUp = () => { winResizeRef.current = null; };
+
   const readersByMessage: Record<number, { id: number; username: string }[]> = {};
   if (members) {
     for (const member of members) {
@@ -923,12 +967,15 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className={`relative w-[320px] h-[580px] flex flex-col bg-card border shadow-2xl overflow-hidden transition-all ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
+      <div className={`relative flex flex-col bg-card border shadow-2xl overflow-hidden transition-[opacity,transform] ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
         onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-        style={settings.panelOpacity < 100 ? {
-          backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
-          ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
-        } : undefined}>
+        style={{
+          width: settings.windowSize.w, height: settings.windowSize.h,
+          ...(settings.panelOpacity < 100 ? {
+            backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
+            ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
+          } : {}),
+        }}>
 
         {isDragging && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary/60 rounded-2xl pointer-events-none">
@@ -997,8 +1044,9 @@ export default function Room() {
           </div>
         )}
 
+        <div className="flex flex-col flex-1 min-h-0">
         {/* ── FRIENDS ── */}
-        <div className="px-4 shrink-0">
+        <div className="px-4 shrink-0" style={{ order: settings.panelOrder === "friends" ? 0 : 2 }}>
           <div className="flex items-center justify-between mb-2.5">
             <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Friends</span>
             <div className="flex items-center gap-0.5">
@@ -1090,6 +1138,7 @@ export default function Room() {
           )}
 
           {/* Friend rows */}
+          {!settings.friendsCollapsed && (
           <div className="space-y-0.5 mb-3">
             {members?.map(member => {
               const isMe = member.id === me.id;
@@ -1114,6 +1163,10 @@ export default function Room() {
                 : userStatus === "away" ? "bg-amber-400"
                 : userStatus === "dnd" ? "bg-red-400" : "bg-green-400";
 
+              const memNameColor = isMe ? me.nameColor : (p?.nameColor ?? member.nameColor);
+              const memAvatarStyle = isMe ? me.avatarStyle : (p?.avatarStyle ?? member.avatarStyle);
+              const memAudioStream = isMe ? null : remoteAudioStreams[member.id];
+
               const profile = {
                 userId: member.id,
                 username: member.username,
@@ -1121,6 +1174,8 @@ export default function Room() {
                 avatarUrl: isMe ? me.avatarUrl : (p?.avatarUrl ?? member.avatarUrl),
                 steamUrl: isMe ? me.steamUrl : member.steamUrl,
                 discordUrl: isMe ? me.discordUrl : member.discordUrl,
+                nameColor: memNameColor,
+                avatarStyle: memAvatarStyle,
                 status: userStatus,
                 statusMessage: statusMsg,
                 online,
@@ -1132,14 +1187,14 @@ export default function Room() {
                   {/* Avatar */}
                   <div className="relative shrink-0">
                     <Avatar username={member.username} userId={member.id} size={36} square={classic}
-                      avatarUrl={isMe ? me.avatarUrl : (p?.avatarUrl ?? member.avatarUrl)} />
+                      avatarUrl={isMe ? me.avatarUrl : (p?.avatarUrl ?? member.avatarUrl)} avatarStyle={memAvatarStyle} />
                     <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card transition-colors ${dotColor}`} />
                     {speaking && <div className="absolute inset-0 rounded-full border border-green-400/40 animate-ping" />}
                   </div>
                   {/* Name + status */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium leading-tight truncate flex items-center gap-1">
-                      <span className="truncate">{displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}</span>
+                      <span className={`truncate ${nameClass(member.id, memNameColor)}`} style={nameStyle(memNameColor)}>{displayNameOf(isMe ? me : { displayName: p?.displayName, username: member.username }) || member.username}</span>
                       {isMe && <span className="text-muted-foreground/40 font-normal shrink-0">(you)</span>}
                       {!isMe && online && connHealth[member.id] && (
                         <span title={`Connection: ${connHealth[member.id]}`}
@@ -1156,7 +1211,9 @@ export default function Room() {
                   </div>
                   {/* Right icon */}
                   {speaking ? (
-                    <Waveform />
+                    settings.spectrumViz
+                      ? <Spectrum stream={memAudioStream} active height={12} color="rgb(74 222 128)" />
+                      : <Waveform />
                   ) : streaming && !isMe ? (
                     <button
                       onClick={(e) => { e.stopPropagation(); setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
@@ -1191,13 +1248,19 @@ export default function Room() {
               );
             })}
           </div>
+          )}
         </div>
 
         {/* Divider */}
-        <div className="mx-4 border-t border-border/25 shrink-0" />
+        <div className="mx-4 border-t border-border/25 shrink-0" style={{ order: 1 }} />
 
         {/* ── CHAT ── */}
-        {settings.chatPopout ? (
+        <div className="flex flex-col min-h-0" style={{ order: settings.panelOrder === "friends" ? 2 : 0, flex: settings.chatCollapsed ? "none" : "1 1 0%" }}>
+        {settings.chatCollapsed ? (
+          <div className="px-4 py-2.5">
+            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Chat (hidden)</span>
+          </div>
+        ) : settings.chatPopout ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground/40 px-4">
             <ExternalLink className="w-8 h-8 opacity-30" />
             <p className="text-xs text-center">Chat is floating<br />
@@ -1255,7 +1318,7 @@ export default function Room() {
                   <div className="space-y-1 mb-1.5 max-h-28 overflow-y-auto">
                     {pinnedMessages.map((pm: any) => (
                       <div key={pm.id} className="flex items-start gap-1.5 text-[11px] bg-muted/20 border border-border/30 rounded-lg px-2 py-1">
-                        <span className={`font-semibold shrink-0 ${chatColor(pm.userId)}`}>{displayNameOf(pm) || pm.username}:</span>
+                        <span className={`font-semibold shrink-0 ${nameClass(pm.userId, pm.nameColor)}`} style={nameStyle(pm.nameColor)}>{displayNameOf(pm) || pm.username}:</span>
                         <span className="text-foreground/70 truncate flex-1">{toastPreview(pm.content)}</span>
                         {isCreator && (
                           <button onClick={() => handleTogglePin(pm.id)} className="text-muted-foreground/40 hover:text-destructive shrink-0" title="Unpin">
@@ -1272,7 +1335,7 @@ export default function Room() {
             {/* Messages */}
             <div className="flex-1 min-h-0 px-4">
               <ScrollArea className="h-full">
-                <div className={`pr-1 pb-2 ${settings.compactMessages ? "space-y-0" : "space-y-0.5"}`}>
+                <div className={`pr-1 pb-2 ${settings.compactMessages ? "space-y-0" : "space-y-0.5"}`} style={{ fontFamily: "var(--chat-font)" }}>
                   {hasMore && !searchQuery && (
                     <button onClick={loadMoreMessages} disabled={loadingMore}
                       className="w-full text-center text-[11px] text-muted-foreground/40 hover:text-muted-foreground/70 py-1 transition-colors disabled:opacity-30">
@@ -1300,7 +1363,7 @@ export default function Room() {
                           <form onSubmit={handleEditMsg}>
                             <div className="flex items-baseline gap-1.5 mb-0.5">
                               {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
-                              <span className={`text-sm font-semibold shrink-0 ${chatColor(msg.userId)}`}>{displayNameOf(msg) || msg.username}</span>
+                              <span className={`text-sm font-semibold shrink-0 ${nameClass(msg.userId, msg.nameColor)}`} style={nameStyle(msg.nameColor)}>{displayNameOf(msg) || msg.username}</span>
                             </div>
                             <Input value={editContent} onChange={e => setEditContent(e.target.value)}
                               onKeyDown={e => e.key === "Escape" && (setEditingMsgId(null), setEditContent(""))}
@@ -1318,11 +1381,13 @@ export default function Room() {
                               </div>
                             )}
                             {settings.showTimestamps && <span className="text-[11px] text-muted-foreground/40 shrink-0">{timeStr}</span>}
-                            {avatarSrc(msg.avatarUrl) && (
+                            {avatarSrc(msg.avatarUrl) ? (
                               <img src={avatarSrc(msg.avatarUrl)!} alt=""
                                 className="w-4 h-4 rounded-full object-cover self-center shrink-0" />
-                            )}
-                            <span className={`font-semibold shrink-0 ${chatColor(msg.userId)}`}>{displayNameOf(msg) || msg.username}</span>
+                            ) : msg.avatarStyle === "pixel" ? (
+                              <span className="self-center shrink-0"><PixelAvatar userId={msg.userId} size={16} /></span>
+                            ) : null}
+                            <span className={`font-semibold shrink-0 ${nameClass(msg.userId, msg.nameColor)}`} style={nameStyle(msg.nameColor)}>{displayNameOf(msg) || msg.username}</span>
                             <span className={`${tSize} text-foreground/85`}>
                               <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
@@ -1467,6 +1532,16 @@ export default function Room() {
             </div>
           </>
         )}
+        </div>
+        </div>
+
+        {/* Resize grip */}
+        <div onPointerDown={onWinResizeDown} onPointerMove={onWinResizeMove} onPointerUp={onWinResizeUp}
+          title="Drag to resize"
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-40 text-muted-foreground/30 hover:text-primary/60 transition-colors"
+          style={{ touchAction: "none" }}>
+          <svg viewBox="0 0 10 10" className="w-full h-full"><path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" strokeWidth="1.2" fill="none" /></svg>
+        </div>
 
         {/* Bottom nav */}
         <div className="flex items-center justify-around border-t border-border/20 px-4 pb-4 pt-2 shrink-0">
@@ -1502,11 +1577,16 @@ export default function Room() {
               </button>
             </div>
           </div>
-          <div className={`aspect-video transition-shadow ${presence[viewingStreamOf]?.speaking ? "ring-2 ring-green-400/70 ring-inset" : ""}`}>
+          <div className={`relative aspect-video transition-shadow ${presence[viewingStreamOf]?.speaking ? "ring-2 ring-green-400/70 ring-inset" : ""}`}>
             {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
               <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
                 <MonitorUp className="w-10 h-10 opacity-30" />
                 <span className="text-sm">Waiting for signal…</span>
+              </div>
+            )}
+            {settings.spectrumViz && presence[viewingStreamOf]?.speaking && (
+              <div className="absolute bottom-2 right-2 bg-black/40 rounded-md px-1.5 py-1 backdrop-blur-sm">
+                <Spectrum stream={remoteAudioStreams[viewingStreamOf]} active bars={12} height={20} color="rgb(74 222 128)" />
               </div>
             )}
           </div>
@@ -1746,10 +1826,10 @@ function OverlayToast({ toast, square, onDismiss, onOpen }: {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       className="pointer-events-auto w-[260px] flex items-start gap-2.5 bg-card/95 border border-primary/30 rounded-2xl pl-2.5 pr-2 py-2.5 shadow-2xl backdrop-blur-sm cursor-pointer hover:border-primary/50 transition-colors animate-in slide-in-from-right-4 fade-in duration-300">
-      <Avatar username={toast.username} userId={toast.userId} size={34} square={square} avatarUrl={toast.avatarUrl} />
+      <Avatar username={toast.username} userId={toast.userId} size={34} square={square} avatarUrl={toast.avatarUrl} avatarStyle={toast.avatarStyle} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className={`text-xs font-semibold truncate ${chatColor(toast.userId)}`}>{name}</span>
+          <span className={`text-xs font-semibold truncate ${nameClass(toast.userId, toast.nameColor)}`} style={nameStyle(toast.nameColor)}>{name}</span>
           <MessageSquare className="w-3 h-3 text-primary/40 shrink-0 ml-auto" />
         </div>
         <p className="text-xs text-foreground/75 mt-0.5 line-clamp-2 break-words">{toastPreview(toast.content)}</p>

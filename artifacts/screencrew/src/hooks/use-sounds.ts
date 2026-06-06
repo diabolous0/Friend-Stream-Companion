@@ -14,6 +14,14 @@ const BUILTIN_TONES: Record<string, ToneStep[]> = {
     { freq: 523, dur: 0.08, vol: 0.06, delay: 0 },
     { freq: 659, dur: 0.1, vol: 0.07, delay: 0.08 },
   ],
+  leave: [
+    { freq: 659, dur: 0.08, vol: 0.06, delay: 0 },
+    { freq: 392, dur: 0.12, vol: 0.07, delay: 0.08 },
+  ],
+  knock: [
+    { freq: 196, dur: 0.07, vol: 0.14, delay: 0 },
+    { freq: 196, dur: 0.07, vol: 0.14, delay: 0.16 },
+  ],
 };
 
 export function useSounds(settings: AppSettings) {
