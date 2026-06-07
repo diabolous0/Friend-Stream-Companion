@@ -22,6 +22,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useVoiceActivity } from "@/hooks/use-voice-activity";
+import { useStreamPopouts } from "@/hooks/use-stream-popouts";
 import { useSounds } from "@/hooks/use-sounds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,18 +170,22 @@ function Waveform() {
   );
 }
 
-function useDraggable(initial: { x: number; y: number }) {
+function useDraggable(initial: { x: number; y: number }, width = 460) {
   const [pos, setPos] = useState(initial);
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  const widthRef = useRef(width);
+  widthRef.current = width;
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { sx: e.clientX, sy: e.clientY, px: pos.x, py: pos.y };
   }, [pos]);
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (!dragRef.current) return;
+    // Keep at least a sliver on-screen even for wide/narrow windows.
+    const maxX = Math.max(0, window.innerWidth - Math.min(widthRef.current, window.innerWidth) - 4);
     setPos({
-      x: Math.max(0, Math.min(window.innerWidth - 460, dragRef.current.px + e.clientX - dragRef.current.sx)),
-      y: Math.max(0, Math.min(window.innerHeight - 280, dragRef.current.py + e.clientY - dragRef.current.sy)),
+      x: Math.max(0, Math.min(maxX, dragRef.current.px + e.clientX - dragRef.current.sx)),
+      y: Math.max(0, Math.min(window.innerHeight - 60, dragRef.current.py + e.clientY - dragRef.current.sy)),
     });
   }, []);
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
@@ -345,8 +350,10 @@ export default function Room() {
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevOnlineRef = useRef<Set<number>>(new Set());
   const presenceRef = useRef<Record<number, any>>({});
-  const streamWindow = useDraggable({ x: 360, y: 60 });
+  const streamWindow = useDraggable({ x: 360, y: 60 }, settings.streamWindowW);
+  const overlayStreamWindow = useDraggable({ x: 16, y: 80 }, 260);
   const winResizeRef = useRef<{ sx: number; sy: number; w: number; h: number } | null>(null);
+  const streamWinResizeRef = useRef<{ sx: number; w: number } | null>(null);
 
   useEffect(() => { presenceRef.current = presence; }, [presence]);
 
@@ -1242,6 +1249,13 @@ export default function Room() {
 
   const onlineCount = Object.values(presence).filter((p: any) => p?.online).length;
 
+  // Detached pop-out windows (drag a stream onto another monitor).
+  const streamPopouts = useStreamPopouts();
+  const updatePopoutStreams = streamPopouts.updateStreams;
+  useEffect(() => {
+    updatePopoutStreams(remoteStreams as Record<number, MediaStream | null | undefined>);
+  }, [remoteStreams, updatePopoutStreams]);
+
   if (!me || !room) {
     return (
       <div className="h-[100dvh] bg-background flex items-center justify-center">
@@ -1265,6 +1279,18 @@ export default function Room() {
     setSetting("windowSize", { w, h });
   };
   const onWinResizeUp = () => { winResizeRef.current = null; };
+
+  const onStreamResizeDown = (e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    streamWinResizeRef.current = { sx: e.clientX, w: settings.streamWindowW };
+  };
+  const onStreamResizeMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (!streamWinResizeRef.current) return;
+    const w = Math.max(280, Math.min(900, streamWinResizeRef.current.w + e.clientX - streamWinResizeRef.current.sx));
+    setSetting("streamWindowW", w);
+  };
+  const onStreamResizeUp = () => { streamWinResizeRef.current = null; };
 
   const readersByMessage: Record<number, { id: number; username: string }[]> = {};
   if (members) {
@@ -1527,7 +1553,12 @@ export default function Room() {
         {/* ── FRIENDS ── */}
         <div className="px-4 shrink-0" style={{ order: settings.panelOrder === "friends" ? 0 : 2 }}>
           <div className="flex items-center justify-between mb-2.5">
-            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Friends</span>
+            <button onClick={() => setSetting("friendsCollapsed", !settings.friendsCollapsed)}
+              title={settings.friendsCollapsed ? "Expand friends" : "Collapse friends"}
+              className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground/60 hover:text-foreground uppercase tracking-widest transition-colors">
+              <ChevronDown className={`w-3 h-3 transition-transform ${settings.friendsCollapsed ? "-rotate-90" : ""}`} />
+              Friends
+            </button>
             <div className="flex items-center gap-0.5">
               <button onClick={toggleMic}
                 title={micActive ? (settings.voiceMode === "ptt" ? `Push-to-talk (${fmtHotkey(settings.pttKey)})` : "Mute mic") : "Enable mic"}
@@ -1810,7 +1841,11 @@ export default function Room() {
         <div className="flex flex-col min-h-0" style={{ order: settings.panelOrder === "friends" ? 2 : 0, flex: settings.chatCollapsed ? "none" : "1 1 0%" }}>
         {settings.chatCollapsed ? (
           <div className="px-4 py-2.5">
-            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Chat (hidden)</span>
+            <button onClick={() => setSetting("chatCollapsed", false)} title="Expand chat"
+              className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground/60 hover:text-foreground uppercase tracking-widest transition-colors">
+              <ChevronDown className="w-3 h-3 -rotate-90" />
+              Chat (hidden)
+            </button>
           </div>
         ) : settings.chatPopout ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground/40 px-4">
@@ -1826,6 +1861,10 @@ export default function Room() {
             <div className="px-4 pt-3 shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest flex items-center gap-1">
+                  <button onClick={() => setSetting("chatCollapsed", true)} title="Collapse chat"
+                    className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
                   {activeChannel ? (
                     <>
                       {activeChannel.type === "voice" ? <Volume2 className="w-3 h-3" /> : activeChannel.type === "announcement" ? <Megaphone className="w-3 h-3" /> : activeChannel.type === "media" ? <ImageIcon className="w-3 h-3" /> : <Hash className="w-3 h-3" />}
@@ -2148,8 +2187,8 @@ export default function Room() {
 
       {/* ── Floating Stream Window ── */}
       {viewingStreamOf && !overlayMode && (
-        <div className={`fixed z-50 overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f] rounded-2xl ${isMobile ? "inset-x-2 bottom-2" : "w-[440px]"}`}
-          style={isMobile ? undefined : { left: streamWindow.pos.x, top: streamWindow.pos.y }}>
+        <div className={`fixed z-50 overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f] rounded-2xl ${isMobile ? "inset-x-2 bottom-2" : ""}`}
+          style={isMobile ? undefined : { left: streamWindow.pos.x, top: streamWindow.pos.y, width: settings.streamWindowW }}>
           <div className={`flex items-center justify-between px-4 py-2.5 bg-card/95 border-b border-border/30 select-none ${isMobile ? "" : "cursor-grab active:cursor-grabbing"}`}
             onPointerDown={streamPinned || isMobile ? undefined : streamWindow.onPointerDown}
             onPointerMove={streamPinned || isMobile ? undefined : streamWindow.onPointerMove}
@@ -2168,6 +2207,11 @@ export default function Room() {
                   <PictureInPicture2 className="w-3.5 h-3.5" />
                 </button>
               )}
+              <button onClick={() => viewingStreamOf && streamPopouts.open(viewingStreamOf, activeStream, `${viewingUser?.username ?? "Stream"} — ScreenCrew`)}
+                title="Pop out to a separate window (drag to another monitor)" disabled={!activeStream}
+                className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${viewingStreamOf && streamPopouts.openIds.includes(viewingStreamOf) ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground"}`}>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
               <button onClick={() => setStreamMuted(m => !m)} className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground transition-colors">
                 {streamMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
@@ -2186,6 +2230,13 @@ export default function Room() {
             {settings.spectrumViz && presence[viewingStreamOf]?.speaking && (
               <div className="absolute bottom-2 right-2 bg-black/40 rounded-md px-1.5 py-1 backdrop-blur-sm">
                 <Spectrum stream={remoteAudioStreams[viewingStreamOf]} active bars={12} height={20} color="rgb(74 222 128)" />
+              </div>
+            )}
+            {!isMobile && (
+              <div onPointerDown={onStreamResizeDown} onPointerMove={onStreamResizeMove} onPointerUp={onStreamResizeUp}
+                title="Drag to resize"
+                className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-10 flex items-end justify-end p-0.5 text-white/30 hover:text-white/70">
+                <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 fill-current"><path d="M9 1v8H7V3H1V1z" /></svg>
               </div>
             )}
           </div>
@@ -2219,6 +2270,12 @@ export default function Room() {
                     <button key={id} onClick={() => { setViewingStreamOf(id); setGridView(false); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
                       className={`group relative aspect-video rounded-xl overflow-hidden border bg-black transition-all hover:ring-2 hover:ring-primary/60 ${isSpeaking ? "border-green-400/70 ring-2 ring-green-400/40" : "border-border/40"}`}>
                       <StreamVideo stream={remoteStreams[id]} muted />
+                      <span role="button" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); streamPopouts.open(id, remoteStreams[id], `${streamer?.username ?? `User ${id}`} — ScreenCrew`); }}
+                        title="Pop out to a separate window"
+                        className={`absolute top-2 right-2 p-1.5 rounded-lg backdrop-blur-sm transition-colors ${streamPopouts.openIds.includes(id) ? "bg-primary/20 text-primary" : "bg-black/40 text-white/70 hover:text-white opacity-0 group-hover:opacity-100"}`}>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </span>
                       <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2 flex items-center gap-2">
                         <MonitorUp className="w-3.5 h-3.5 text-primary shrink-0" />
                         <span className="text-xs font-medium text-white truncate">{streamer?.username ?? `User ${id}`}</span>
@@ -2415,6 +2472,30 @@ export default function Room() {
         </div>
       )}
 
+      {/* ── Overlay mini live-stream ── */}
+      {overlayMode && viewingStreamOf && activeStream && settings.overlayShowStream && (
+        <div className="fixed z-[55] select-none" style={{ left: overlayStreamWindow.pos.x, top: overlayStreamWindow.pos.y, width: 260 }}>
+          <div className="overflow-hidden rounded-xl border border-primary/30 bg-[#0a0a0f] shadow-2xl">
+            <div className="flex items-center justify-between px-2 py-1 bg-card/90 border-b border-border/30 cursor-grab active:cursor-grabbing backdrop-blur-sm"
+              onPointerDown={overlayStreamWindow.onPointerDown}
+              onPointerMove={overlayStreamWindow.onPointerMove}
+              onPointerUp={overlayStreamWindow.onPointerUp}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <MonitorUp className="w-3 h-3 text-primary/70 shrink-0" />
+                <span className="text-[10px] font-medium truncate">{viewingUser?.username}</span>
+              </div>
+              <button onClick={() => setSetting("overlayShowStream", false)} onPointerDown={e => e.stopPropagation()}
+                title="Hide mini stream" className="text-muted-foreground/40 hover:text-foreground transition-colors shrink-0">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="relative aspect-video">
+              <StreamVideo stream={activeStream} muted />
+            </div>
+          </div>
+        </div>
+      )}
+
       {overlayMode && (
         <div className="fixed z-50 select-none"
           style={{ left: pillPos.x, top: pillPos.y }}>
@@ -2430,6 +2511,15 @@ export default function Room() {
               <span className="text-[10px] font-bold text-primary bg-primary/15 rounded-full px-1.5 min-w-[18px] text-center">
                 {unreadOverlay > 99 ? "99+" : unreadOverlay}
               </span>
+            )}
+            {viewingStreamOf && activeStream && (
+              <button
+                className={`transition-colors ${settings.overlayShowStream ? "text-primary" : "text-muted-foreground/40 hover:text-foreground"}`}
+                onClick={() => setSetting("overlayShowStream", !settings.overlayShowStream)}
+                onPointerDown={e => e.stopPropagation()}
+                title={settings.overlayShowStream ? "Hide mini stream" : "Show mini stream"}>
+                <MonitorUp className="w-3 h-3" />
+              </button>
             )}
             <span className="font-mono text-[9px] text-muted-foreground/30">{fmtHotkey(settings.overlayHotkey)}</span>
             <button
@@ -2486,6 +2576,8 @@ export default function Room() {
           onLoadMore={loadMoreMessages}
           defaultPos={settings.chatPopoutPos}
           onPosChange={pos => setSetting("chatPopoutPos", pos)}
+          defaultSize={settings.chatPopoutSize}
+          onSizeChange={size => setSetting("chatPopoutSize", size)}
           onClose={() => setSetting("chatPopout", false)}
           messagesEndRef={messagesEndRef}
         />

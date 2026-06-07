@@ -164,6 +164,7 @@ export interface AppSettings {
   chatFont: string;          // FONT_OPTIONS id for chat messages
   chatPopout: boolean;
   chatPopoutPos: { x: number; y: number };
+  chatPopoutSize: { w: number; h: number }; // resizable chat popout (w = window, h = messages area)
 
   // Voice visualizer
   spectrumViz: boolean;      // bouncing-bar equalizer on speaking avatars/streams
@@ -173,6 +174,7 @@ export interface AppSettings {
   friendsCollapsed: boolean;
   chatCollapsed: boolean;
   windowSize: { w: number; h: number };
+  streamWindowW: number;             // resizable floating stream-window width (px)
 
   // Audio
   soundEnabled: boolean;
@@ -191,6 +193,7 @@ export interface AppSettings {
   // Overlay
   overlayHotkey: string;  // KeyboardEvent.code or "Mod+Code", e.g. "Insert", "Shift+F2"
   overlayPillPos: { x: number; y: number };
+  overlayShowStream: boolean; // show a mini live stream in overlay mode while gaming
 
   // Voice & presence
   voiceMode: "open" | "ptt";          // open mic vs push-to-talk
@@ -236,6 +239,7 @@ const DEFAULT: AppSettings = {
   friendsCollapsed: false,
   chatCollapsed: false,
   windowSize: { w: 320, h: 580 },
+  streamWindowW: 440,
   soundEnabled: true,
   micDeviceId: "",
   echoCancellation: true,
@@ -248,8 +252,10 @@ const DEFAULT: AppSettings = {
   shareSystemAudio: true,
   chatPopout: false,
   chatPopoutPos: { x: 360, y: 80 },
+  chatPopoutSize: { w: 300, h: 240 },
   overlayHotkey: "Insert",
   overlayPillPos: { x: 16, y: 16 },
+  overlayShowStream: true,
   voiceMode: "open",
   pttKey: "Backquote",
   micSensitivity: 75,

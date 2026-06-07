@@ -48,6 +48,8 @@ export interface ChatPopoutProps {
   onLoadMore: () => void;
   defaultPos: { x: number; y: number };
   onPosChange: (pos: { x: number; y: number }) => void;
+  defaultSize: { w: number; h: number };
+  onSizeChange: (size: { w: number; h: number }) => void;
   onClose: () => void;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -58,10 +60,12 @@ export function ChatPopout({
   editingMsgId, editContent, onEditStart, onEditSave, onEditCancel, onEditContentChange,
   onDelete, onReaction,
   hasMore, loadingMore, onLoadMore,
-  defaultPos, onPosChange, onClose,
+  defaultPos, onPosChange, defaultSize, onSizeChange, onClose,
   messagesEndRef,
 }: ChatPopoutProps) {
   const [pos, setPos] = useState(defaultPos);
+  const [size, setSize] = useState(defaultSize);
+  const sizeRef = useRef<{ sx: number; sy: number; w: number; h: number } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -95,14 +99,30 @@ export function ChatPopout({
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragRef.current) return;
     const next = {
-      x: Math.max(0, Math.min(window.innerWidth - 304, dragRef.current.px + e.clientX - dragRef.current.sx)),
+      x: Math.max(0, Math.min(window.innerWidth - size.w - 4, dragRef.current.px + e.clientX - dragRef.current.sx)),
       y: Math.max(0, Math.min(window.innerHeight - 44, dragRef.current.py + e.clientY - dragRef.current.sy)),
     };
     setPos(next);
     onPosChange(next);
-  }, [onPosChange]);
+  }, [onPosChange, size.w]);
 
   const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
+
+  const onResizeDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sizeRef.current = { sx: e.clientX, sy: e.clientY, w: size.w, h: size.h };
+  }, [size]);
+  const onResizeMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!sizeRef.current) return;
+    const next = {
+      w: Math.max(260, Math.min(560, sizeRef.current.w + e.clientX - sizeRef.current.sx)),
+      h: Math.max(140, Math.min(640, sizeRef.current.h + e.clientY - sizeRef.current.sy)),
+    };
+    setSize(next);
+    onSizeChange(next);
+  }, [onSizeChange]);
+  const onResizeUp = useCallback(() => { sizeRef.current = null; }, []);
 
   const filtered = searchQuery.trim()
     ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -120,8 +140,8 @@ export function ChatPopout({
     : {};
 
   return (
-    <div className="fixed z-40 w-[300px] flex flex-col bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden"
-      style={{ left: pos.x, top: pos.y, ...bgStyle }}
+    <div className="fixed z-40 flex flex-col bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden"
+      style={{ left: pos.x, top: pos.y, width: size.w, ...bgStyle }}
       onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
 
       {isDragging && (
@@ -181,7 +201,7 @@ export function ChatPopout({
           )}
 
           {/* Messages */}
-          <div style={{ height: minimized ? 0 : 240 }}>
+          <div style={{ height: minimized ? 0 : size.h }}>
             <ScrollArea className="h-full">
               <div className={`space-y-0.5 px-3 py-2 ${compact ? "space-y-0" : ""}`}>
                 {hasMore && !searchQuery && (
@@ -331,6 +351,14 @@ export function ChatPopout({
             </div>
           </div>
         </>
+      )}
+
+      {!minimized && (
+        <div onPointerDown={onResizeDown} onPointerMove={onResizeMove} onPointerUp={onResizeUp}
+          title="Drag to resize"
+          className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 text-muted-foreground/30 hover:text-muted-foreground/70">
+          <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 fill-current"><path d="M9 1v8H7V3H1V1z" /></svg>
+        </div>
       )}
     </div>
   );
