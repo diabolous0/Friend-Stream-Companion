@@ -130,6 +130,7 @@ export const ListRoomsResponseItem = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
@@ -168,6 +169,7 @@ export const GetRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -190,7 +192,8 @@ export const UpdateRoomBody = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().optional(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
-  "regenerateCode": zod.boolean().optional()
+  "regenerateCode": zod.boolean().optional(),
+  "password": zod.string().nullish()
 })
 
 export const UpdateRoomResponse = zod.object({
@@ -207,6 +210,7 @@ export const UpdateRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -227,7 +231,8 @@ export const JoinRoomParams = zod.object({
 })
 
 export const JoinRoomBody = zod.object({
-  "inviteCode": zod.string()
+  "inviteCode": zod.string(),
+  "password": zod.string().optional()
 })
 
 export const JoinRoomResponse = zod.object({
@@ -244,6 +249,7 @@ export const JoinRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -252,7 +258,8 @@ export const JoinRoomResponse = zod.object({
  * @summary Join a room using invite code without knowing room ID
  */
 export const JoinRoomByCodeBody = zod.object({
-  "inviteCode": zod.string()
+  "inviteCode": zod.string(),
+  "password": zod.string().optional()
 })
 
 export const JoinRoomByCodeResponse = zod.object({
@@ -269,6 +276,7 @@ export const JoinRoomByCodeResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 

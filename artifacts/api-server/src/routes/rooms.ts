@@ -3,13 +3,34 @@ import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageRea
 import { eq, and, count, desc, max, inArray, lt } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
-import { randomBytes } from "node:crypto";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { getPresenceSnapshot, broadcastToRoom, notifyUser } from "../lib/signaling";
 
 const router: IRouter = Router();
 
 function generateInviteCode(): string {
   return randomBytes(4).toString("hex").toUpperCase();
+}
+
+function hashPassword(pw: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(pw, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(pw: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const test = scryptSync(pw, salt, 64);
+  const orig = Buffer.from(hash, "hex");
+  return orig.length === test.length && timingSafeEqual(orig, test);
+}
+
+// Strip the secret password hash from any room object before sending to clients,
+// exposing only a boolean `hasPassword` flag.
+function publicRoom<T extends { passwordHash?: string | null }>(room: T) {
+  const { passwordHash, ...rest } = room;
+  return { ...rest, hasPassword: !!passwordHash };
 }
 
 async function getActiveMembership(roomId: number, userId: number) {
@@ -31,7 +52,7 @@ async function getRoomWithCount(roomId: number) {
     .select({ value: count() })
     .from(roomMembersTable)
     .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
-  return { ...room, memberCount: Number(value) };
+  return publicRoom({ ...room, memberCount: Number(value) });
 }
 
 async function enrichMessages<T extends { id: number; replyToId: number | null }>(rows: T[]) {
@@ -110,7 +131,7 @@ router.get("/rooms", requireAuth, async (req, res): Promise<void> => {
   const memberCountMap = new Map(memberCounts.map((r) => [r.roomId, Number(r.value)]));
   const lastMessageMap = new Map(lastMessages.map((r) => [r.roomId, r.lastMessageAt ?? null]));
 
-  res.json(rooms.map((room) => ({
+  res.json(rooms.map((room) => publicRoom({
     ...room,
     memberCount: memberCountMap.get(room.id) ?? 0,
     lastMessageAt: lastMessageMap.get(room.id) ?? null,
@@ -133,7 +154,7 @@ router.post("/rooms", requireAuth, async (req, res): Promise<void> => {
 
   await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active" });
 
-  res.status(201).json({ ...room, memberCount: 1 });
+  res.status(201).json(publicRoom({ ...room, memberCount: 1 }));
 });
 
 router.get("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
@@ -180,6 +201,13 @@ router.post("/rooms/:roomId/join", requireAuth, async (req, res): Promise<void> 
     return;
   }
 
+  if (room.passwordHash) {
+    if (!parsed.data.password || !verifyPassword(parsed.data.password, room.passwordHash)) {
+      res.status(403).json({ error: "Incorrect room password" });
+      return;
+    }
+  }
+
   if (room.isPrivate) {
     await db.insert(roomMembersTable).values({ roomId, userId: authReq.userId!, status: "pending" }).onConflictDoNothing();
     const [user] = await db
@@ -223,6 +251,13 @@ router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> 
     // Already a member (active or pending) — return current state.
     res.json({ ...result, pending: existing.status === "pending" });
     return;
+  }
+
+  if (room.passwordHash) {
+    if (!parsed.data.password || !verifyPassword(parsed.data.password, room.passwordHash)) {
+      res.status(403).json({ error: "Incorrect room password" });
+      return;
+    }
   }
 
   if (room.isPrivate) {
@@ -287,6 +322,12 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
     if (data.regenerateCode) updates.inviteCode = generateInviteCode();
   }
 
+  // Room password is creator-only; empty string or null clears it.
+  if (data.password !== undefined) {
+    if (!isCreator) { res.status(403).json({ error: "Only the room creator can change the password" }); return; }
+    updates.passwordHash = data.password ? hashPassword(data.password) : null;
+  }
+
   if (Object.keys(updates).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
 
   const [updated] = await db
@@ -302,7 +343,7 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
     .from(roomMembersTable)
     .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.status, "active")));
 
-  const result = { ...updated, memberCount: Number(value) };
+  const result = publicRoom({ ...updated, memberCount: Number(value) });
   broadcastToRoom(roomId, { type: "room_updated", room: result });
   res.json(result);
 });

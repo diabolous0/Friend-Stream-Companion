@@ -4,13 +4,22 @@ import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQ
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
 
 function getLastVisited(roomId: number): Date | null {
   const ts = localStorage.getItem(`screencrew_visited_${roomId}`);
   return ts ? new Date(ts) : null;
+}
+
+function relTime(d: Date): string {
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  const dd = Math.floor(h / 24); if (dd < 7) return `${dd}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 const AVATAR_COLORS = [
@@ -37,6 +46,8 @@ export default function Rooms() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [joinPassword, setJoinPassword] = useState("");
+  const [joinNeedsPassword, setJoinNeedsPassword] = useState(false);
 
   const copyInviteCode = useCallback((e: React.MouseEvent, code: string) => {
     e.preventDefault(); e.stopPropagation();
@@ -57,17 +68,32 @@ export default function Rooms() {
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteCode.trim()) return;
-    joinRoom.mutate({ data: { inviteCode } }, {
+    const data = joinPassword.trim() ? { inviteCode, password: joinPassword.trim() } : { inviteCode };
+    joinRoom.mutate({ data }, {
       onSuccess: (room) => {
         if (room.pending) {
           setInviteCode("");
           setShowJoin(false);
+          setJoinPassword("");
+          setJoinNeedsPassword(false);
           toast({ title: "Knock sent", description: `Waiting for a member of ${room.name} to let you in.` });
           return;
         }
         setLocation(`/room/${room.id}`);
       },
-      onError: (err) => toast({ title: "Failed to join room", description: err.message, variant: "destructive" }),
+      onError: (err) => {
+        if (/password/i.test(err.message)) {
+          const wasAsking = joinNeedsPassword;
+          setJoinNeedsPassword(true);
+          toast({
+            title: wasAsking ? "Incorrect password" : "Password required",
+            description: "This room is password protected.",
+            variant: "destructive",
+          });
+          return;
+        }
+        toast({ title: "Failed to join room", description: err.message, variant: "destructive" });
+      },
     });
   };
 
@@ -82,6 +108,12 @@ export default function Rooms() {
   const avatarColor = AVATAR_COLORS[me.id % AVATAR_COLORS.length];
   const initials = me.username.substring(0, 2).toUpperCase();
   const r = (base: string, classicClass: string) => classic ? classicClass : base;
+
+  const recent = (rooms ?? [])
+    .map(room => ({ room, visited: getLastVisited(room.id) }))
+    .filter((x): x is { room: typeof x.room; visited: Date } => x.visited != null)
+    .sort((a, b) => b.visited.getTime() - a.visited.getTime())
+    .slice(0, 3);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
@@ -118,6 +150,33 @@ export default function Rooms() {
           </div>
         </div>
 
+        {/* Recent rooms */}
+        {recent.length > 0 && (
+          <div className="mb-4">
+            <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" /> {classic ? "RECENT NODES" : "Recent"}
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {recent.map(({ room, visited }) => (
+                <Link key={room.id} href={`/room/${room.id}`}>
+                  <div className={`flex items-center gap-2 px-3 py-2 bg-card border border-border/50 hover:border-primary/40 hover:bg-muted/20 transition-colors cursor-pointer shrink-0 ${r("rounded-xl", "rounded-sm")}`}>
+                    <div className={`w-7 h-7 bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0 ${r("rounded-lg", "rounded-sm")}`}>
+                      <MonitorUp className="w-3.5 h-3.5 text-primary/80" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className={`text-xs font-medium truncate max-w-[110px] flex items-center gap-1 ${classic ? "font-mono" : ""}`}>
+                        {room.hasPassword && <Lock className="w-2.5 h-2.5 text-amber-400 shrink-0" />}
+                        {room.name}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/50">{relTime(visited)}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Room list card */}
         <div className={`bg-card border border-border/50 overflow-hidden shadow-xl mb-4 ${r("rounded-2xl", "rounded-sm border-primary/20")}`}>
           <div className="flex items-center justify-between px-5 py-4 border-b border-border/30">
@@ -153,14 +212,24 @@ export default function Rooms() {
           )}
 
           {showJoin && (
-            <form onSubmit={handleJoinRoom} className="flex items-center gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
-              <Input value={inviteCode} onChange={e => setInviteCode(e.target.value.toUpperCase())}
-                placeholder={classic ? "ACCESS CODE_" : "Invite code…"} autoFocus
-                className={`h-8 text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 uppercase tracking-wider ${r("rounded-xl", "rounded-sm")}`} />
-              <Button type="submit" size="sm" variant="secondary" className={`h-8 text-xs px-4 ${r("rounded-xl", "rounded-sm")}`}
-                disabled={joinRoom.isPending || !inviteCode.trim()}>
-                {joinRoom.isPending ? "…" : classic ? "CONNECT" : "Join"}
-              </Button>
+            <form onSubmit={handleJoinRoom} className="flex flex-col gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
+              <div className="flex items-center gap-2">
+                <Input value={inviteCode} onChange={e => { setInviteCode(e.target.value.toUpperCase()); setJoinNeedsPassword(false); setJoinPassword(""); }}
+                  placeholder={classic ? "ACCESS CODE_" : "Invite code…"} autoFocus
+                  className={`h-8 text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 uppercase tracking-wider ${r("rounded-xl", "rounded-sm")}`} />
+                <Button type="submit" size="sm" variant="secondary" className={`h-8 text-xs px-4 ${r("rounded-xl", "rounded-sm")}`}
+                  disabled={joinRoom.isPending || !inviteCode.trim()}>
+                  {joinRoom.isPending ? "…" : classic ? "CONNECT" : "Join"}
+                </Button>
+              </div>
+              {joinNeedsPassword && (
+                <div className="flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <Input value={joinPassword} onChange={e => setJoinPassword(e.target.value)} type="password"
+                    placeholder={classic ? "PASSWORD_" : "Room password…"} autoFocus
+                    className={`h-8 text-sm bg-background border-amber-400/40 focus-visible:ring-1 focus-visible:ring-amber-400/40 flex-1 ${r("rounded-xl", "rounded-sm")}`} />
+                </div>
+              )}
             </form>
           )}
 
@@ -201,6 +270,7 @@ export default function Rooms() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
+                          {room.hasPassword && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
                           <p className={`text-sm font-medium truncate ${classic ? "font-mono group-hover:text-primary transition-colors" : ""}`}>{room.name}</p>
                           {hasUnread && <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />}
                         </div>

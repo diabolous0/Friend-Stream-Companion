@@ -46,9 +46,15 @@ A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party
 
 - Register/login with username + password
 - Create rooms with unique invite codes, join rooms by code
+- Recent rooms strip on the rooms list (most-recently-visited first, relative timestamps)
+- Optional room passwords (creator sets/clears; scrypt-hashed; join prompts when required; lock badge)
 - Real-time crew status sidebar: online/speaking/streaming indicators
 - WebRTC screen sharing: start TX to share your screen, click the video icon next to a streaming crew member to watch
+- In-room stream quality picker (writes `settings.videoQuality`, applies on next share)
+- Multi-stream grid view: toggle to watch all active streams at once; click a tile to focus
+- Watching indicators: streamers see a viewer count (Eye badge) of who's watching their stream
 - Text chat with real-time WebSocket delivery
+- Mobile-friendly layout: room window fills the viewport and the stream window becomes a bottom sheet on small screens
 - Dark cyan monospace theme (Winamp/LAN-party aesthetic)
 
 ## User preferences

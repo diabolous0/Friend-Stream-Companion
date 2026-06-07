@@ -32,11 +32,12 @@ import {
   Paperclip, Loader2,
   Reply, Star, Megaphone, BarChart3, Hand,
   Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
-  PictureInPicture2,
+  PictureInPicture2, LayoutGrid, Gauge, Eye,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
-import { buildAudioConstraints, buildDisplayConstraints } from "@/lib/media";
+import { buildAudioConstraints, buildDisplayConstraints, VIDEO_QUALITY_LABELS } from "@/lib/media";
+import type { VideoQuality } from "@/lib/settings";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
@@ -48,6 +49,7 @@ import {
 } from "@/lib/markdown";
 import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useUpload } from "@/hooks/use-upload";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { ProfileHoverCard, StatusPicker, STATUS_META } from "@/components/profile-hover";
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { Spectrum } from "@/components/spectrum";
@@ -205,6 +207,7 @@ export default function Room() {
   const queryClient = useQueryClient();
   const { settings, set: setSetting } = useSettings();
   const classic = settings.uiTheme === "classic";
+  const isMobile = useIsMobile();
 
   const { data: me } = useGetMe();
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
@@ -256,12 +259,15 @@ export default function Room() {
   const [renameValue, setRenameValue] = useState("");
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [roomPasswordInput, setRoomPasswordInput] = useState("");
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
+  const [gridView, setGridView] = useState(false);
+  const [showQualityPicker, setShowQualityPicker] = useState(false);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
   const streamVideoRef = useRef<HTMLVideoElement>(null);
@@ -498,7 +504,24 @@ export default function Room() {
 
   useEffect(() => { sendRef.current = send; }, [send]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
-  useEffect(() => { if (isConnected && roomId) send({ type: "join_room", roomId }); }, [isConnected, roomId, send]);
+
+  // Report which streams we're watching so streamers see a viewer count.
+  const remoteStreamIds = Object.keys(remoteStreams).map(Number).filter(id => remoteStreams[id]);
+  const watchingKey = gridView ? remoteStreamIds.join(",") : String(viewingStreamOf ?? "");
+  const watchingIds = gridView ? remoteStreamIds : (viewingStreamOf ? [viewingStreamOf] : []);
+  const watchingIdsRef = useRef<number[]>(watchingIds);
+  watchingIdsRef.current = watchingIds;
+  useEffect(() => {
+    if (!isConnected || !roomId) return;
+    sendRef.current?.({ type: "watching", watching: watchingIdsRef.current });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchingKey, gridView, viewingStreamOf, isConnected, roomId]);
+  useEffect(() => {
+    if (!isConnected || !roomId) return;
+    send({ type: "join_room", roomId });
+    // Re-assert watching state after (re)joining so viewer counts rehydrate.
+    sendRef.current?.({ type: "watching", watching: watchingIdsRef.current });
+  }, [isConnected, roomId, send]);
 
   // Broadcast our chosen status to the room
   useEffect(() => {
@@ -1049,7 +1072,9 @@ export default function Room() {
       <div ref={windowRef} className={`relative flex flex-col bg-card border shadow-2xl overflow-hidden transition-[opacity,transform] ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
         onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
         style={{
-          width: settings.windowSize.w, height: settings.windowSize.h,
+          width: isMobile ? "100vw" : settings.windowSize.w,
+          height: isMobile ? "100dvh" : settings.windowSize.h,
+          maxWidth: "100vw", maxHeight: "100dvh",
           ...(settings.panelOpacity < 100 ? {
             backgroundColor: `hsl(var(--card) / ${settings.panelOpacity}%)`,
             ...(settings.blurBackground ? { backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)" } as React.CSSProperties : {}),
@@ -1141,6 +1166,34 @@ export default function Room() {
                 className={`p-1 rounded-md transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 <MonitorUp className="w-3.5 h-3.5" />
               </button>
+              <div className="relative">
+                <button onClick={() => setShowQualityPicker(s => !s)} title={`Stream quality: ${VIDEO_QUALITY_LABELS[settings.videoQuality]}`}
+                  className={`p-1 rounded-md transition-colors ${showQualityPicker ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <Gauge className="w-3.5 h-3.5" />
+                </button>
+                {showQualityPicker && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowQualityPicker(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 w-32 bg-card border border-border/50 rounded-lg shadow-2xl py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                      <p className="px-3 py-1 text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest">Quality</p>
+                      {(Object.keys(VIDEO_QUALITY_LABELS) as VideoQuality[]).map(q => (
+                        <button key={q} onClick={() => { setSetting("videoQuality", q); setShowQualityPicker(false); }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors ${settings.videoQuality === q ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/30"}`}>
+                          {VIDEO_QUALITY_LABELS[q]}
+                          {settings.videoQuality === q && <Check className="w-3 h-3" />}
+                        </button>
+                      ))}
+                      {isSharing && <p className="px-3 pt-1 text-[9px] text-muted-foreground/40">Applies on next share</p>}
+                    </div>
+                  </>
+                )}
+              </div>
+              {remoteStreamIds.length > 0 && (
+                <button onClick={() => setGridView(g => !g)} title={gridView ? "Close grid view" : "Grid view (all streams)"}
+                  className={`p-1 rounded-md transition-colors ${gridView ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button onClick={isInVoice ? handleLeaveVoice : handleJoinVoice} title={isInVoice ? "Leave voice" : "Join voice"}
                 className={`p-1 rounded-md transition-colors ${isInVoice ? "text-violet-400 animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 {isInVoice ? <PhoneOff className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
@@ -1266,6 +1319,9 @@ export default function Room() {
               const memNameColor = isMe ? me.nameColor : (p?.nameColor ?? member.nameColor);
               const memAvatarStyle = isMe ? me.avatarStyle : (p?.avatarStyle ?? member.avatarStyle);
               const memAudioStream = isMe ? null : remoteAudioStreams[member.id];
+              const viewerCount = streaming
+                ? Object.values(presence).filter((pp: any) => pp?.online && Array.isArray(pp.watching) && pp.watching.includes(member.id)).length
+                : 0;
 
               const profile = {
                 userId: member.id,
@@ -1315,12 +1371,23 @@ export default function Room() {
                       ? <Spectrum stream={memAudioStream} active height={12} color="rgb(74 222 128)" />
                       : <Waveform />
                   ) : streaming && !isMe ? (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
-                      className="p-1 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Watch stream">
-                      <MonitorUp className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {viewerCount > 0 && (
+                        <span title={`${viewerCount} watching`} className="flex items-center gap-0.5 text-[10px] text-primary/60">
+                          <Eye className="w-3 h-3" />{viewerCount}
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setViewingStreamOf(member.id); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
+                        className="p-1 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Watch stream">
+                        <MonitorUp className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : streaming && isMe ? (
+                    <span title={`${viewerCount} watching`} className="flex items-center gap-0.5 text-[11px] text-primary/70 shrink-0">
+                      <Eye className="w-3.5 h-3.5" />{viewerCount}
+                    </span>
                   ) : inVoice ? (
                     <Headphones className="w-3.5 h-3.5 text-violet-400/60 shrink-0" />
                   ) : isMe ? (
@@ -1655,12 +1722,12 @@ export default function Room() {
 
       {/* ── Floating Stream Window ── */}
       {viewingStreamOf && !overlayMode && (
-        <div className="fixed z-50 w-[440px] rounded-2xl overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f]"
-          style={{ left: streamWindow.pos.x, top: streamWindow.pos.y }}>
-          <div className="flex items-center justify-between px-4 py-2.5 bg-card/95 border-b border-border/30 cursor-grab active:cursor-grabbing select-none"
-            onPointerDown={streamPinned ? undefined : streamWindow.onPointerDown}
-            onPointerMove={streamPinned ? undefined : streamWindow.onPointerMove}
-            onPointerUp={streamPinned ? undefined : streamWindow.onPointerUp}>
+        <div className={`fixed z-50 overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f] rounded-2xl ${isMobile ? "inset-x-2 bottom-2" : "w-[440px]"}`}
+          style={isMobile ? undefined : { left: streamWindow.pos.x, top: streamWindow.pos.y }}>
+          <div className={`flex items-center justify-between px-4 py-2.5 bg-card/95 border-b border-border/30 select-none ${isMobile ? "" : "cursor-grab active:cursor-grabbing"}`}
+            onPointerDown={streamPinned || isMobile ? undefined : streamWindow.onPointerDown}
+            onPointerMove={streamPinned || isMobile ? undefined : streamWindow.onPointerMove}
+            onPointerUp={streamPinned || isMobile ? undefined : streamWindow.onPointerUp}>
             <div className="flex items-center gap-2">
               <MonitorUp className="w-3.5 h-3.5 text-muted-foreground/60" />
               <span className="text-sm font-medium">{viewingUser?.username} is streaming</span>
@@ -1693,6 +1760,49 @@ export default function Room() {
             {settings.spectrumViz && presence[viewingStreamOf]?.speaking && (
               <div className="absolute bottom-2 right-2 bg-black/40 rounded-md px-1.5 py-1 backdrop-blur-sm">
                 <Spectrum stream={remoteAudioStreams[viewingStreamOf]} active bars={12} height={20} color="rgb(74 222 128)" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Multi-stream grid view ── */}
+      {gridView && !overlayMode && (
+        <div className="fixed inset-0 z-[55] bg-background/95 backdrop-blur-sm flex flex-col">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 shrink-0">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">All streams ({remoteStreamIds.length})</span>
+            </div>
+            <button onClick={() => setGridView(false)} className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-destructive transition-colors" title="Close grid">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            {remoteStreamIds.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
+                <MonitorUp className="w-10 h-10 opacity-30" />
+                <span className="text-sm">No active streams</span>
+              </div>
+            ) : (
+              <div className={`grid gap-3 ${remoteStreamIds.length === 1 ? "grid-cols-1" : remoteStreamIds.length <= 4 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"}`}>
+                {remoteStreamIds.map(id => {
+                  const streamer = members?.find(m => m.id === id);
+                  const isSpeaking = presence[id]?.speaking;
+                  return (
+                    <button key={id} onClick={() => { setViewingStreamOf(id); setGridView(false); streamWindow.setPos({ x: Math.min(340, window.innerWidth - 470), y: 60 }); }}
+                      className={`group relative aspect-video rounded-xl overflow-hidden border bg-black transition-all hover:ring-2 hover:ring-primary/60 ${isSpeaking ? "border-green-400/70 ring-2 ring-green-400/40" : "border-border/40"}`}>
+                      <StreamVideo stream={remoteStreams[id]} muted />
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2 flex items-center gap-2">
+                        <MonitorUp className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <span className="text-xs font-medium text-white truncate">{streamer?.username ?? `User ${id}`}</span>
+                        <span className="ml-auto flex items-center gap-1 text-[10px] text-white/70 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Maximize2 className="w-3 h-3" /> Focus
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1772,6 +1882,33 @@ export default function Room() {
                   className="w-full flex items-center justify-center gap-2 h-8 rounded-lg border border-border/30 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors">
                   <RefreshCw className="w-3.5 h-3.5" /> New Invite Code
                 </button>
+
+                {/* Room password */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm">
+                      {room.hasPassword ? <Lock className="w-3.5 h-3.5 text-amber-400" /> : <Lock className="w-3.5 h-3.5 text-muted-foreground/50" />}
+                      <span>{room.hasPassword ? "Password protected" : "Password"}</span>
+                    </div>
+                    {room.hasPassword && (
+                      <button onClick={() => { handleUpdateRoom({ password: null }); setRoomPasswordInput(""); }}
+                        disabled={updateRoomMutation.isPending}
+                        className="text-[10px] px-2 py-1 rounded-md bg-muted/30 hover:bg-destructive/15 hover:text-destructive border border-border/30 transition-colors">
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input value={roomPasswordInput} onChange={e => setRoomPasswordInput(e.target.value)}
+                      type="text" placeholder={room.hasPassword ? "Set a new password…" : "Set a password…"}
+                      className="h-8 text-sm bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 rounded-lg flex-1" />
+                    <Button size="sm" variant="secondary" className="h-8 text-xs px-3 rounded-lg"
+                      disabled={updateRoomMutation.isPending || !roomPasswordInput.trim()}
+                      onClick={() => { handleUpdateRoom({ password: roomPasswordInput.trim() }); setRoomPasswordInput(""); }}>
+                      Set
+                    </Button>
+                  </div>
+                </div>
 
                 {/* Theme color */}
                 <div className="flex items-center justify-between">

@@ -15,6 +15,7 @@ export const roomsTable = pgTable("rooms", {
   notes: text("notes"),
   isPrivate: boolean("is_private").notNull().default(false),
   inviteExpiresAt: timestamp("invite_expires_at"),
+  passwordHash: text("password_hash"),
 });
 
 export const roomMembersTable = pgTable("room_members", {

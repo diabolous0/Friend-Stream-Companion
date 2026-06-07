@@ -23,6 +23,7 @@ interface ClientState {
   status: UserStatus;
   statusMessage: string | null;
   activity: string | null;
+  watching: number[];
 }
 
 const clients = new Map<WebSocket, ClientState>();
@@ -56,6 +57,7 @@ function broadcastPresence(roomId: number): void {
     status: c.status,
     statusMessage: c.statusMessage,
     activity: c.activity,
+    watching: c.watching,
   }));
   const payload = JSON.stringify({ type: "presence_update", roomId, entries });
   for (const client of getRoomClients(roomId)) {
@@ -120,6 +122,7 @@ export function setupSignaling(server: Server): void {
             status: "online",
             statusMessage: null,
             activity: null,
+            watching: [],
           });
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
@@ -168,6 +171,7 @@ export function setupSignaling(server: Server): void {
           state.streaming = false;
           state.inVoice = false;
           state.activity = null;
+          state.watching = [];
           broadcastPresence(prevRoom);
           break;
         }
@@ -177,6 +181,16 @@ export function setupSignaling(server: Server): void {
           state.speaking = Boolean(msg.speaking);
           state.streaming = Boolean(msg.streaming);
           state.inVoice = Boolean(msg.inVoice);
+          broadcastPresence(state.roomId);
+          break;
+        }
+
+        case "watching": {
+          if (!state || !state.roomId) return;
+          const ids = Array.isArray(msg.watching)
+            ? Array.from(new Set(msg.watching.filter((v): v is number => Number.isInteger(v)))).slice(0, 50)
+            : [];
+          state.watching = ids;
           broadcastPresence(state.roomId);
           break;
         }

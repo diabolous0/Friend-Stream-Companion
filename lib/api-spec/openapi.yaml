@@ -772,6 +772,9 @@ components:
           type: string
           format: date-time
           nullable: true
+        hasPassword:
+          type: boolean
+          nullable: true
         pending:
           type: boolean
           nullable: true
@@ -812,6 +815,9 @@ components:
           nullable: true
         regenerateCode:
           type: boolean
+        password:
+          type: string
+          nullable: true
 
     JoinRoomInput:
       type: object
@@ -819,12 +825,16 @@ components:
       properties:
         inviteCode:
           type: string
+        password:
+          type: string
 
     JoinByCodeInput:
       type: object
       required: [inviteCode]
       properties:
         inviteCode:
+          type: string
+        password:
           type: string
 
     PresenceEntry:

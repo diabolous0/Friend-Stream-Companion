@@ -101,6 +101,7 @@ export interface Room {
   notes?: string | null;
   isPrivate?: boolean | null;
   inviteExpiresAt?: string | null;
+  hasPassword?: boolean | null;
   pending?: boolean | null;
 }
 
@@ -120,14 +121,17 @@ export interface UpdateRoomInput {
   isPrivate?: boolean;
   inviteExpiresAt?: string | null;
   regenerateCode?: boolean;
+  password?: string | null;
 }
 
 export interface JoinRoomInput {
   inviteCode: string;
+  password?: string;
 }
 
 export interface JoinByCodeInput {
   inviteCode: string;
+  password?: string;
 }
 
 export type PresenceEntryStatus = typeof PresenceEntryStatus[keyof typeof PresenceEntryStatus] | null;
