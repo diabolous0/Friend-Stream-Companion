@@ -22,7 +22,12 @@ type WebSocketMessage =
   | { type: "knock_resolved"; roomId: number; userId: number }
   | { type: "joined_channel"; channelId: number }
   | { type: "channels_updated"; roomId: number }
-  | { type: "role_updated"; roomId: number; userId: number; role: string };
+  | { type: "role_updated"; roomId: number; userId: number; role: string }
+  | { type: "knock_denied"; roomId: number }
+  | { type: "member_removed"; roomId: number; userId: number }
+  | { type: "removed_from_room"; roomId: number }
+  | { type: "banned_from_room"; roomId: number }
+  | { type: "watch_response"; from: number; allow: boolean };
 
 interface UseWebSocketOptions {
   onPresenceUpdate?: (roomId: number, entries: any[]) => void;
@@ -47,6 +52,9 @@ interface UseWebSocketOptions {
   onJoinedChannel?: (channelId: number) => void;
   onChannelsUpdated?: (roomId: number) => void;
   onRoleUpdated?: (roomId: number, userId: number, role: string) => void;
+  onMemberRemoved?: (roomId: number, userId: number) => void;
+  onRemovedFromRoom?: (roomId: number, banned: boolean) => void;
+  onWatchResponse?: (from: number, allow: boolean) => void;
 }
 
 export function useWebSocket(options: UseWebSocketOptions) {
@@ -96,6 +104,11 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "joined_channel":    o.onJoinedChannel?.(data.channelId); break;
           case "channels_updated":  o.onChannelsUpdated?.(data.roomId); break;
           case "role_updated":      o.onRoleUpdated?.(data.roomId, data.userId, data.role); break;
+          case "knock_denied":      o.onKnockResolved?.(data.roomId, -1); break;
+          case "member_removed":    o.onMemberRemoved?.(data.roomId, data.userId); break;
+          case "removed_from_room": o.onRemovedFromRoom?.(data.roomId, false); break;
+          case "banned_from_room":  o.onRemovedFromRoom?.(data.roomId, true); break;
+          case "watch_response":    o.onWatchResponse?.(data.from, data.allow); break;
         }
       } catch (e) {
         console.error("Failed to parse websocket message", e);

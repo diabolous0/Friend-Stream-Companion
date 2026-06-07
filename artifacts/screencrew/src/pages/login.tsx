@@ -22,9 +22,16 @@ export default function Login() {
   const loginMutation = useLogin();
   const registerMutation = useRegister();
 
+  // Carry a shareable invite link's ?join=CODE through to the rooms page so it
+  // can prefill the join form after authentication.
+  const joinSuffix = (() => {
+    const code = new URLSearchParams(window.location.search).get("join");
+    return code ? `?join=${encodeURIComponent(code)}` : "";
+  })();
+
   const handleSuccess = (token: string) => {
     localStorage.setItem("screencrew_token", token);
-    setLocation("/rooms");
+    setLocation(`/rooms${joinSuffix}`);
   };
 
   const onSubmit = (e: React.FormEvent) => {
@@ -43,7 +50,7 @@ export default function Login() {
   };
 
   const { data: me, isLoading } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() } });
-  if (me) { setLocation("/rooms"); return null; }
+  if (me) { setLocation(`/rooms${joinSuffix}`); return null; }
 
   if (isLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-background">

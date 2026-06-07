@@ -741,6 +741,64 @@ export const UpdateMemberRoleBody = zod.object({
 
 
 /**
+ * @summary Deny a pending knock request (owner/mod only)
+ */
+export const DenyMemberParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Remove (kick) an active member (owner/mod only)
+ */
+export const RemoveMemberParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Ban a user from the room (owner/mod only); removes membership and blocks rejoining
+ */
+export const BanMemberParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
+
+export const BanMemberBody = zod.object({
+  "reason": zod.string().nullish()
+})
+
+
+/**
+ * @summary List banned users (owner/mod only)
+ */
+export const GetBansParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const GetBansResponseItem = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "reason": zod.string().nullish(),
+  "bannedAt": zod.coerce.date()
+})
+export const GetBansResponse = zod.array(GetBansResponseItem)
+
+
+/**
+ * @summary Lift a ban (owner/mod only)
+ */
+export const UnbanMemberParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
+
+
+/**
  * @summary Search Giphy for GIFs (proxied server-side; falls back to trending when q is empty)
  */
 export const searchGiphyQueryLimitDefault = 18;

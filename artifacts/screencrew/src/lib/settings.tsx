@@ -189,6 +189,7 @@ export interface AppSettings {
   videoCodec: VideoCodec;
   videoBitrate: number;         // kbps, 0 = auto
   shareSystemAudio: boolean;
+  askToWatch: boolean;          // require my approval before a crew member can watch my stream
 
   // Overlay
   overlayHotkey: string;  // KeyboardEvent.code or "Mod+Code", e.g. "Insert", "Shift+F2"
@@ -250,6 +251,7 @@ const DEFAULT: AppSettings = {
   videoCodec: "auto",
   videoBitrate: 0,
   shareSystemAudio: true,
+  askToWatch: false,
   chatPopout: false,
   chatPopoutPos: { x: 360, y: 80 },
   chatPopoutSize: { w: 300, h: 240 },

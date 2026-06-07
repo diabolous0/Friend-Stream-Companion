@@ -738,6 +738,131 @@ paths:
         "404":
           description: Member not found
 
+  /rooms/{roomId}/members/{userId}/deny:
+    post:
+      operationId: denyMember
+      tags: [rooms]
+      summary: Deny a pending knock request (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Denied
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Pending request not found
+
+  /rooms/{roomId}/members/{userId}:
+    delete:
+      operationId: removeMember
+      tags: [rooms]
+      summary: Remove (kick) an active member (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Member not found
+
+  /rooms/{roomId}/members/{userId}/ban:
+    post:
+      operationId: banMember
+      tags: [rooms]
+      summary: Ban a user from the room (owner/mod only); removes membership and blocks rejoining
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BanMemberInput"
+      responses:
+        "204":
+          description: Banned
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: User not found
+
+  /rooms/{roomId}/bans:
+    get:
+      operationId: getBans
+      tags: [rooms]
+      summary: List banned users (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of banned users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BannedUser"
+        "403":
+          description: Insufficient permissions
+
+  /rooms/{roomId}/bans/{userId}:
+    delete:
+      operationId: unbanMember
+      tags: [rooms]
+      summary: Lift a ban (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Unbanned
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Ban not found
+
   /giphy/search:
     get:
       operationId: searchGiphy
@@ -1261,6 +1386,34 @@ components:
         role:
           type: string
           enum: [owner, mod, member]
+
+    BanMemberInput:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+
+    BannedUser:
+      type: object
+      required: [id, username, bannedAt]
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        bannedAt:
+          type: string
+          format: date-time
 
     EditMessageInput:
       type: object

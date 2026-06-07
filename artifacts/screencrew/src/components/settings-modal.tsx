@@ -1089,6 +1089,9 @@ export function SettingsModal({
               <Row label="Share system audio" description="Include tab/desktop sound">
                 <Toggle checked={settings.shareSystemAudio} onToggle={() => set("shareSystemAudio", !settings.shareSystemAudio)} />
               </Row>
+              <Row label="Ask before watching" description="Crew must request approval before they can watch your stream">
+                <Toggle checked={settings.askToWatch} onToggle={() => set("askToWatch", !settings.askToWatch)} />
+              </Row>
               <p className="text-[10px] text-muted-foreground/40">Video settings apply next time you start sharing.</p>
             </Section>
           </TabsContent>

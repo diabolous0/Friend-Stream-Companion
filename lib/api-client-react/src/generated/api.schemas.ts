@@ -294,6 +294,19 @@ export interface UpdateMemberRoleInput {
   role: UpdateMemberRoleInputRole;
 }
 
+export interface BanMemberInput {
+  reason?: string | null;
+}
+
+export interface BannedUser {
+  id: number;
+  username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  reason?: string | null;
+  bannedAt: string;
+}
+
 export interface EditMessageInput {
   /** @minLength 1 */
   content: string;

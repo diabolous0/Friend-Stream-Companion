@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
-import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable } from "@workspace/db";
+import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable, roomBansTable } from "@workspace/db";
 import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt, ilike } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms } from "../lib/signaling";
+import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms, evictUserFromRoom } from "../lib/signaling";
 
 const router: IRouter = Router();
 
@@ -47,6 +47,14 @@ async function getActiveMembership(roomId: number, userId: number) {
 
 function isStaffRole(role: string | null | undefined): boolean {
   return role === "owner" || role === "mod";
+}
+
+async function isBanned(roomId: number, userId: number): Promise<boolean> {
+  const [ban] = await db
+    .select({ id: roomBansTable.id })
+    .from(roomBansTable)
+    .where(and(eq(roomBansTable.roomId, roomId), eq(roomBansTable.userId, userId)));
+  return !!ban;
 }
 
 // Non-staff cannot read/interact with messages in private channels.
@@ -172,7 +180,7 @@ router.post("/rooms", requireAuth, async (req, res): Promise<void> => {
   const inviteCode = generateInviteCode();
   const [room] = await db
     .insert(roomsTable)
-    .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId!, isPrivate: parsed.data.isPrivate ?? false })
+    .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId!, isPrivate: parsed.data.isPrivate ?? true })
     .returning();
 
   await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active", role: "owner" });
@@ -207,6 +215,7 @@ router.post("/rooms/:roomId/join", requireAuth, async (req, res): Promise<void> 
 
   const [room] = await db.select().from(roomsTable).where(eq(roomsTable.id, roomId));
   if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+  if (await isBanned(roomId, authReq.userId!)) { res.status(403).json({ error: "You are banned from this room" }); return; }
   if (room.inviteCode !== parsed.data.inviteCode) { res.status(403).json({ error: "Invalid invite code" }); return; }
   if (room.inviteExpiresAt && new Date(room.inviteExpiresAt).getTime() < Date.now()) {
     res.status(403).json({ error: "Invite link has expired" });
@@ -258,6 +267,7 @@ router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> 
     .where(eq(roomsTable.inviteCode, parsed.data.inviteCode));
 
   if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+  if (await isBanned(room.id, authReq.userId!)) { res.status(403).json({ error: "You are banned from this room" }); return; }
 
   if (room.inviteExpiresAt && new Date(room.inviteExpiresAt).getTime() < Date.now()) {
     res.status(403).json({ error: "Invite link has expired" });
@@ -857,7 +867,7 @@ router.get("/rooms/:roomId/pending", requireAuth, async (req, res): Promise<void
   if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
 
   const membership = await getActiveMembership(roomId, authReq.userId!);
-  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+  if (!membership || !isStaffRole(membership.role)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
 
   const pending = await db
     .select({
@@ -881,11 +891,7 @@ router.post("/rooms/:roomId/members/:userId/approve", requireAuth, async (req, r
   if (isNaN(roomId) || isNaN(targetUserId)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const membership = await getActiveMembership(roomId, authReq.userId!);
-  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
-
-  const [roomRow] = await db.select({ createdBy: roomsTable.createdBy }).from(roomsTable).where(eq(roomsTable.id, roomId));
-  if (!roomRow) { res.status(404).json({ error: "Room not found" }); return; }
-  if (roomRow.createdBy !== authReq.userId!) { res.status(403).json({ error: "Only the room creator can approve members" }); return; }
+  if (!membership || !isStaffRole(membership.role)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
 
   const [pending] = await db
     .select()
@@ -905,6 +911,159 @@ router.post("/rooms/:roomId/members/:userId/approve", requireAuth, async (req, r
   const room = await getRoomWithCount(roomId);
   notifyUser(targetUserId, { type: "knock_approved", roomId, room });
   broadcastToRoom(roomId, { type: "knock_resolved", roomId, userId: targetUserId });
+
+  res.status(204).end();
+});
+
+// Resolve the acting member and the target room, enforcing that the actor is
+// active staff (owner/mod). Returns null (and sends the response) on failure.
+async function requireStaff(
+  req: AuthenticatedRequest,
+  res: import("express").Response,
+): Promise<{ roomId: number; targetUserId: number; isCreator: boolean } | null> {
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const targetUserId = parseInt(Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId, 10);
+  if (isNaN(roomId) || isNaN(targetUserId)) { res.status(400).json({ error: "Invalid ID" }); return null; }
+
+  const membership = await getActiveMembership(roomId, req.userId!);
+  if (!membership || !isStaffRole(membership.role)) { res.status(403).json({ error: "Insufficient permissions" }); return null; }
+
+  const [room] = await db.select({ createdBy: roomsTable.createdBy }).from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room) { res.status(404).json({ error: "Room not found" }); return null; }
+
+  return { roomId, targetUserId, isCreator: room.createdBy === req.userId! };
+}
+
+router.patch("/rooms/:roomId/members/:userId/role", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  const targetUserId = parseInt(Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId, 10);
+  if (isNaN(roomId) || isNaN(targetUserId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+
+  const role = (req.body as { role?: unknown })?.role;
+  if (role !== "mod" && role !== "member") { res.status(400).json({ error: "Role must be mod or member" }); return; }
+
+  const [room] = await db.select({ createdBy: roomsTable.createdBy }).from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room) { res.status(404).json({ error: "Room not found" }); return; }
+  if (room.createdBy !== authReq.userId!) { res.status(403).json({ error: "Only the room owner can change roles" }); return; }
+  if (targetUserId === room.createdBy) { res.status(403).json({ error: "Cannot change the owner's role" }); return; }
+
+  const updated = await db
+    .update(roomMembersTable)
+    .set({ role })
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId), eq(roomMembersTable.status, "active")))
+    .returning();
+  if (!updated.length) { res.status(404).json({ error: "Member not found" }); return; }
+
+  broadcastToRoom(roomId, { type: "role_updated", roomId, userId: targetUserId, role });
+  res.status(204).end();
+});
+
+router.post("/rooms/:roomId/members/:userId/deny", requireAuth, async (req, res): Promise<void> => {
+  const ctx = await requireStaff(req as AuthenticatedRequest, res);
+  if (!ctx) return;
+  const { roomId, targetUserId } = ctx;
+
+  const deleted = await db
+    .delete(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId), eq(roomMembersTable.status, "pending")))
+    .returning();
+  if (!deleted.length) { res.status(404).json({ error: "No pending request for this user" }); return; }
+
+  notifyUser(targetUserId, { type: "knock_denied", roomId });
+  broadcastToRoom(roomId, { type: "knock_resolved", roomId, userId: targetUserId });
+  res.status(204).end();
+});
+
+router.delete("/rooms/:roomId/members/:userId", requireAuth, async (req, res): Promise<void> => {
+  const ctx = await requireStaff(req as AuthenticatedRequest, res);
+  if (!ctx) return;
+  const { roomId, targetUserId, isCreator } = ctx;
+
+  if (targetUserId === (req as AuthenticatedRequest).userId!) { res.status(403).json({ error: "Cannot remove yourself; use leave" }); return; }
+
+  const [target] = await db
+    .select({ role: roomMembersTable.role })
+    .from(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId)));
+  if (!target) { res.status(404).json({ error: "Member not found" }); return; }
+  if (target.role === "owner") { res.status(403).json({ error: "Cannot remove the room owner" }); return; }
+  if (target.role === "mod" && !isCreator) { res.status(403).json({ error: "Only the owner can remove a moderator" }); return; }
+
+  await db.delete(roomMembersTable).where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId)));
+
+  notifyUser(targetUserId, { type: "removed_from_room", roomId });
+  evictUserFromRoom(roomId, targetUserId);
+  broadcastToRoom(roomId, { type: "member_removed", roomId, userId: targetUserId });
+  res.status(204).end();
+});
+
+router.post("/rooms/:roomId/members/:userId/ban", requireAuth, async (req, res): Promise<void> => {
+  const ctx = await requireStaff(req as AuthenticatedRequest, res);
+  if (!ctx) return;
+  const { roomId, targetUserId, isCreator } = ctx;
+  const actorId = (req as AuthenticatedRequest).userId!;
+
+  if (targetUserId === actorId) { res.status(403).json({ error: "Cannot ban yourself" }); return; }
+
+  const [target] = await db
+    .select({ id: usersTable.id, role: roomMembersTable.role })
+    .from(usersTable)
+    .leftJoin(roomMembersTable, and(eq(roomMembersTable.userId, usersTable.id), eq(roomMembersTable.roomId, roomId)))
+    .where(eq(usersTable.id, targetUserId));
+  if (!target) { res.status(404).json({ error: "User not found" }); return; }
+  if (target.role === "owner") { res.status(403).json({ error: "Cannot ban the room owner" }); return; }
+  if (target.role === "mod" && !isCreator) { res.status(403).json({ error: "Only the owner can ban a moderator" }); return; }
+
+  const reason = typeof (req.body as { reason?: unknown })?.reason === "string" ? (req.body as { reason: string }).reason.slice(0, 280) : null;
+
+  await db.delete(roomMembersTable).where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId)));
+  await db
+    .insert(roomBansTable)
+    .values({ roomId, userId: targetUserId, bannedBy: actorId, reason })
+    .onConflictDoUpdate({ target: [roomBansTable.roomId, roomBansTable.userId], set: { bannedBy: actorId, reason } });
+
+  notifyUser(targetUserId, { type: "banned_from_room", roomId });
+  evictUserFromRoom(roomId, targetUserId);
+  broadcastToRoom(roomId, { type: "member_removed", roomId, userId: targetUserId });
+  res.status(204).end();
+});
+
+router.get("/rooms/:roomId/bans", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const roomId = parseInt(Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const membership = await getActiveMembership(roomId, authReq.userId!);
+  if (!membership || !isStaffRole(membership.role)) { res.status(403).json({ error: "Insufficient permissions" }); return; }
+
+  const bans = await db
+    .select({
+      id: usersTable.id,
+      username: usersTable.username,
+      displayName: usersTable.displayName,
+      avatarUrl: usersTable.avatarUrl,
+      reason: roomBansTable.reason,
+      bannedAt: roomBansTable.createdAt,
+    })
+    .from(roomBansTable)
+    .innerJoin(usersTable, eq(roomBansTable.userId, usersTable.id))
+    .where(eq(roomBansTable.roomId, roomId))
+    .orderBy(desc(roomBansTable.createdAt));
+
+  res.json(bans);
+});
+
+router.delete("/rooms/:roomId/bans/:userId", requireAuth, async (req, res): Promise<void> => {
+  const ctx = await requireStaff(req as AuthenticatedRequest, res);
+  if (!ctx) return;
+  const { roomId, targetUserId } = ctx;
+
+  const deleted = await db
+    .delete(roomBansTable)
+    .where(and(eq(roomBansTable.roomId, roomId), eq(roomBansTable.userId, targetUserId)))
+    .returning();
+  if (!deleted.length) { res.status(404).json({ error: "Ban not found" }); return; }
 
   res.status(204).end();
 });

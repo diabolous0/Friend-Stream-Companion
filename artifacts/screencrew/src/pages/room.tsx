@@ -17,6 +17,8 @@ import {
   useGetChannels, getGetChannelsQueryKey,
   useCreateChannel, useUpdateChannel, useDeleteChannel,
   useUpdateMemberRole,
+  useDenyMember, useRemoveMember, useBanMember, useUnbanMember,
+  useGetBans, getGetBansQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -39,6 +41,7 @@ import {
   Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
   PictureInPicture2, LayoutGrid, Gauge, Eye,
   Hash, Image as ImageIcon, Shield, ShieldCheck, Crown,
+  UserMinus, Ban,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
@@ -62,6 +65,7 @@ import { PixelAvatar } from "@/components/pixel-avatar";
 import { Spectrum } from "@/components/spectrum";
 import type { UserStatus } from "@/lib/settings";
 import { ChevronDown } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -216,6 +220,7 @@ export default function Room() {
   const roomId = params?.roomId ? parseInt(params.roomId, 10) : 0;
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { settings, set: setSetting } = useSettings();
   const classic = settings.uiTheme === "classic";
   const isMobile = useIsMobile();
@@ -248,7 +253,8 @@ export default function Room() {
   const activeChannel = channels?.find((c: any) => c.id === activeChannelId) ?? null;
 
   const { data: pinnedMessages } = useGetPinnedMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetPinnedMessagesQueryKey(roomId) } });
-  const { data: pendingMembers } = useGetPendingMembers(roomId, { query: { enabled: !!roomId && isCreator, queryKey: getGetPendingMembersQueryKey(roomId) } });
+  const { data: pendingMembers } = useGetPendingMembers(roomId, { query: { enabled: !!roomId && isStaff, queryKey: getGetPendingMembersQueryKey(roomId) } });
+  const { data: bannedUsers } = useGetBans(roomId, { query: { enabled: !!roomId && isStaff, queryKey: getGetBansQueryKey(roomId) } });
 
   const sendMessageMutation = useSendMessage();
   const toggleReactionMutation = useToggleReaction();
@@ -262,6 +268,10 @@ export default function Room() {
   const updateChannelMutation = useUpdateChannel();
   const deleteChannelMutation = useDeleteChannel();
   const updateMemberRoleMutation = useUpdateMemberRole();
+  const denyMemberMutation = useDenyMember();
+  const removeMemberMutation = useRemoveMember();
+  const banMemberMutation = useBanMember();
+  const unbanMemberMutation = useUnbanMember();
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
@@ -314,6 +324,15 @@ export default function Room() {
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
   const streamVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Member management + watch-consent UI state
+  const [showBans, setShowBans] = useState(false);
+  // Pending "ask before watching" requests addressed to me (the streamer): userIds awaiting my decision
+  const [watchRequests, setWatchRequests] = useState<number[]>([]);
+  // userIds I've already decided on this share session, so they aren't re-prompted
+  const decidedWatchersRef = useRef<Set<number>>(new Set());
+  // streamers (userIds) who denied my watch request, to show a "denied" hint
+  const [watchDeniedBy, setWatchDeniedBy] = useState<number[]>([]);
 
   const [bindingClip, setBindingClip] = useState<string | null>(null);
   const windowRef = useRef<HTMLDivElement>(null);
@@ -587,6 +606,31 @@ export default function Room() {
       if (rid !== roomId) return;
       queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
     },
+    onMemberRemoved: (rid) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+      queryClient.invalidateQueries({ queryKey: getGetBansQueryKey(roomId) });
+    },
+    onRemovedFromRoom: (rid, banned) => {
+      if (rid !== roomId) return;
+      toast({
+        title: banned ? "You were banned" : "You were removed",
+        description: banned ? "An admin banned you from this room." : "An admin removed you from this room.",
+        variant: "destructive",
+      });
+      setLocation("/rooms");
+    },
+    onWatchResponse: (from, allow) => {
+      if (allow) {
+        setWatchDeniedBy(prev => prev.filter(id => id !== from));
+        return;
+      }
+      // Streamer declined our request to watch — stop trying and inform us.
+      setWatchDeniedBy(prev => prev.includes(from) ? prev : [...prev, from]);
+      setViewingStreamOf(prev => (prev === from ? null : prev));
+      const name = members?.find(m => m.id === from);
+      toast({ title: "Watch declined", description: `${(name && (displayNameOf(name) || name.username)) || "The streamer"} declined to share their screen with you.` });
+    },
   });
 
   useEffect(() => { sendRef.current = send; }, [send]);
@@ -615,6 +659,52 @@ export default function Room() {
     if (!isConnected || !roomId) return;
     send({ type: "status", status: settings.myStatus, statusMessage: settings.myStatusMessage });
   }, [isConnected, roomId, settings.myStatus, settings.myStatusMessage, send]);
+
+  // Tell the room whether we require approval before others can watch our stream.
+  useEffect(() => {
+    if (!isConnected || !roomId) return;
+    send({ type: "watch_prefs", askToWatch: settings.askToWatch });
+  }, [isConnected, roomId, settings.askToWatch, send]);
+
+  // When "ask before watching" is on and I'm sharing, surface a request for each
+  // crew member who starts watching me, until I allow or deny them.
+  useEffect(() => {
+    if (!settings.askToWatch || !isSharing || !me) {
+      if (watchRequests.length) setWatchRequests([]);
+      return;
+    }
+    const pending: number[] = [];
+    for (const entry of Object.values(presence) as any[]) {
+      if (!entry?.online || entry.userId === me.id) continue;
+      const wantsMe = Array.isArray(entry.watching) && entry.watching.includes(me.id);
+      if (wantsMe && !decidedWatchersRef.current.has(entry.userId)) pending.push(entry.userId);
+    }
+    setWatchRequests(prev => {
+      const same = prev.length === pending.length && prev.every(id => pending.includes(id));
+      return same ? prev : pending;
+    });
+  }, [presence, settings.askToWatch, isSharing, me, watchRequests.length]);
+
+  // Reset watch-consent bookkeeping whenever I start/stop sharing.
+  useEffect(() => {
+    if (!isSharing) {
+      decidedWatchersRef.current.clear();
+      setWatchRequests([]);
+    }
+  }, [isSharing]);
+
+  const allowWatcher = useCallback((uid: number) => {
+    decidedWatchersRef.current.add(uid);
+    setWatchRequests(prev => prev.filter(id => id !== uid));
+    sendRef.current?.({ type: "watch_response", to: uid, allow: true });
+    sendOffer(uid);
+  }, [sendOffer]);
+
+  const denyWatcher = useCallback((uid: number) => {
+    decidedWatchersRef.current.add(uid);
+    setWatchRequests(prev => prev.filter(id => id !== uid));
+    sendRef.current?.({ type: "watch_response", to: uid, allow: false });
+  }, []);
 
   // Tell the server which channel we're viewing so chat/typing/reads scope to it.
   useEffect(() => {
@@ -660,7 +750,13 @@ export default function Room() {
       codec: settings.videoCodec,
       bitrate: settings.videoBitrate,
     });
-    // Offer the stream only to crew currently in the same channel.
+    // With "ask before watching" on, withhold offers until I approve each
+    // watcher (handled by the watch-consent effect). Otherwise, offer the stream
+    // to crew currently in the same channel.
+    if (settings.askToWatch) {
+      decidedWatchersRef.current.clear();
+      return;
+    }
     if (members && me) members.forEach(m => {
       if (m.id === me.id) return;
       const p = presenceRef.current[m.id];
@@ -922,6 +1018,43 @@ export default function Room() {
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) }) },
     );
   }, [roomId, updateMemberRoleMutation, queryClient]);
+
+  const handleDenyMember = useCallback((userId: number) => {
+    denyMemberMutation.mutate({ roomId, userId }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) }),
+      onError: (err: any) => toast({ title: "Failed to deny", description: err?.message, variant: "destructive" }),
+    });
+  }, [roomId, denyMemberMutation, queryClient, toast]);
+
+  const handleKickMember = useCallback((userId: number, name: string) => {
+    if (!window.confirm(`Remove ${name} from this room?`)) return;
+    removeMemberMutation.mutate({ roomId, userId }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+        toast({ title: "Member removed", description: `${name} was removed from the room.` });
+      },
+      onError: (err: any) => toast({ title: "Failed to remove", description: err?.message, variant: "destructive" }),
+    });
+  }, [roomId, removeMemberMutation, queryClient, toast]);
+
+  const handleBanMember = useCallback((userId: number, name: string) => {
+    if (!window.confirm(`Ban ${name}? They will be removed and unable to rejoin until unbanned.`)) return;
+    banMemberMutation.mutate({ roomId, userId, data: {} }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+        queryClient.invalidateQueries({ queryKey: getGetBansQueryKey(roomId) });
+        toast({ title: "Member banned", description: `${name} was banned from the room.` });
+      },
+      onError: (err: any) => toast({ title: "Failed to ban", description: err?.message, variant: "destructive" }),
+    });
+  }, [roomId, banMemberMutation, queryClient, toast]);
+
+  const handleUnbanMember = useCallback((userId: number) => {
+    unbanMemberMutation.mutate({ roomId, userId }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetBansQueryKey(roomId) }),
+      onError: (err: any) => toast({ title: "Failed to unban", description: err?.message, variant: "destructive" }),
+    });
+  }, [roomId, unbanMemberMutation, queryClient, toast]);
 
   const handleRename = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1407,6 +1540,12 @@ export default function Room() {
                 </button>
               )}
               {isStaff && (
+                <button onClick={() => setShowBans(s => !s)} title="Banned users"
+                  className={`p-1 rounded-md transition-colors ${showBans ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <Ban className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {isStaff && (
                 <button onClick={() => setShowCreateChannel(s => !s)} title="Create channel"
                   className={`p-1 rounded-md transition-colors ${showCreateChannel ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                   <Plus className="w-3.5 h-3.5" />
@@ -1470,6 +1609,26 @@ export default function Room() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {showBans && isStaff && (
+            <div className="mb-2.5 space-y-1 bg-muted/20 border border-border/30 rounded-lg p-2">
+              <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-1">Banned</p>
+              {(bannedUsers ?? []).length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/40">No banned users.</p>
+              ) : (
+                (bannedUsers ?? []).map((b: any) => (
+                  <div key={b.id} className="flex items-center gap-2">
+                    <Ban className="w-3 h-3 text-destructive/70 shrink-0" />
+                    <span className="text-xs flex-1 truncate">{b.displayName || b.username}</span>
+                    <button onClick={() => handleUnbanMember(b.id)} disabled={unbanMemberMutation.isPending}
+                      className="text-[10px] font-semibold rounded-md bg-primary/20 hover:bg-primary/30 text-primary px-2 py-0.5 transition-colors disabled:opacity-40">
+                      Unban
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
@@ -1627,7 +1786,7 @@ export default function Room() {
                 className={`p-1 rounded-md transition-colors ${showSoundboard ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 <Megaphone className="w-3.5 h-3.5" />
               </button>
-              {isCreator && pendingMembers && pendingMembers.length > 0 && (
+              {isStaff && pendingMembers && pendingMembers.length > 0 && (
                 <button onClick={() => setShowPending(s => !s)} title="Pending requests"
                   className="relative p-1 rounded-md text-amber-400 hover:text-amber-300 transition-colors">
                   <Hand className="w-3.5 h-3.5" />
@@ -1691,7 +1850,7 @@ export default function Room() {
           )}
 
           {/* Pending join requests (creator) */}
-          {isCreator && showPending && pendingMembers && pendingMembers.length > 0 && (
+          {isStaff && showPending && pendingMembers && pendingMembers.length > 0 && (
             <div className="mb-2.5 space-y-1">
               {pendingMembers.map((pm: any) => (
                 <div key={pm.id} className="flex items-center gap-2 bg-amber-400/10 border border-amber-400/30 rounded-lg px-2 py-1.5">
@@ -1700,6 +1859,10 @@ export default function Room() {
                   <button onClick={() => handleApproveMember(pm.id)} disabled={approveMemberMutation.isPending}
                     className="text-[10px] font-semibold rounded-md bg-primary/20 hover:bg-primary/30 text-primary px-2 py-0.5 transition-colors disabled:opacity-40">
                     Approve
+                  </button>
+                  <button onClick={() => handleDenyMember(pm.id)} disabled={denyMemberMutation.isPending}
+                    className="text-[10px] font-semibold rounded-md bg-destructive/15 hover:bg-destructive/25 text-destructive px-2 py-0.5 transition-colors disabled:opacity-40">
+                    Deny
                   </button>
                 </div>
               ))}
@@ -1809,6 +1972,27 @@ export default function Room() {
                   ) : isMe ? (
                     <ChevronDown className="w-3.5 h-3.5 text-muted-foreground/30 shrink-0" />
                   ) : null}
+                  {/* Staff controls: kick / ban (owner or mod, never on self or owner; mods can't target mods) */}
+                  {(() => {
+                    const memberRole = (member.role as string) ?? (member.id === room?.createdBy ? "owner" : "member");
+                    const canManage = isStaff && !isMe && member.id !== room?.createdBy && (myRole === "owner" || memberRole !== "mod");
+                    if (!canManage) return null;
+                    const name = displayNameOf(member) || member.username;
+                    return (
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); handleKickMember(member.id, name); }}
+                          className="p-1 rounded-lg text-muted-foreground/40 hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                          title={`Remove ${name}`}>
+                          <UserMinus className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleBanMember(member.id, name); }}
+                          className="p-1 rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          title={`Ban ${name}`}>
+                          <Ban className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
 
@@ -2185,6 +2369,30 @@ export default function Room() {
         </div>
       </div>
 
+      {/* ── Streamer watch-consent prompts ── */}
+      {isSharing && settings.askToWatch && watchRequests.length > 0 && (
+        <div className="fixed z-[60] top-4 left-1/2 -translate-x-1/2 w-[min(92vw,360px)] space-y-2">
+          {watchRequests.map(uid => {
+            const requester = members?.find(m => m.id === uid);
+            const name = (requester && (displayNameOf(requester) || requester.username)) || `User ${uid}`;
+            return (
+              <div key={uid} className="flex items-center gap-2 bg-card/95 backdrop-blur border border-primary/40 shadow-2xl rounded-xl px-3 py-2.5">
+                <Eye className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-xs flex-1 truncate"><span className="font-semibold">{name}</span> wants to watch your screen</span>
+                <button onClick={() => allowWatcher(uid)}
+                  className="text-[11px] font-semibold rounded-md bg-primary/20 hover:bg-primary/30 text-primary px-2.5 py-1 transition-colors">
+                  Allow
+                </button>
+                <button onClick={() => denyWatcher(uid)}
+                  className="text-[11px] font-semibold rounded-md bg-destructive/15 hover:bg-destructive/25 text-destructive px-2.5 py-1 transition-colors">
+                  Deny
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Floating Stream Window ── */}
       {viewingStreamOf && !overlayMode && (
         <div className={`fixed z-50 overflow-hidden border border-border/50 shadow-2xl bg-[#0a0a0f] rounded-2xl ${isMobile ? "inset-x-2 bottom-2" : ""}`}
@@ -2222,10 +2430,23 @@ export default function Room() {
           </div>
           <div className={`relative aspect-video transition-shadow ${presence[viewingStreamOf]?.speaking ? "ring-2 ring-green-400/70 ring-inset" : ""}`}>
             {activeStream ? <StreamVideo ref={streamVideoRef} stream={activeStream} muted={streamMuted} /> : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
-                <MonitorUp className="w-10 h-10 opacity-30" />
-                <span className="text-sm">Waiting for signal…</span>
-              </div>
+              watchDeniedBy.includes(viewingStreamOf) ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-destructive/50 gap-2">
+                  <Ban className="w-10 h-10 opacity-40" />
+                  <span className="text-sm">Watch request declined</span>
+                </div>
+              ) : presence[viewingStreamOf]?.askToWatch ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/40 gap-2">
+                  <Hand className="w-10 h-10 opacity-40 animate-pulse" />
+                  <span className="text-sm">Waiting for approval…</span>
+                  <span className="text-xs text-muted-foreground/30">{viewingUser?.username} must allow you to watch</span>
+                </div>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
+                  <MonitorUp className="w-10 h-10 opacity-30" />
+                  <span className="text-sm">Waiting for signal…</span>
+                </div>
+              )
             )}
             {settings.spectrumViz && presence[viewingStreamOf]?.speaking && (
               <div className="absolute bottom-2 right-2 bg-black/40 rounded-md px-1.5 py-1 backdrop-blur-sm">

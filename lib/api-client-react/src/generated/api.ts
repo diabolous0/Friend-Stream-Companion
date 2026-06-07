@@ -22,6 +22,8 @@ import type {
 import type {
   AuthInput,
   AuthResponse,
+  BanMemberInput,
+  BannedUser,
   Channel,
   CreateChannelInput,
   EditMessageInput,
@@ -2312,6 +2314,373 @@ export const useUpdateMemberRole = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getUpdateMemberRoleMutationOptions(options));
+    }
+
+export const getDenyMemberUrl = (roomId: number,
+    userId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/members/${userId}/deny`
+}
+
+/**
+ * @summary Deny a pending knock request (owner/mod only)
+ */
+export const denyMember = async (roomId: number,
+    userId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDenyMemberUrl(roomId,userId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDenyMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof denyMember>>, TError,{roomId: number;userId: number}, TContext> => {
+
+const mutationKey = ['denyMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof denyMember>>, {roomId: number;userId: number}> = (props) => {
+          const {roomId,userId} = props ?? {};
+
+          return  denyMember(roomId,userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DenyMemberMutationResult = NonNullable<Awaited<ReturnType<typeof denyMember>>>
+
+    export type DenyMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Deny a pending knock request (owner/mod only)
+ */
+export const useDenyMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof denyMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof denyMember>>,
+        TError,
+        {roomId: number;userId: number},
+        TContext
+      > => {
+      return useMutation(getDenyMemberMutationOptions(options));
+    }
+
+export const getRemoveMemberUrl = (roomId: number,
+    userId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/members/${userId}`
+}
+
+/**
+ * @summary Remove (kick) an active member (owner/mod only)
+ */
+export const removeMember = async (roomId: number,
+    userId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRemoveMemberUrl(roomId,userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemoveMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeMember>>, TError,{roomId: number;userId: number}, TContext> => {
+
+const mutationKey = ['removeMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeMember>>, {roomId: number;userId: number}> = (props) => {
+          const {roomId,userId} = props ?? {};
+
+          return  removeMember(roomId,userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveMemberMutationResult = NonNullable<Awaited<ReturnType<typeof removeMember>>>
+
+    export type RemoveMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove (kick) an active member (owner/mod only)
+ */
+export const useRemoveMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeMember>>,
+        TError,
+        {roomId: number;userId: number},
+        TContext
+      > => {
+      return useMutation(getRemoveMemberMutationOptions(options));
+    }
+
+export const getBanMemberUrl = (roomId: number,
+    userId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/members/${userId}/ban`
+}
+
+/**
+ * @summary Ban a user from the room (owner/mod only); removes membership and blocks rejoining
+ */
+export const banMember = async (roomId: number,
+    userId: number,
+    banMemberInput?: BanMemberInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getBanMemberUrl(roomId,userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      banMemberInput,)
+  }
+);}
+
+
+
+
+export const getBanMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof banMember>>, TError,{roomId: number;userId: number;data?: BodyType<BanMemberInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof banMember>>, TError,{roomId: number;userId: number;data?: BodyType<BanMemberInput>}, TContext> => {
+
+const mutationKey = ['banMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof banMember>>, {roomId: number;userId: number;data?: BodyType<BanMemberInput>}> = (props) => {
+          const {roomId,userId,data} = props ?? {};
+
+          return  banMember(roomId,userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BanMemberMutationResult = NonNullable<Awaited<ReturnType<typeof banMember>>>
+    export type BanMemberMutationBody = BodyType<BanMemberInput> | undefined
+    export type BanMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Ban a user from the room (owner/mod only); removes membership and blocks rejoining
+ */
+export const useBanMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof banMember>>, TError,{roomId: number;userId: number;data?: BodyType<BanMemberInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof banMember>>,
+        TError,
+        {roomId: number;userId: number;data?: BodyType<BanMemberInput>},
+        TContext
+      > => {
+      return useMutation(getBanMemberMutationOptions(options));
+    }
+
+export const getGetBansUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/bans`
+}
+
+/**
+ * @summary List banned users (owner/mod only)
+ */
+export const getBans = async (roomId: number, options?: RequestInit): Promise<BannedUser[]> => {
+
+  return customFetch<BannedUser[]>(getGetBansUrl(roomId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBansQueryKey = (roomId: number,) => {
+    return [
+    `/api/rooms/${roomId}/bans`
+    ] as const;
+    }
+
+
+export const getGetBansQueryOptions = <TData = Awaited<ReturnType<typeof getBans>>, TError = ErrorType<void>>(roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBansQueryKey(roomId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBans>>> = ({ signal }) => getBans(roomId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(roomId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBans>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBansQueryResult = NonNullable<Awaited<ReturnType<typeof getBans>>>
+export type GetBansQueryError = ErrorType<void>
+
+
+/**
+ * @summary List banned users (owner/mod only)
+ */
+
+export function useGetBans<TData = Awaited<ReturnType<typeof getBans>>, TError = ErrorType<void>>(
+ roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBans>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBansQueryOptions(roomId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUnbanMemberUrl = (roomId: number,
+    userId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/bans/${userId}`
+}
+
+/**
+ * @summary Lift a ban (owner/mod only)
+ */
+export const unbanMember = async (roomId: number,
+    userId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getUnbanMemberUrl(roomId,userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getUnbanMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unbanMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unbanMember>>, TError,{roomId: number;userId: number}, TContext> => {
+
+const mutationKey = ['unbanMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unbanMember>>, {roomId: number;userId: number}> = (props) => {
+          const {roomId,userId} = props ?? {};
+
+          return  unbanMember(roomId,userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnbanMemberMutationResult = NonNullable<Awaited<ReturnType<typeof unbanMember>>>
+
+    export type UnbanMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Lift a ban (owner/mod only)
+ */
+export const useUnbanMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unbanMember>>, TError,{roomId: number;userId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unbanMember>>,
+        TError,
+        {roomId: number;userId: number},
+        TContext
+      > => {
+      return useMutation(getUnbanMemberMutationOptions(options));
     }
 
 export const getSearchGiphyUrl = (params?: SearchGiphyParams,) => {

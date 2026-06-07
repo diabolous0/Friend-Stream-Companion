@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2 } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon } from "lucide-react";
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
@@ -55,6 +55,27 @@ export default function Rooms() {
     navigator.clipboard.writeText(code).then(() => {
       setCopiedCode(code); setTimeout(() => setCopiedCode(null), 2000);
     });
+  }, []);
+
+  const copyInviteLink = useCallback((e: React.MouseEvent, code: string) => {
+    e.preventDefault(); e.stopPropagation();
+    const link = `${window.location.origin}${import.meta.env.BASE_URL}?join=${encodeURIComponent(code)}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedCode(`link:${code}`); setTimeout(() => setCopiedCode(null), 2000);
+      toast({ title: "Invite link copied", description: "Share it with your crew to let them join." });
+    });
+  }, [toast]);
+
+  // If arriving via a shareable invite link (?join=CODE), prefill the join form.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("join");
+    if (!code) return;
+    setInviteCode(code.toUpperCase());
+    setShowJoin(true);
+    // Strip the query param so a refresh doesn't re-trigger.
+    const url = `${window.location.origin}${window.location.pathname}`;
+    window.history.replaceState({}, "", url);
   }, []);
 
   const handleCreateRoom = (e: React.FormEvent) => {
@@ -311,6 +332,12 @@ export default function Rooms() {
                         <Hash className="w-3 h-3" />
                         <span className="font-mono">{room.inviteCode}</span>
                         {copiedCode === room.inviteCode ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                      <button onClick={(e) => copyInviteLink(e, room.inviteCode)}
+                        className={`flex items-center gap-1 text-xs text-muted-foreground/40 hover:text-muted-foreground px-2 py-1 hover:bg-muted/40 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}
+                        title="Copy invite link">
+                        {copiedCode === `link:${room.inviteCode}` ? <Check className="w-3 h-3 text-green-400" /> : <LinkIcon className="w-3 h-3" />}
+                        <span className={classic ? "font-mono" : ""}>Link</span>
                       </button>
                     </div>
                   </Link>

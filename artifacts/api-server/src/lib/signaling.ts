@@ -25,6 +25,7 @@ interface ClientState {
   statusMessage: string | null;
   activity: string | null;
   watching: number[];
+  askToWatch: boolean;
 }
 
 const clients = new Map<WebSocket, ClientState>();
@@ -73,6 +74,7 @@ function broadcastPresence(roomId: number): void {
     statusMessage: c.statusMessage,
     activity: c.activity,
     watching: c.watching,
+    askToWatch: c.askToWatch,
   }));
   const payload = JSON.stringify({ type: "presence_update", roomId, entries });
   for (const client of getRoomClients(roomId)) {
@@ -89,6 +91,23 @@ function relayTo(state: ClientState, toUserId: number, message: object): void {
   if (target && target.ws.readyState === WebSocket.OPEN) {
     target.ws.send(JSON.stringify(message));
   }
+}
+
+// Force any live WebSocket sessions for a kicked/banned user out of a room so
+// they immediately stop sending or receiving real-time traffic, regardless of
+// whether their client honors the removed_from_room/banned_from_room notice.
+export function evictUserFromRoom(roomId: number, userId: number): void {
+  for (const client of Array.from(clients.values())) {
+    if (client.userId !== userId || client.roomId !== roomId) continue;
+    client.roomId = null;
+    client.channelId = null;
+    client.streaming = false;
+    client.speaking = false;
+    client.inVoice = false;
+    client.watching = [];
+  }
+  // Reflect the departure to everyone still in the room.
+  broadcastPresence(roomId);
 }
 
 export function setupSignaling(server: Server): void {
@@ -139,6 +158,7 @@ export function setupSignaling(server: Server): void {
             statusMessage: null,
             activity: null,
             watching: [],
+            askToWatch: false,
           });
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
@@ -406,6 +426,19 @@ export function setupSignaling(server: Server): void {
           break;
         }
 
+        case "watch_prefs": {
+          if (!state || !state.roomId) return;
+          state.askToWatch = !!msg.askToWatch;
+          broadcastPresence(state.roomId);
+          break;
+        }
+
+        case "watch_response": {
+          if (!state || !state.roomId) return;
+          relayTo(state, msg.to as number, { type: "watch_response", from: state.userId, allow: !!msg.allow });
+          break;
+        }
+
         case "ice_candidate": {
           if (!state || !state.roomId) return;
           relayTo(state, msg.to as number, { type: "ice_candidate", from: state.userId, candidate: msg.candidate });
@@ -494,6 +527,7 @@ export function getPresenceSnapshot(roomId: number) {
     status: c.status,
     statusMessage: c.statusMessage,
     activity: c.activity,
+    askToWatch: c.askToWatch,
   }));
 }
 
