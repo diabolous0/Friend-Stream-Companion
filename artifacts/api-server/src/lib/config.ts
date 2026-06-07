@@ -71,7 +71,7 @@ export interface ResolvedConfig {
 }
 
 const DEFAULTS = {
-  serverName: "ScreenCrew Server",
+  serverName: "LynxDock Server",
   port: 8080,
   sessionSecret: "screencrew-dev-secret",
   maxUsers: 100,

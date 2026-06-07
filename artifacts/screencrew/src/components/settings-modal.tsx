@@ -1050,7 +1050,7 @@ export function SettingsModal({
               </p>
               <div className="flex items-center gap-3 px-3 py-2 bg-muted/20 border border-border/30 rounded-xl">
                 <Gamepad2 className="w-4 h-4 text-primary/60 shrink-0" />
-                <div className="flex-1 text-xs text-muted-foreground/60">Works in any windowed game. Keep ScreenCrew on a second monitor or in a floating window.</div>
+                <div className="flex-1 text-xs text-muted-foreground/60">Works in any windowed game. Keep LynxDock on a second monitor or in a floating window.</div>
               </div>
             </Section>
 

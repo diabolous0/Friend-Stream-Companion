@@ -2728,7 +2728,7 @@ export default function Room() {
                   <PictureInPicture2 className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button onClick={() => viewingStreamOf && streamPopouts.open(viewingStreamOf, activeStream, `${viewingUser?.username ?? "Stream"} — ScreenCrew`)}
+              <button onClick={() => viewingStreamOf && streamPopouts.open(viewingStreamOf, activeStream, `${viewingUser?.username ?? "Stream"} — LynxDock`)}
                 title="Pop out to a separate window (drag to another monitor)" disabled={!activeStream}
                 className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${viewingStreamOf && streamPopouts.openIds.includes(viewingStreamOf) ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground"}`}>
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -2805,7 +2805,7 @@ export default function Room() {
                       className={`group relative aspect-video rounded-xl overflow-hidden border bg-black transition-all hover:ring-2 hover:ring-primary/60 ${isSpeaking ? "border-green-400/70 ring-2 ring-green-400/40" : "border-border/40"}`}>
                       <StreamVideo stream={remoteStreams[id]} muted />
                       <span role="button" tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); streamPopouts.open(id, remoteStreams[id], `${streamer?.username ?? `User ${id}`} — ScreenCrew`); }}
+                        onClick={(e) => { e.stopPropagation(); streamPopouts.open(id, remoteStreams[id], `${streamer?.username ?? `User ${id}`} — LynxDock`); }}
                         title="Pop out to a separate window"
                         className={`absolute top-2 right-2 p-1.5 rounded-lg backdrop-blur-sm transition-colors ${streamPopouts.openIds.includes(id) ? "bg-primary/20 text-primary" : "bg-black/40 text-white/70 hover:text-white opacity-0 group-hover:opacity-100"}`}>
                         <ExternalLink className="w-3.5 h-3.5" />

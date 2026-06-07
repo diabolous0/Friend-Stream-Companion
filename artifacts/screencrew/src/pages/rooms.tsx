@@ -222,12 +222,14 @@ export default function Rooms() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 bg-primary/15 border border-primary/25 flex items-center justify-center ${r("rounded-xl", "rounded-sm")}`}>
-              <MonitorUp className="w-4 h-4 text-primary" />
-            </div>
+            <img
+              src={`${import.meta.env.BASE_URL}lynxdock-icon.png`}
+              alt="LynxDock"
+              className={`w-9 h-9 object-cover ${r("rounded-xl", "rounded-sm")}`}
+            />
             <div>
               <h1 className={`font-semibold text-base text-foreground ${classic ? "font-mono tracking-widest uppercase text-primary" : ""}`}>
-                {classic ? "SCREENCREW" : "ScreenCrew"}
+                {classic ? "LYNXDOCK" : "LynxDock"}
               </h1>
               <ServerInfoHover>
                 <p className={`text-xs text-muted-foreground cursor-default inline-block ${classic ? "font-mono" : ""}`}>

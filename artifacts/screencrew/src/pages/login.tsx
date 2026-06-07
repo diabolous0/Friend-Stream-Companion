@@ -4,7 +4,6 @@ import { useLogin, useRegister, useGetMe, getGetMeQueryKey, setAuthTokenGetter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp } from "lucide-react";
 import { useTheme, ThemeToggle } from "@/lib/theme";
 import { getServerLabel, getActiveToken, setActiveToken } from "@/lib/server-connection";
 
@@ -76,12 +75,14 @@ export default function Login() {
 
         {/* App header */}
         <div className={`flex items-center gap-3 px-6 pt-7 pb-6 ${classic ? "border-b border-primary/20" : ""}`}>
-          <div className={`w-10 h-10 bg-primary/15 border border-primary/30 flex items-center justify-center ${classic ? "rounded-sm" : "rounded-xl"}`}>
-            <MonitorUp className="w-5 h-5 text-primary" />
-          </div>
+          <img
+            src={`${import.meta.env.BASE_URL}lynxdock-icon.png`}
+            alt="LynxDock"
+            className={`w-10 h-10 object-cover ${classic ? "rounded-sm" : "rounded-xl"}`}
+          />
           <div>
             <h1 className={`font-semibold text-base text-foreground ${classic ? "font-mono tracking-widest uppercase text-primary" : ""}`}>
-              {classic ? "SCREENCREW" : "ScreenCrew"}
+              {classic ? "LYNXDOCK" : "LynxDock"}
             </h1>
             <p className={`text-xs text-muted-foreground ${classic ? "font-mono tracking-wider" : ""}`}>
               {classic ? "LAN PARTY CLIENT" : "Watch together, anywhere"}

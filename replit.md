@@ -1,6 +1,6 @@
-# ScreenCrew
+# LynxDock
 
-A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party aesthetic.
+A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party aesthetic. (Internal package/dir names use the original `screencrew` slug; the user-facing brand is LynxDock.)
 
 ## Run & Operate
 
