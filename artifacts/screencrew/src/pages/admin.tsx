@@ -11,11 +11,16 @@ import {
   useCreateInvite,
   useRevokeInvite,
   useClaimAdmin,
+  useListPresetRooms,
+  getListPresetRoomsQueryKey,
+  useCreatePresetRoom,
+  useDeletePresetRoom,
 } from "@workspace/api-client-react";
+import type { PresetRoomInputKind } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, ArrowLeft, Copy, Trash2, Plus } from "lucide-react";
+import { Shield, ArrowLeft, Copy, Trash2, Plus, Hash, Volume2 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 
 export default function Admin() {
@@ -31,10 +36,14 @@ export default function Admin() {
 
   const [adminPassword, setAdminPassword] = useState("");
   const [maxUses, setMaxUses] = useState("");
+  const [presetName, setPresetName] = useState("");
+  const [presetKind, setPresetKind] = useState<PresetRoomInputKind>("text_voice");
 
   const claimMutation = useClaimAdmin();
   const createMutation = useCreateInvite();
   const revokeMutation = useRevokeInvite();
+  const createPresetMutation = useCreatePresetRoom();
+  const deletePresetMutation = useDeletePresetRoom();
 
   const isAdmin = !!me?.isAdmin;
 
@@ -43,6 +52,9 @@ export default function Admin() {
   });
   const { data: invites } = useListInvites({
     query: { enabled: isAdmin, queryKey: getListInvitesQueryKey() },
+  });
+  const { data: presetRooms } = useListPresetRooms({
+    query: { enabled: isAdmin, queryKey: getListPresetRoomsQueryKey() },
   });
 
   if (meLoading) {
@@ -102,6 +114,35 @@ export default function Admin() {
       {
         onSuccess: () => qc.invalidateQueries({ queryKey: getListInvitesQueryKey() }),
         onError: () => toast({ title: "Could not revoke invite", variant: "destructive" }),
+      }
+    );
+  };
+
+  const onCreatePreset = () => {
+    const name = presetName.trim();
+    if (!name) {
+      toast({ title: "Room name cannot be empty", variant: "destructive" });
+      return;
+    }
+    createPresetMutation.mutate(
+      { data: { name, kind: presetKind } },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: getListPresetRoomsQueryKey() });
+          setPresetName("");
+        },
+        onError: (err) =>
+          toast({ title: "Could not create room", description: err.message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const onDeletePreset = (roomId: number) => {
+    deletePresetMutation.mutate(
+      { roomId },
+      {
+        onSuccess: () => qc.invalidateQueries({ queryKey: getListPresetRoomsQueryKey() }),
+        onError: () => toast({ title: "Could not delete room", variant: "destructive" }),
       }
     );
   };
@@ -232,6 +273,88 @@ export default function Admin() {
                 ) : (
                   <p className={`text-sm text-muted-foreground ${classic ? "font-mono" : ""}`}>
                     {classic ? "NO INVITE KEYS YET." : "No invite keys yet."}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className={`${card} p-6 space-y-4`}>
+              <h2 className={`text-sm font-semibold ${heading}`}>
+                {classic ? "PRESET ROOMS" : "Preset rooms"}
+              </h2>
+              <p className={`text-xs text-muted-foreground ${classic ? "font-mono" : ""}`}>
+                {classic
+                  ? "SERVER ROOMS ANYONE CAN BROWSE AND JOIN WITH ONE CLICK."
+                  : "Server rooms anyone can browse and join with one click."}
+              </p>
+
+              <div className="space-y-2">
+                <Input
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  placeholder={classic ? "room_name_" : "Room name"}
+                  className={classic ? "rounded-sm font-mono h-9" : "rounded-xl h-9"}
+                />
+                <div className="flex gap-1.5">
+                  {([
+                    ["text_voice", classic ? "TEXT + VOICE" : "Text + Voice"],
+                    ["text", classic ? "TEXT ONLY" : "Text only"],
+                    ["voice", classic ? "VOICE ONLY" : "Voice only"],
+                  ] as [PresetRoomInputKind, string][]).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setPresetKind(k)}
+                      className={`flex-1 px-2 py-1.5 text-xs border transition-colors ${
+                        classic ? "rounded-sm font-mono uppercase tracking-wider" : "rounded-lg"
+                      } ${
+                        presetKind === k
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border/50 text-muted-foreground hover:bg-muted/30"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  onClick={onCreatePreset}
+                  disabled={createPresetMutation.isPending}
+                  className={`w-full gap-1.5 ${classic ? "rounded-sm font-mono uppercase tracking-wider h-9" : "rounded-xl h-9"}`}
+                >
+                  <Plus className="w-4 h-4" />
+                  {classic ? "CREATE ROOM" : "Create room"}
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {presetRooms && presetRooms.length > 0 ? (
+                  presetRooms.map((room) => (
+                    <div
+                      key={room.id}
+                      className={`flex items-center gap-2 px-3 py-2 bg-muted/30 ${classic ? "rounded-sm" : "rounded-xl"}`}
+                    >
+                      <span className={`text-sm flex-1 truncate ${classic ? "font-mono text-primary" : "font-medium"}`}>
+                        {room.name}
+                      </span>
+                      {room.hasText && <Hash className="w-3.5 h-3.5 text-muted-foreground" />}
+                      {room.hasVoice && <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />}
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {room.memberCount}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => onDeletePreset(room.id)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className={`text-sm text-muted-foreground ${classic ? "font-mono" : ""}`}>
+                    {classic ? "NO PRESET ROOMS YET." : "No preset rooms yet."}
                   </p>
                 )}
               </div>

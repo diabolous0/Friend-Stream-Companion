@@ -16,7 +16,7 @@ import { logger } from "./logger";
  * room itself so the work is safe regardless of whether the underlying database
  * enforces foreign keys (Postgres always; SQLite only when pragma is on).
  */
-async function deleteRoomCascade(roomId: number): Promise<void> {
+export async function deleteRoomCascade(roomId: number): Promise<void> {
   const msgRows = await db
     .select({ id: messagesTable.id })
     .from(messagesTable)

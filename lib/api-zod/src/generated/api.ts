@@ -237,6 +237,7 @@ export const ListRoomsResponseItem = zod.object({
   "ephemeral": zod.boolean().nullish(),
   "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
@@ -287,6 +288,7 @@ export const GetRoomResponse = zod.object({
   "ephemeral": zod.boolean().nullish(),
   "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -338,6 +340,7 @@ export const UpdateRoomResponse = zod.object({
   "ephemeral": zod.boolean().nullish(),
   "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -387,6 +390,7 @@ export const JoinRoomResponse = zod.object({
   "ephemeral": zod.boolean().nullish(),
   "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
 
@@ -424,7 +428,79 @@ export const JoinRoomByCodeResponse = zod.object({
   "ephemeral": zod.boolean().nullish(),
   "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
+})
+
+
+/**
+ * @summary List server preset rooms anyone can join
+ */
+export const ListPresetRoomsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "memberCount": zod.number(),
+  "joined": zod.boolean(),
+  "hasText": zod.boolean(),
+  "hasVoice": zod.boolean()
+})
+export const ListPresetRoomsResponse = zod.array(ListPresetRoomsResponseItem)
+
+
+/**
+ * @summary Join a preset room (no invite code required)
+ */
+export const JoinPresetRoomParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const JoinPresetRoomResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "inviteCode": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "memberCount": zod.number(),
+  "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
+  "lastMessageAt": zod.coerce.date().nullish(),
+  "themeColor": zod.string().nullish(),
+  "themeSkin": zod.string().nullish(),
+  "bannerUrl": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isPrivate": zod.boolean().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "hasPassword": zod.boolean().nullish(),
+  "preset": zod.boolean().nullish(),
+  "pending": zod.boolean().nullish()
+})
+
+
+/**
+ * @summary Create a preset room (admin only)
+ */
+
+
+
+export const CreatePresetRoomBody = zod.object({
+  "name": zod.string().min(1),
+  "kind": zod.enum(['text', 'voice', 'text_voice'])
+})
+
+
+/**
+ * @summary Delete a preset room (admin only)
+ */
+export const DeletePresetRoomParams = zod.object({
+  "roomId": zod.coerce.number()
 })
 
 

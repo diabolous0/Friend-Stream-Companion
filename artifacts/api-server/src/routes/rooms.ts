@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
 import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable, roomBansTable, roleAtLeast } from "@workspace/db";
 import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt, sql } from "drizzle-orm";
-import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from "../middlewares/auth";
 import { config } from "../lib/config";
-import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
+import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody, CreatePresetRoomBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms, evictUserFromRoom, revalidateMemberChannelAccess } from "../lib/signaling";
+import { deleteRoomCascade } from "../lib/cleanup";
 
 const router: IRouter = Router();
 
@@ -340,6 +341,133 @@ router.post("/rooms/join-by-code", requireAuth, async (req, res): Promise<void> 
   res.json({ ...(await getRoomWithCount(room.id)), pending: false });
 });
 
+// ─── Preset rooms (admin-provided, publicly joinable) ────────────────────────
+
+// Channels created for each preset kind. Voice-only rooms still get a single
+// channel so the "cannot delete the last channel" invariant holds.
+function presetKindChannels(kind: "text" | "voice" | "text_voice") {
+  if (kind === "text") return [{ name: "general", type: "text", position: 0 }];
+  if (kind === "voice") return [{ name: "Voice", type: "voice", position: 0 }];
+  return [
+    { name: "general", type: "text", position: 0 },
+    { name: "Voice", type: "voice", position: 1 },
+  ];
+}
+
+// List all preset rooms anyone can browse + join, with member counts and which
+// channel kinds each has, plus whether the current user already joined.
+router.get("/preset-rooms", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const rooms = await db
+    .select()
+    .from(roomsTable)
+    .where(eq(roomsTable.preset, true))
+    .orderBy(desc(roomsTable.createdAt));
+
+  if (rooms.length === 0) { res.json([]); return; }
+  const roomIds = rooms.map((r) => r.id);
+
+  const [memberCounts, myMemberships, chans] = await Promise.all([
+    db
+      .select({ roomId: roomMembersTable.roomId, value: count() })
+      .from(roomMembersTable)
+      .where(and(inArray(roomMembersTable.roomId, roomIds), eq(roomMembersTable.status, "active")))
+      .groupBy(roomMembersTable.roomId),
+    db
+      .select({ roomId: roomMembersTable.roomId })
+      .from(roomMembersTable)
+      .where(and(
+        inArray(roomMembersTable.roomId, roomIds),
+        eq(roomMembersTable.userId, authReq.userId!),
+        eq(roomMembersTable.status, "active"),
+      )),
+    db
+      .select({ roomId: channelsTable.roomId, type: channelsTable.type })
+      .from(channelsTable)
+      .where(inArray(channelsTable.roomId, roomIds)),
+  ]);
+
+  const countMap = new Map(memberCounts.map((r) => [r.roomId, Number(r.value)]));
+  const joinedSet = new Set(myMemberships.map((m) => m.roomId));
+  const textSet = new Set(chans.filter((c) => c.type === "text").map((c) => c.roomId));
+  const voiceSet = new Set(chans.filter((c) => c.type === "voice").map((c) => c.roomId));
+
+  res.json(rooms.map((r) => ({
+    id: r.id,
+    name: r.name,
+    memberCount: countMap.get(r.id) ?? 0,
+    joined: joinedSet.has(r.id),
+    hasText: textSet.has(r.id),
+    hasVoice: voiceSet.has(r.id),
+  })));
+});
+
+// Join a preset room with no invite code — they are public by design.
+router.post("/preset-rooms/:roomId/join", requireAuth, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;
+  const roomId = parseInt(raw, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const [room] = await db.select().from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room || !room.preset) { res.status(404).json({ error: "Room not found" }); return; }
+  if (await isBanned(roomId, authReq.userId!)) { res.status(403).json({ error: "You are banned from this room" }); return; }
+
+  // Upsert to active so a stale pending/left membership is promoted on join.
+  await db
+    .insert(roomMembersTable)
+    .values({ roomId, userId: authReq.userId!, status: "active" })
+    .onConflictDoUpdate({
+      target: [roomMembersTable.roomId, roomMembersTable.userId],
+      set: { status: "active" },
+    });
+
+  res.json({ ...(await getRoomWithCount(roomId)), pending: false });
+});
+
+// Create a preset room (admin only). The admin becomes its owner.
+router.post("/admin/preset-rooms", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const authReq = req as AuthenticatedRequest;
+  const parsed = CreatePresetRoomBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+
+  const name = parsed.data.name.trim();
+  if (!name) { res.status(400).json({ error: "Name cannot be empty" }); return; }
+  const kind = parsed.data.kind;
+
+  const [room] = await db
+    .insert(roomsTable)
+    .values({
+      name,
+      inviteCode: generateInviteCode(),
+      createdBy: authReq.userId!,
+      isPrivate: false,
+      preset: true,
+      ephemeral: false,
+      lastActivityAt: new Date(),
+    })
+    .returning();
+
+  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active", role: "owner" });
+  await db.insert(channelsTable).values(presetKindChannels(kind).map((c) => ({ ...c, roomId: room.id })));
+
+  res.status(201).json(publicRoom({ ...room, memberCount: 1 }));
+});
+
+// Delete a preset room and all of its data (admin only).
+router.delete("/admin/preset-rooms/:roomId", requireAuth, requireAdmin, async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;
+  const roomId = parseInt(raw, 10);
+  if (isNaN(roomId)) { res.status(400).json({ error: "Invalid room ID" }); return; }
+
+  const [room] = await db.select().from(roomsTable).where(eq(roomsTable.id, roomId));
+  if (!room || !room.preset) { res.status(404).json({ error: "Room not found" }); return; }
+
+  broadcastToRoom(roomId, { type: "room_deleted", roomId });
+  await deleteRoomCascade(roomId);
+  res.status(204).end();
+});
+
 router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
   const authReq = req as AuthenticatedRequest;
   const raw = Array.isArray(req.params.roomId) ? req.params.roomId[0] : req.params.roomId;
@@ -376,6 +504,19 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
     }
     if (data.bannerUrl !== undefined) updates.bannerUrl = data.bannerUrl;
     if (data.notes !== undefined) updates.notes = data.notes;
+  }
+
+  // Preset rooms are public-by-design: privacy, invite and password settings
+  // are locked so they can't drift away from the one-click-join contract.
+  if (
+    room.preset &&
+    (data.isPrivate !== undefined ||
+      data.inviteExpiresAt !== undefined ||
+      data.regenerateCode ||
+      data.password !== undefined)
+  ) {
+    res.status(403).json({ error: "Preset room privacy settings cannot be changed" });
+    return;
   }
 
   // Privacy, invite expiry and code regeneration are creator-only.

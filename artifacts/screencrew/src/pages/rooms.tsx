@@ -6,6 +6,7 @@ import {
   useListFriendRequests, getListFriendRequestsQueryKey,
   useSendFriendRequest, useAcceptFriendRequest, useDeclineFriendRequest, useRemoveFriend,
   useListBlocks, getListBlocksQueryKey, useUnblockUser,
+  useListPresetRooms, getListPresetRoomsQueryKey, useJoinPresetRoom,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +51,10 @@ export default function Rooms() {
 
   const createRoom = useCreateRoom();
   const joinRoom = useJoinRoomByCode();
+  const joinPresetRoom = useJoinPresetRoom();
+  const { data: presetRooms } = useListPresetRooms({
+    query: { queryKey: getListPresetRoomsQueryKey(), refetchInterval: 15000 },
+  });
 
   const { data: friends } = useListFriends({ query: { queryKey: getListFriendsQueryKey(), refetchInterval: 15000 } });
   const { data: friendRequests } = useListFriendRequests({ query: { queryKey: getListFriendRequestsQueryKey(), refetchInterval: 15000 } });
@@ -164,6 +169,23 @@ export default function Rooms() {
         }
         toast({ title: "Failed to join room", description: err.message, variant: "destructive" });
       },
+    });
+  };
+
+  const handleJoinPreset = (e: React.MouseEvent, roomId: number, joined: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (joined) {
+      setLocation(`/room/${roomId}`);
+      return;
+    }
+    joinPresetRoom.mutate({ roomId }, {
+      onSuccess: (room) => {
+        queryClient.invalidateQueries({ queryKey: getListRoomsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListPresetRoomsQueryKey() });
+        setLocation(`/room/${room.id}`);
+      },
+      onError: (err) => toast({ title: "Failed to join room", description: err.message, variant: "destructive" }),
     });
   };
 
@@ -519,6 +541,46 @@ export default function Rooms() {
             </div>
           )}
         </div>
+
+        {/* Server rooms (preset) */}
+        {presetRooms && presetRooms.length > 0 && (
+          <div className={`bg-card border border-border/50 overflow-hidden shadow-xl mb-4 ${r("rounded-2xl", "rounded-sm border-primary/20")}`}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/30">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">
+                {classic ? "SERVER NODES" : "Server rooms"}
+              </span>
+            </div>
+            <div>
+              {presetRooms.map(room => (
+                <div key={room.id}
+                  className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/20 transition-colors border-b border-border/20 last:border-0 cursor-pointer group"
+                  onClick={(e) => handleJoinPreset(e, room.id, room.joined)}>
+                  <div className={`w-9 h-9 bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0 ${r("rounded-xl", "rounded-sm")}`}>
+                    <MonitorUp className="w-4 h-4 text-primary/80" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-sm font-medium truncate ${classic ? "font-mono group-hover:text-primary transition-colors" : ""}`}>{room.name}</p>
+                      {room.hasText && <Hash className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
+                      {room.hasVoice && <Volume2 className="w-3 h-3 text-violet-400/70 shrink-0" />}
+                    </div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Users className="w-3 h-3 text-muted-foreground/50" />
+                      <span className={`text-xs text-muted-foreground/60 ${classic ? "font-mono" : ""}`}>{room.memberCount} members</span>
+                    </div>
+                  </div>
+                  <button onClick={(e) => handleJoinPreset(e, room.id, room.joined)}
+                    disabled={joinPresetRoom.isPending}
+                    className={`text-xs px-3 py-1.5 font-medium transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")} ${room.joined
+                      ? "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                      : "bg-primary/15 text-primary hover:bg-primary/25"}`}>
+                    {room.joined ? (classic ? "OPEN" : "Open") : (classic ? "CONNECT" : "Join")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Theme toggle */}
         <div className="flex items-center justify-center gap-2">

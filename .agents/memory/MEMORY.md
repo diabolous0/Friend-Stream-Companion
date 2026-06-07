@@ -1,4 +1,5 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Preset rooms invariants](preset-rooms.md) — admin preset rooms are public-by-design: PATCH must lock privacy/password even for creator; preset join upserts membership to active.
 - [Backend switching isolation](backend-switching.md) — every active-backend switch path must clear the React Query cache and fire SERVER_CHANGED_EVENT so per-backend stores re-read; else cross-backend data bleeds.
 - [Self-hosting / portability](self-hosting-portability.md) — dual-mode (Quick Session vs Self-Hosted) rules: TURN creds only behind authed /ice-servers, ephemeral cleanup re-checks expiry before cascade.
 - [Dialect-safe SQL](dialect-safe-sql.md) — db is cast to NodePgDatabase even under SQLite; PG-only SQL (ilike, GREATEST) only fails at runtime. Audit raw sql`` and branch on IS_SQLITE.

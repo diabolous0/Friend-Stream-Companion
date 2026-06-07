@@ -16,6 +16,7 @@ export const roomsTable = dbTable("rooms", {
   isPrivate: bool("is_private").notNull().default(false),
   inviteExpiresAt: ts("invite_expires_at"),
   passwordHash: txt("password_hash"),
+  preset: bool("preset").notNull().default(false),
   ephemeral: bool("ephemeral").notNull().default(false),
   lastActivityAt: ts("last_activity_at"),
   expiresAt: ts("expires_at"),

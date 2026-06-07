@@ -384,6 +384,84 @@ paths:
         "403":
           description: Invalid invite code
 
+  /preset-rooms:
+    get:
+      operationId: listPresetRooms
+      tags: [rooms]
+      summary: List server preset rooms anyone can join
+      responses:
+        "200":
+          description: List of preset rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PresetRoom"
+
+  /preset-rooms/{roomId}/join:
+    post:
+      operationId: joinPresetRoom
+      tags: [rooms]
+      summary: Join a preset room (no invite code required)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Joined room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "403":
+          description: Not joinable
+        "404":
+          description: Room not found
+
+  /admin/preset-rooms:
+    post:
+      operationId: createPresetRoom
+      tags: [rooms]
+      summary: Create a preset room (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetRoomInput"
+      responses:
+        "201":
+          description: Created preset room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "403":
+          description: Admin only
+
+  /admin/preset-rooms/{roomId}:
+    delete:
+      operationId: deletePresetRoom
+      tags: [rooms]
+      summary: Delete a preset room (admin only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Admin only
+        "404":
+          description: Room not found
+
   /rooms/{roomId}/members:
     get:
       operationId: getRoomMembers
@@ -1607,9 +1685,40 @@ components:
         hasPassword:
           type: boolean
           nullable: true
+        preset:
+          type: boolean
+          nullable: true
         pending:
           type: boolean
           nullable: true
+
+    PresetRoom:
+      type: object
+      required: [id, name, memberCount, joined, hasText, hasVoice]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        memberCount:
+          type: integer
+        joined:
+          type: boolean
+        hasText:
+          type: boolean
+        hasVoice:
+          type: boolean
+
+    PresetRoomInput:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum: [text, voice, text_voice]
 
     RoomInput:
       type: object

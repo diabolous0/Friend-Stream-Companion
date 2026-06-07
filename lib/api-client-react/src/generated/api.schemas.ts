@@ -196,7 +196,32 @@ export interface Room {
   ephemeral?: boolean | null;
   expiresAt?: string | null;
   hasPassword?: boolean | null;
+  preset?: boolean | null;
   pending?: boolean | null;
+}
+
+export interface PresetRoom {
+  id: number;
+  name: string;
+  memberCount: number;
+  joined: boolean;
+  hasText: boolean;
+  hasVoice: boolean;
+}
+
+export type PresetRoomInputKind = typeof PresetRoomInputKind[keyof typeof PresetRoomInputKind];
+
+
+export const PresetRoomInputKind = {
+  text: 'text',
+  voice: 'voice',
+  text_voice: 'text_voice',
+} as const;
+
+export interface PresetRoomInput {
+  /** @minLength 1 */
+  name: string;
+  kind: PresetRoomInputKind;
 }
 
 export interface RoomInput {

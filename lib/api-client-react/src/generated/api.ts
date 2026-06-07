@@ -49,6 +49,8 @@ import type {
   Message,
   MessageInput,
   PresenceEntry,
+  PresetRoom,
+  PresetRoomInput,
   PublicUser,
   Reaction,
   ReactionInput,
@@ -1475,6 +1477,294 @@ export const useJoinRoomByCode = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getJoinRoomByCodeMutationOptions(options));
+    }
+
+export const getListPresetRoomsUrl = () => {
+
+
+
+
+  return `/api/preset-rooms`
+}
+
+/**
+ * @summary List server preset rooms anyone can join
+ */
+export const listPresetRooms = async ( options?: RequestInit): Promise<PresetRoom[]> => {
+
+  return customFetch<PresetRoom[]>(getListPresetRoomsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPresetRoomsQueryKey = () => {
+    return [
+    `/api/preset-rooms`
+    ] as const;
+    }
+
+
+export const getListPresetRoomsQueryOptions = <TData = Awaited<ReturnType<typeof listPresetRooms>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPresetRooms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPresetRoomsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPresetRooms>>> = ({ signal }) => listPresetRooms({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPresetRooms>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPresetRoomsQueryResult = NonNullable<Awaited<ReturnType<typeof listPresetRooms>>>
+export type ListPresetRoomsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List server preset rooms anyone can join
+ */
+
+export function useListPresetRooms<TData = Awaited<ReturnType<typeof listPresetRooms>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPresetRooms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPresetRoomsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getJoinPresetRoomUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/preset-rooms/${roomId}/join`
+}
+
+/**
+ * @summary Join a preset room (no invite code required)
+ */
+export const joinPresetRoom = async (roomId: number, options?: RequestInit): Promise<Room> => {
+
+  return customFetch<Room>(getJoinPresetRoomUrl(roomId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getJoinPresetRoomMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof joinPresetRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof joinPresetRoom>>, TError,{roomId: number}, TContext> => {
+
+const mutationKey = ['joinPresetRoom'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof joinPresetRoom>>, {roomId: number}> = (props) => {
+          const {roomId} = props ?? {};
+
+          return  joinPresetRoom(roomId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type JoinPresetRoomMutationResult = NonNullable<Awaited<ReturnType<typeof joinPresetRoom>>>
+
+    export type JoinPresetRoomMutationError = ErrorType<void>
+
+    /**
+ * @summary Join a preset room (no invite code required)
+ */
+export const useJoinPresetRoom = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof joinPresetRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof joinPresetRoom>>,
+        TError,
+        {roomId: number},
+        TContext
+      > => {
+      return useMutation(getJoinPresetRoomMutationOptions(options));
+    }
+
+export const getCreatePresetRoomUrl = () => {
+
+
+
+
+  return `/api/admin/preset-rooms`
+}
+
+/**
+ * @summary Create a preset room (admin only)
+ */
+export const createPresetRoom = async (presetRoomInput: PresetRoomInput, options?: RequestInit): Promise<Room> => {
+
+  return customFetch<Room>(getCreatePresetRoomUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      presetRoomInput,)
+  }
+);}
+
+
+
+
+export const getCreatePresetRoomMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPresetRoom>>, TError,{data: BodyType<PresetRoomInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPresetRoom>>, TError,{data: BodyType<PresetRoomInput>}, TContext> => {
+
+const mutationKey = ['createPresetRoom'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPresetRoom>>, {data: BodyType<PresetRoomInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPresetRoom(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePresetRoomMutationResult = NonNullable<Awaited<ReturnType<typeof createPresetRoom>>>
+    export type CreatePresetRoomMutationBody = BodyType<PresetRoomInput>
+    export type CreatePresetRoomMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a preset room (admin only)
+ */
+export const useCreatePresetRoom = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPresetRoom>>, TError,{data: BodyType<PresetRoomInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPresetRoom>>,
+        TError,
+        {data: BodyType<PresetRoomInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePresetRoomMutationOptions(options));
+    }
+
+export const getDeletePresetRoomUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/admin/preset-rooms/${roomId}`
+}
+
+/**
+ * @summary Delete a preset room (admin only)
+ */
+export const deletePresetRoom = async (roomId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeletePresetRoomUrl(roomId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeletePresetRoomMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePresetRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePresetRoom>>, TError,{roomId: number}, TContext> => {
+
+const mutationKey = ['deletePresetRoom'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePresetRoom>>, {roomId: number}> = (props) => {
+          const {roomId} = props ?? {};
+
+          return  deletePresetRoom(roomId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePresetRoomMutationResult = NonNullable<Awaited<ReturnType<typeof deletePresetRoom>>>
+
+    export type DeletePresetRoomMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a preset room (admin only)
+ */
+export const useDeletePresetRoom = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePresetRoom>>, TError,{roomId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePresetRoom>>,
+        TError,
+        {roomId: number},
+        TContext
+      > => {
+      return useMutation(getDeletePresetRoomMutationOptions(options));
     }
 
 export const getGetRoomMembersUrl = (roomId: number,) => {
