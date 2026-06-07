@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { apiUrl, isSameServerUrl } from "@/lib/server-connection";
+import { apiUrl, isSameServerUrl, getActiveToken } from "@/lib/server-connection";
 
 export interface UploadResult {
   objectPath: string;
@@ -14,7 +14,7 @@ export function useUpload(opts: { onSuccess?: (r: UploadResult) => void; onError
   const uploadFile = useCallback(async (file: File): Promise<UploadResult | null> => {
     setIsUploading(true); setProgress(0);
     try {
-      const token = localStorage.getItem("screencrew_token");
+      const token = getActiveToken();
       const res = await fetch(apiUrl("/api/storage/uploads/request-url"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },

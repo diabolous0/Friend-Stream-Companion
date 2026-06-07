@@ -10,10 +10,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon, UserPlus, UserCheck, UserX, Ban, Shield } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon, UserPlus, UserCheck, UserX, Ban, Shield, Star } from "lucide-react";
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
+import { clearActiveToken } from "@/lib/server-connection";
+import { useFavoriteRoomIds, toggleFavoriteRoom } from "@/lib/favorites";
 
 function getLastVisited(roomId: number): Date | null {
   const ts = localStorage.getItem(`screencrew_visited_${roomId}`);
@@ -87,6 +89,7 @@ export default function Rooms() {
   const [newRoomEphemeral, setNewRoomEphemeral] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const favIds = useFavoriteRoomIds();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [joinPassword, setJoinPassword] = useState("");
@@ -165,9 +168,15 @@ export default function Rooms() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("screencrew_token");
+    clearActiveToken();
     queryClient.clear();
     setLocation("/");
+  };
+
+  const toggleFav = (e: React.MouseEvent, roomId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFavoriteRoom(roomId);
   };
 
   if (!me) return null;
@@ -477,6 +486,11 @@ export default function Rooms() {
                           </div>
                         )}
                       </div>
+                      <button onClick={(e) => toggleFav(e, room.id)}
+                        className={`flex items-center justify-center w-8 h-8 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")} ${favIds.includes(room.id) ? "text-amber-400 hover:bg-amber-400/10" : "text-muted-foreground/40 hover:text-amber-400 hover:bg-muted/40"}`}
+                        title={favIds.includes(room.id) ? "Unfavorite" : "Add to favorites"}>
+                        <Star className="w-3.5 h-3.5" fill={favIds.includes(room.id) ? "currentColor" : "none"} />
+                      </button>
                       {voiceMembers.length > 0 && (
                         <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); const ch = voiceMembers.find(vm => vm.channelId != null)?.channelId; setLocation(`/room/${room.id}${ch != null ? `?voice=${ch}` : "?voice=1"}`); }}
                           className={`flex items-center gap-1 text-xs text-violet-300 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 px-2.5 py-1.5 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}

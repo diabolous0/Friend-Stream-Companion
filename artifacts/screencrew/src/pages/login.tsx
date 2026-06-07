@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { MonitorUp } from "lucide-react";
 import { useTheme, ThemeToggle } from "@/lib/theme";
-import { getServerLabel } from "@/lib/server-connection";
+import { getServerLabel, getActiveToken, setActiveToken } from "@/lib/server-connection";
 
-setAuthTokenGetter(() => localStorage.getItem("screencrew_token"));
+setAuthTokenGetter(() => getActiveToken());
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -34,7 +34,7 @@ export default function Login() {
   })();
 
   const handleSuccess = (token: string) => {
-    localStorage.setItem("screencrew_token", token);
+    setActiveToken(token);
     setLocation(`/rooms${joinSuffix}`);
   };
 

@@ -10,6 +10,7 @@ import Room from "@/pages/room";
 import ConnectServer from "@/pages/connect-server";
 import Admin from "@/pages/admin";
 import NotFound from "@/pages/not-found";
+import { AppShell } from "@/components/app-shell";
 
 const queryClient = new QueryClient();
 
@@ -19,8 +20,16 @@ function Router() {
       <Route path="/" component={Login} />
       <Route path="/connect" component={ConnectServer} />
       <Route path="/admin" component={Admin} />
-      <Route path="/rooms" component={Rooms} />
-      <Route path="/room/:roomId" component={Room} />
+      <Route path="/rooms">
+        <AppShell showNav>
+          <Rooms />
+        </AppShell>
+      </Route>
+      <Route path="/room/:roomId">
+        <AppShell>
+          <Room />
+        </AppShell>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

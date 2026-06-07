@@ -244,6 +244,10 @@ export default function Room() {
   const initialVoiceChannel = useRef<number | null>(
     (() => { const v = new URLSearchParams(window.location.search).get("voice"); const n = v ? Number(v) : NaN; return Number.isInteger(n) ? n : null; })()
   );
+  // Deep-link: ?channel=<id> from the nav column picks the initial text channel.
+  const initialChannel = useRef<number | null>(
+    (() => { const v = new URLSearchParams(window.location.search).get("channel"); const n = v ? Number(v) : NaN; return Number.isInteger(n) ? n : null; })()
+  );
   const pendingVoiceJoinRef = useRef<number | null>(null);
   const handleJoinVoiceRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -488,6 +492,12 @@ export default function Room() {
         ?? channels.find((c: any) => c.type === "voice");
       initialVoiceChannel.current = null;
       if (target) { setActiveChannelId(target.id); pendingVoiceJoinRef.current = target.id; return; }
+    }
+    // Deep-link: honor ?channel=<id> on first resolve if that channel exists.
+    if (initialChannel.current != null) {
+      const target = channels.find((c: any) => c.id === initialChannel.current);
+      initialChannel.current = null;
+      if (target) { setActiveChannelId(target.id); return; }
     }
     const stillExists = activeChannelId != null && channels.some((c: any) => c.id === activeChannelId);
     if (stillExists) return;

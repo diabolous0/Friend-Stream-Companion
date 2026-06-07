@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +16,7 @@ export default function ConnectServer() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { theme } = useTheme();
+  const queryClient = useQueryClient();
   const classic = theme === "classic";
 
   const [address, setAddress] = useState(getStoredServerUrl() ?? "");
@@ -23,6 +25,9 @@ export default function ConnectServer() {
     e.preventDefault();
     try {
       const normalized = setStoredServerUrl(address);
+      // Switching backends: drop any cached data from the previous server so it
+      // can't bleed into the new backend's context.
+      queryClient.clear();
       toast({ title: classic ? "LINK ESTABLISHED" : "Connected", description: normalized });
       setLocation("/");
     } catch {
@@ -36,6 +41,7 @@ export default function ConnectServer() {
 
   const useQuickSession = () => {
     clearStoredServerUrl();
+    queryClient.clear();
     toast({ title: classic ? "QUICK SESSION" : "Quick Session" });
     setLocation("/");
   };

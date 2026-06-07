@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { getWebSocketUrl } from "@/lib/server-connection";
+import { getWebSocketUrl, getActiveToken } from "@/lib/server-connection";
 
 type WebSocketMessage =
   | { type: "presence_update"; roomId: number; entries: any[] }
@@ -86,7 +86,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onopen = () => {
       attemptsRef.current = 0;
       setIsConnected(true);
-      const token = localStorage.getItem("screencrew_token");
+      const token = getActiveToken();
       if (token) ws.send(JSON.stringify({ type: "auth", token }));
     };
 

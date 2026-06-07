@@ -1,24 +1,58 @@
 import { setBaseUrl } from "@workspace/api-client-react";
 
-// Phase 2a — client connection layer.
+// Client connection layer — multi-backend.
 //
-// ScreenCrew can talk to two kinds of backend:
+// ScreenCrew can talk to several backends and remembers them as a list:
 //   1. Quick Session  — the bundled server served from the same origin as the
-//      web app (the default; no server URL stored).
-//   2. Self-Hosted    — a permanent community server reachable by IP / domain /
-//      invite link, stored here and applied to every API + WebSocket call.
+//      web app (the built-in default; url === null).
+//   2. Self-Hosted    — permanent community servers reachable by IP / domain /
+//      invite link, saved here and switchable from the server rail.
 //
-// When no server URL is stored we fall back to same-origin behaviour, so the
-// default Replit deployment is completely unchanged.
+// Each backend keeps its OWN auth token (accounts don't carry across servers),
+// its own set of favorite rooms, etc. The "active" backend is what every API +
+// WebSocket call targets. When the active backend is Quick Session we fall back
+// to same-origin behaviour, so the default Replit deployment is unchanged.
 
-const STORAGE_KEY = "screencrew_server_url";
+export interface SavedServer {
+  id: string;
+  label: string;
+  url: string | null; // null === Quick Session (same origin)
+}
 
-export function getStoredServerUrl(): string | null {
+const SERVERS_KEY = "screencrew_servers";
+const ACTIVE_KEY = "screencrew_active_server";
+const LEGACY_URL_KEY = "screencrew_server_url";
+const LEGACY_TOKEN_KEY = "screencrew_token";
+
+export const QUICK_SESSION_ID = "quick";
+
+const QUICK_SESSION: SavedServer = {
+  id: QUICK_SESSION_ID,
+  label: "Quick Session",
+  url: null,
+};
+
+function safeGet(key: string): string | null {
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    return v && v.length > 0 ? v : null;
+    return localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+function safeRemove(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -34,27 +68,148 @@ export function normalizeServerUrl(input: string): string {
   return base;
 }
 
-export function setStoredServerUrl(input: string): string {
-  const normalized = normalizeServerUrl(input);
-  localStorage.setItem(STORAGE_KEY, normalized);
-  applyServerConnection();
-  return normalized;
+function labelForUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
-export function clearStoredServerUrl(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* ignore */
+// ─── One-time migration from the single-server scheme ────────────────────────
+function migrateIfNeeded(): void {
+  if (safeGet(SERVERS_KEY) != null) return; // already migrated
+  const legacyUrl = safeGet(LEGACY_URL_KEY);
+  if (legacyUrl) {
+    let normalized: string;
+    try {
+      normalized = normalizeServerUrl(legacyUrl);
+    } catch {
+      normalized = legacyUrl;
+    }
+    const server: SavedServer = { id: normalized, label: labelForUrl(normalized), url: normalized };
+    safeSet(SERVERS_KEY, JSON.stringify([server]));
+    safeSet(ACTIVE_KEY, server.id);
+    // The existing token (if any) belonged to whatever was active — the
+    // self-hosted server — so move it to that server's per-backend key.
+    const legacyToken = safeGet(LEGACY_TOKEN_KEY);
+    if (legacyToken) {
+      safeSet(tokenKey(server.id), legacyToken);
+      safeRemove(LEGACY_TOKEN_KEY);
+    }
+    safeRemove(LEGACY_URL_KEY);
+  } else {
+    safeSet(SERVERS_KEY, JSON.stringify([]));
+    safeSet(ACTIVE_KEY, QUICK_SESSION_ID);
   }
+}
+
+// ─── Saved servers ───────────────────────────────────────────────────────────
+function readStoredServers(): SavedServer[] {
+  const raw = safeGet(SERVERS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (s): s is SavedServer =>
+        s && typeof s.id === "string" && typeof s.label === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+// Always returns Quick Session first, then saved self-hosted servers.
+export function getSavedServers(): SavedServer[] {
+  migrateIfNeeded();
+  return [QUICK_SESSION, ...readStoredServers()];
+}
+
+export function addSavedServer(input: string): SavedServer {
+  migrateIfNeeded();
+  const url = normalizeServerUrl(input);
+  const id = url;
+  const existing = readStoredServers();
+  const found = existing.find((s) => s.id === id);
+  if (found) return found;
+  const server: SavedServer = { id, label: labelForUrl(url), url };
+  safeSet(SERVERS_KEY, JSON.stringify([...existing, server]));
+  return server;
+}
+
+export function removeSavedServer(id: string): void {
+  if (id === QUICK_SESSION_ID) return;
+  const existing = readStoredServers().filter((s) => s.id !== id);
+  safeSet(SERVERS_KEY, JSON.stringify(existing));
+  safeRemove(tokenKey(id));
+  if (getActiveServerId() === id) setActiveServerId(QUICK_SESSION_ID);
+}
+
+// ─── Active server ───────────────────────────────────────────────────────────
+export function getActiveServerId(): string {
+  migrateIfNeeded();
+  return safeGet(ACTIVE_KEY) ?? QUICK_SESSION_ID;
+}
+
+export function getActiveServer(): SavedServer {
+  const id = getActiveServerId();
+  return getSavedServers().find((s) => s.id === id) ?? QUICK_SESSION;
+}
+
+// Emitted whenever the active backend changes, so per-backend client stores
+// (e.g. favorites) can re-read deterministically instead of relying on
+// incidental re-renders.
+export const SERVER_CHANGED_EVENT = "screencrew:server-changed";
+
+export function setActiveServerId(id: string): void {
+  safeSet(ACTIVE_KEY, id);
   applyServerConnection();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(SERVER_CHANGED_EVENT));
+  }
+}
+
+// ─── Per-backend auth tokens ─────────────────────────────────────────────────
+function tokenKey(serverId: string): string {
+  return serverId === QUICK_SESSION_ID
+    ? LEGACY_TOKEN_KEY
+    : `screencrew_token__${serverId}`;
+}
+
+export function getActiveToken(): string | null {
+  return safeGet(tokenKey(getActiveServerId()));
+}
+
+export function setActiveToken(token: string): void {
+  safeSet(tokenKey(getActiveServerId()), token);
+}
+
+export function clearActiveToken(): void {
+  safeRemove(tokenKey(getActiveServerId()));
+}
+
+// ─── Back-compat URL helpers (now driven by the active server) ───────────────
+export function getStoredServerUrl(): string | null {
+  return getActiveServer().url;
+}
+
+// Kept for the connect-server page: save + activate a self-hosted server.
+export function setStoredServerUrl(input: string): string {
+  const server = addSavedServer(input);
+  setActiveServerId(server.id);
+  return server.url ?? "";
+}
+
+// Kept for the connect-server page: switch back to Quick Session.
+export function clearStoredServerUrl(): void {
+  setActiveServerId(QUICK_SESSION_ID);
 }
 
 // Push the current connection into the generated API client. Call once at
 // startup (before the first request) and again whenever it changes.
 export function applyServerConnection(): void {
-  const stored = getStoredServerUrl();
-  setBaseUrl(stored ?? null);
+  setBaseUrl(getActiveServer().url ?? null);
 }
 
 // WebSocket endpoint for the active server. Self-hosted derives ws(s):// from
@@ -90,11 +245,5 @@ export function isSameServerUrl(pathOrUrl: string): boolean {
 
 // Human-friendly label for the active connection (for UI display).
 export function getServerLabel(): string {
-  const stored = getStoredServerUrl();
-  if (!stored) return "Quick Session";
-  try {
-    return new URL(stored).host;
-  } catch {
-    return stored;
-  }
+  return getActiveServer().label;
 }
