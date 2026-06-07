@@ -893,6 +893,10 @@ components:
           type: integer
         createdBy:
           type: integer
+        voiceMembers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoiceMember"
         lastMessageAt:
           type: string
           format: date-time
@@ -980,6 +984,27 @@ components:
           type: string
         password:
           type: string
+
+    VoiceMember:
+      type: object
+      required: [userId, username]
+      properties:
+        userId:
+          type: integer
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        avatarStyle:
+          type: string
+          nullable: true
+        channelId:
+          type: integer
+          nullable: true
 
     PresenceEntry:
       type: object

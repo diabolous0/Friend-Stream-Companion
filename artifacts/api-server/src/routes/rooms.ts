@@ -4,7 +4,7 @@ import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt } from "
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser } from "../lib/signaling";
+import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms } from "../lib/signaling";
 
 const router: IRouter = Router();
 
@@ -149,11 +149,15 @@ router.get("/rooms", requireAuth, async (req, res): Promise<void> => {
 
   const memberCountMap = new Map(memberCounts.map((r) => [r.roomId, Number(r.value)]));
   const lastMessageMap = new Map(lastMessages.map((r) => [r.roomId, r.lastMessageAt ?? null]));
+  const voiceMap = getVoicePresenceForRooms(roomIds);
 
-  res.json(rooms.map((room) => publicRoom({
-    ...room,
-    memberCount: memberCountMap.get(room.id) ?? 0,
-    lastMessageAt: lastMessageMap.get(room.id) ?? null,
+  res.json(rooms.map((room) => ({
+    ...publicRoom({
+      ...room,
+      memberCount: memberCountMap.get(room.id) ?? 0,
+      lastMessageAt: lastMessageMap.get(room.id) ?? null,
+    }),
+    voiceMembers: voiceMap.get(room.id) ?? [],
   })));
 });
 

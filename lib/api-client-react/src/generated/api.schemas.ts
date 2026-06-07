@@ -97,6 +97,15 @@ export interface UpdateProfileInput {
   avatarStyle?: UpdateProfileInputAvatarStyle;
 }
 
+export interface VoiceMember {
+  userId: number;
+  username: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  avatarStyle?: string | null;
+  channelId?: number | null;
+}
+
 export interface Room {
   id: number;
   name: string;
@@ -104,6 +113,7 @@ export interface Room {
   createdAt: string;
   memberCount: number;
   createdBy?: number;
+  voiceMembers?: VoiceMember[];
   lastMessageAt?: string | null;
   themeColor?: string | null;
   themeSkin?: string | null;

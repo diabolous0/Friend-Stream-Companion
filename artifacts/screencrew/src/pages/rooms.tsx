@@ -4,7 +4,8 @@ import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQ
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2 } from "lucide-react";
+import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
 
@@ -262,6 +263,7 @@ export default function Rooms() {
               {rooms?.map(room => {
                 const lastVisited = getLastVisited(room.id);
                 const hasUnread = room.lastMessageAt ? !lastVisited || new Date(room.lastMessageAt) > lastVisited : false;
+                const voiceMembers = room.voiceMembers ?? [];
                 return (
                   <Link key={room.id} href={`/room/${room.id}`}>
                     <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-muted/20 transition-colors border-b border-border/20 last:border-0 cursor-pointer group">
@@ -274,11 +276,35 @@ export default function Rooms() {
                           <p className={`text-sm font-medium truncate ${classic ? "font-mono group-hover:text-primary transition-colors" : ""}`}>{room.name}</p>
                           {hasUnread && <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />}
                         </div>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <Users className="w-3 h-3 text-muted-foreground/50" />
-                          <span className={`text-xs text-muted-foreground/60 ${classic ? "font-mono" : ""}`}>{room.memberCount} members</span>
-                        </div>
+                        {voiceMembers.length > 0 ? (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Volume2 className="w-3 h-3 text-violet-400 shrink-0" />
+                            <div className="flex -space-x-1.5 shrink-0">
+                              {voiceMembers.slice(0, 4).map(vm => (
+                                <span key={vm.userId} className="ring-2 ring-card rounded-full" title={vm.displayName || vm.username}>
+                                  <PixelAvatar userId={vm.userId} size={16} square={classic} />
+                                </span>
+                              ))}
+                            </div>
+                            <span className={`text-xs text-violet-400/80 ${classic ? "font-mono" : ""}`}>
+                              {voiceMembers.length} in voice
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Users className="w-3 h-3 text-muted-foreground/50" />
+                            <span className={`text-xs text-muted-foreground/60 ${classic ? "font-mono" : ""}`}>{room.memberCount} members</span>
+                          </div>
+                        )}
                       </div>
+                      {voiceMembers.length > 0 && (
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); const ch = voiceMembers.find(vm => vm.channelId != null)?.channelId; setLocation(`/room/${room.id}${ch != null ? `?voice=${ch}` : "?voice=1"}`); }}
+                          className={`flex items-center gap-1 text-xs text-violet-300 bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 px-2.5 py-1.5 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}
+                          title="Drop into voice">
+                          <Volume2 className="w-3.5 h-3.5" />
+                          <span className={classic ? "font-mono" : ""}>Drop in</span>
+                        </button>
+                      )}
                       <button onClick={(e) => copyInviteCode(e, room.inviteCode)}
                         className={`flex items-center gap-1 text-xs text-muted-foreground/40 hover:text-muted-foreground px-2 py-1 hover:bg-muted/40 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}
                         title="Copy invite code">

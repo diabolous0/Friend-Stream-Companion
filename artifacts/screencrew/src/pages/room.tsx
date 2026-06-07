@@ -222,6 +222,12 @@ export default function Room() {
   const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
   const activeChannelIdRef = useRef<number | null>(null);
   useEffect(() => { activeChannelIdRef.current = activeChannelId; }, [activeChannelId]);
+  // Drop-in voice: a `?voice=<channelId>` URL param means "land in this voice channel".
+  const initialVoiceChannel = useRef<number | null>(
+    (() => { const v = new URLSearchParams(window.location.search).get("voice"); const n = v ? Number(v) : NaN; return Number.isInteger(n) ? n : null; })()
+  );
+  const pendingVoiceJoinRef = useRef<number | null>(null);
+  const handleJoinVoiceRef = useRef<(() => Promise<void>) | null>(null);
 
   const { data: initialMessages } = useGetRoomMessages(
     roomId,
@@ -353,6 +359,13 @@ export default function Room() {
   // keep the selection valid if the active channel disappears.
   useEffect(() => {
     if (!channels || channels.length === 0) return;
+    // Drop-in voice: if we arrived with ?voice=<id> and that voice channel exists, land in it.
+    if (initialVoiceChannel.current != null) {
+      const target = channels.find((c: any) => c.id === initialVoiceChannel.current && c.type === "voice")
+        ?? channels.find((c: any) => c.type === "voice");
+      initialVoiceChannel.current = null;
+      if (target) { setActiveChannelId(target.id); pendingVoiceJoinRef.current = target.id; return; }
+    }
     const stillExists = activeChannelId != null && channels.some((c: any) => c.id === activeChannelId);
     if (stillExists) return;
     const firstText = channels.find((c: any) => c.type === "text") ?? channels[0];
@@ -591,6 +604,14 @@ export default function Room() {
     send({ type: "join_channel", channelId: activeChannelId });
   }, [isConnected, roomId, activeChannelId, send]);
 
+  // Drop-in voice: once we've switched to (and joined) the target voice channel, turn on voice.
+  useEffect(() => {
+    if (pendingVoiceJoinRef.current == null || !isConnected || isInVoice) return;
+    if (activeChannelId !== pendingVoiceJoinRef.current) return;
+    pendingVoiceJoinRef.current = null;
+    void handleJoinVoiceRef.current?.();
+  }, [isConnected, isInVoice, activeChannelId]);
+
   const setMyStatus = useCallback((status: UserStatus, message: string) => {
     setSetting("myStatus", status);
     setSetting("myStatusMessage", message);
@@ -809,6 +830,16 @@ export default function Room() {
     send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: false });
   }, [leaveVoice, send]);
 
+  useEffect(() => { handleJoinVoiceRef.current = handleJoinVoice; }, [handleJoinVoice]);
+
+  // Drop into a voice channel: switch to it and turn voice on in one click.
+  const handleDropInVoice = useCallback((id: number) => {
+    if (id === activeChannelId && isInVoice) return;
+    if (isInVoice) handleLeaveVoice();
+    setActiveChannelId(id);
+    pendingVoiceJoinRef.current = id;
+  }, [activeChannelId, isInVoice, handleLeaveVoice]);
+
   // ─── Channels ──────────────────────────────────────────────────────────────
   const invalidateChannels = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getGetChannelsQueryKey(roomId) });
@@ -816,8 +847,10 @@ export default function Room() {
 
   const handleSwitchChannel = useCallback((id: number) => {
     if (id === activeChannelId) return;
+    const target = channels?.find((c: any) => c.id === id);
+    if (isInVoice && target?.type !== "voice") handleLeaveVoice();
     setActiveChannelId(id);
-  }, [activeChannelId]);
+  }, [activeChannelId, channels, isInVoice, handleLeaveVoice]);
 
   const handleCreateChannel = useCallback(() => {
     const name = newChannelName.trim();
@@ -1363,9 +1396,11 @@ export default function Room() {
             {(channels ?? []).slice().sort((a: any, b: any) => (a.position - b.position) || (a.id - b.id)).map((ch: any) => {
               const Icon = ch.type === "voice" ? Volume2 : ch.type === "announcement" ? Megaphone : ch.type === "media" ? ImageIcon : Hash;
               const active = ch.id === activeChannelId;
-              const voiceCount = ch.type === "voice"
-                ? Object.values(presence).filter((p: any) => p?.online && p?.inVoice && p?.channelId === ch.id).length
-                : 0;
+              const voiceOccupants = ch.type === "voice"
+                ? Object.values(presence).filter((p: any) => p?.online && p?.inVoice && p?.channelId === ch.id)
+                : [];
+              const meInThisVoice = ch.type === "voice" && isInVoice && activeChannelId === ch.id;
+              const voiceCount = voiceOccupants.length;
               if (editingChannelId === ch.id) {
                 return (
                   <div key={ch.id} className="flex items-center gap-1 px-1">
@@ -1378,31 +1413,55 @@ export default function Room() {
                 );
               }
               return (
-                <div key={ch.id}
-                  className={`group flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors ${active ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/20 hover:text-foreground"}`}
-                  onClick={() => handleSwitchChannel(ch.id)}>
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="text-sm truncate flex-1">{ch.name}</span>
-                  {ch.isPrivate && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
-                  {voiceCount > 0 && <span className="text-[10px] text-violet-400/70 shrink-0">{voiceCount}</span>}
-                  {isStaff && (
-                    <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <button onClick={(e) => { e.stopPropagation(); handleToggleChannelPrivate(ch); }}
-                        title={ch.isPrivate ? "Make public" : "Make private"}
-                        className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
-                        {ch.isPrivate ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingChannelId(ch.id); setEditChannelName(ch.name); }}
-                        title="Rename" className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      {(channels?.length ?? 0) > 1 && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id); }}
-                          title="Delete channel" className="p-0.5 rounded text-muted-foreground/50 hover:text-red-400">
-                          <Trash2 className="w-3 h-3" />
+                <div key={ch.id}>
+                  <div
+                    className={`group flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors ${active ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/20 hover:text-foreground"}`}
+                    onClick={() => ch.type === "voice" ? handleDropInVoice(ch.id) : handleSwitchChannel(ch.id)}>
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="text-sm truncate flex-1">{ch.name}</span>
+                    {ch.isPrivate && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
+                    {voiceCount > 0 && <span className="text-[10px] text-violet-400/70 shrink-0">{voiceCount}</span>}
+                    {isStaff && (
+                      <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); handleToggleChannelPrivate(ch); }}
+                          title={ch.isPrivate ? "Make public" : "Make private"}
+                          className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
+                          {ch.isPrivate ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                         </button>
-                      )}
-                    </span>
+                        <button onClick={(e) => { e.stopPropagation(); setEditingChannelId(ch.id); setEditChannelName(ch.name); }}
+                          title="Rename" className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        {(channels?.length ?? 0) > 1 && (
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id); }}
+                            title="Delete channel" className="p-0.5 rounded text-muted-foreground/50 hover:text-red-400">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  {ch.type === "voice" && voiceOccupants.length > 0 && (
+                    <div className="ml-6 mt-0.5 mb-0.5 flex flex-col gap-0.5">
+                      {voiceOccupants.map((p: any) => (
+                        <div key={p.userId} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+                          <span className="relative shrink-0">
+                            <PixelAvatar userId={p.userId} size={14} square={classic} />
+                            {p.speaking && <span className="absolute inset-0 rounded-full border border-green-400/60 animate-ping" />}
+                          </span>
+                          <span className={`truncate ${p.speaking ? "text-green-400" : ""}`}>
+                            {p.displayName || p.username}{p.userId === me?.id ? " (you)" : ""}
+                          </span>
+                          {p.streaming && <MonitorUp className="w-2.5 h-2.5 text-primary/70 shrink-0" />}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {meInThisVoice && (
+                    <button onClick={(e) => { e.stopPropagation(); handleLeaveVoice(); }}
+                      className="ml-6 mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-red-400 transition-colors">
+                      <PhoneOff className="w-2.5 h-2.5" /> Leave voice
+                    </button>
                   )}
                 </div>
               );

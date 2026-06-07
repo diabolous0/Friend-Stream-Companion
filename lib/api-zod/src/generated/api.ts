@@ -123,6 +123,14 @@ export const ListRoomsResponseItem = zod.object({
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
   "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
   "lastMessageAt": zod.coerce.date().nullish(),
   "themeColor": zod.string().nullish(),
   "themeSkin": zod.string().nullish(),
@@ -162,6 +170,14 @@ export const GetRoomResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
   "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
   "lastMessageAt": zod.coerce.date().nullish(),
   "themeColor": zod.string().nullish(),
   "themeSkin": zod.string().nullish(),
@@ -203,6 +219,14 @@ export const UpdateRoomResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
   "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
   "lastMessageAt": zod.coerce.date().nullish(),
   "themeColor": zod.string().nullish(),
   "themeSkin": zod.string().nullish(),
@@ -242,6 +266,14 @@ export const JoinRoomResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
   "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
   "lastMessageAt": zod.coerce.date().nullish(),
   "themeColor": zod.string().nullish(),
   "themeSkin": zod.string().nullish(),
@@ -269,6 +301,14 @@ export const JoinRoomByCodeResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "memberCount": zod.number(),
   "createdBy": zod.number().optional(),
+  "voiceMembers": zod.array(zod.object({
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "channelId": zod.number().nullish()
+})).optional(),
   "lastMessageAt": zod.coerce.date().nullish(),
   "themeColor": zod.string().nullish(),
   "themeSkin": zod.string().nullish(),

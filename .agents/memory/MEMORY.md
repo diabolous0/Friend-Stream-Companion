@@ -1,3 +1,4 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Drop-in voice channels](drop-in-voice.md) — voice presence is in-memory (WS clients map); dedupe by user; WS join_channel clears server inVoice so switching voice channels needs leave-then-rejoin.
 - [Channel scoping & access control](channels-scoping.md) — new rooms must seed owner+default channel; HTTP & WS message paths must stay in lockstep on channel scoping & private-channel isolation.
 - [Room join gating](room-join-gating.md) — verify room password BEFORE the private-knock branch (else bypass); re-assert WS `watching` state after join/reconnect or viewer counts go stale.

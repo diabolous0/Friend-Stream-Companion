@@ -497,6 +497,35 @@ export function getPresenceSnapshot(roomId: number) {
   }));
 }
 
+export function getVoicePresenceForRooms(roomIds: number[]) {
+  const wanted = new Set(roomIds);
+  const map = new Map<number, Array<{
+    userId: number;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+    avatarStyle: string | null;
+    channelId: number | null;
+  }>>();
+  const seen = new Set<string>();
+  for (const c of clients.values()) {
+    if (c.roomId == null || !c.inVoice || !wanted.has(c.roomId)) continue;
+    const dedupeKey = `${c.roomId}:${c.userId}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    if (!map.has(c.roomId)) map.set(c.roomId, []);
+    map.get(c.roomId)!.push({
+      userId: c.userId,
+      username: c.username,
+      displayName: c.displayName,
+      avatarUrl: c.avatarUrl,
+      avatarStyle: c.avatarStyle,
+      channelId: c.channelId,
+    });
+  }
+  return map;
+}
+
 export function notifyUser(userId: number, message: object): void {
   const payload = JSON.stringify(message);
   for (const client of clients.values()) {
