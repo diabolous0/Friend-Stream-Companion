@@ -195,6 +195,9 @@ export interface AppSettings {
   // Voice & presence
   voiceMode: "open" | "ptt";          // open mic vs push-to-talk
   pttKey: string;                     // KeyboardEvent.code for push-to-talk, e.g. "Backquote"
+  micSensitivity: number;             // 0–100 voice-activation sensitivity (higher = picks up quieter audio)
+  muteHotkey: string;                 // toggle self-mute, e.g. "Shift+KeyM"
+  deafenHotkey: string;               // toggle deafen, e.g. "Shift+KeyD"
   userVolumes: Record<string, number>; // userId -> 0–200 (%)
   userMuted: Record<string, boolean>;  // userId -> locally muted
   autoAfk: boolean;                   // auto-set away after inactivity
@@ -249,6 +252,9 @@ const DEFAULT: AppSettings = {
   overlayPillPos: { x: 16, y: 16 },
   voiceMode: "open",
   pttKey: "Backquote",
+  micSensitivity: 75,
+  muteHotkey: "Shift+KeyM",
+  deafenHotkey: "Shift+KeyD",
   userVolumes: {},
   userMuted: {},
   autoAfk: true,

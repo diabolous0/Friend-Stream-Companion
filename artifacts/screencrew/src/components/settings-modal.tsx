@@ -1031,6 +1031,25 @@ export function SettingsModal({
                   <HotkeyCapture value={settings.pttKey} onChange={v => set("pttKey", v)} />
                 </>
               )}
+              {settings.voiceMode === "open" && (
+                <Row label="Input sensitivity" description="Higher picks up quieter audio">
+                  <div className="flex items-center gap-3">
+                    <input type="range" min={0} max={100} step={1}
+                      value={settings.micSensitivity}
+                      onChange={e => set("micSensitivity", Number(e.target.value))}
+                      className="w-24 accent-primary h-1 rounded-full" />
+                    <span className="text-xs text-muted-foreground/70 w-12 text-right">{settings.micSensitivity}%</span>
+                  </div>
+                </Row>
+              )}
+              <Row label="Mute key" description="Toggle muting your own mic">
+                <span />
+              </Row>
+              <HotkeyCapture value={settings.muteHotkey} onChange={v => set("muteHotkey", v)} />
+              <Row label="Deafen key" description="Toggle muting everyone (and yourself)">
+                <span />
+              </Row>
+              <HotkeyCapture value={settings.deafenHotkey} onChange={v => set("deafenHotkey", v)} />
             </Section>
 
             <Divider />

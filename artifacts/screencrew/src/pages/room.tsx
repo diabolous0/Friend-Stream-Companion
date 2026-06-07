@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  MonitorUp, Mic, MicOff, Phone, PhoneOff, Headphones,
+  MonitorUp, Mic, MicOff, Phone, PhoneOff, Headphones, HeadphoneOff,
   Plus, Bell, VolumeX, Volume2,
   Pin, PinOff, X, Settings, Search,
   Users, MessageSquare, Pencil, Trash2, Smile,
@@ -324,6 +324,8 @@ export default function Room() {
   const [gifReactionFor, setGifReactionFor] = useState<number | null>(null);
   const [connHealth, setConnHealth] = useState<Record<number, "good" | "ok" | "poor">>({});
   const [pttActive, setPttActive] = useState(false);
+  const [selfMuted, setSelfMuted] = useState(false);
+  const [deafened, setDeafened] = useState(false);
   const [soundboardFlash, setSoundboardFlash] = useState<{ username: string; key: number } | null>(null);
   const myActivityRef = useRef<string>("");
 
@@ -407,9 +409,13 @@ export default function Room() {
   }, [showSearch]);
 
   // ─── Voice activity ─────────────────────────────────────────────────────────
+  // Mirror mute/deafen into a ref so the speaking callback (a stable useCallback)
+  // never broadcasts "speaking" while silenced.
+  const micSilencedRef = useRef(false);
   const handleSpeakingChange = useCallback((speaking: boolean) => {
-    setLocalSpeaking(speaking);
-    sendRef.current?.({ type: "presence", speaking, streaming: isSharingRef.current, inVoice: false });
+    const next = speaking && !micSilencedRef.current;
+    setLocalSpeaking(next);
+    sendRef.current?.({ type: "presence", speaking: next, streaming: isSharingRef.current, inVoice: false });
   }, []);
 
   const audioConstraints = useMemo(
@@ -417,8 +423,11 @@ export default function Room() {
     [settings.micDeviceId, settings.echoCancellation, settings.noiseSuppression, settings.autoGainControl],
   );
 
+  // Map 0–100 sensitivity to an RMS threshold (higher sensitivity = lower threshold).
+  const vadThreshold = Math.max(2, Math.round(42 - settings.micSensitivity * 0.4));
+
   const { isActive: micActive, startDetection, stopDetection } = useVoiceActivity({
-    onSpeakingChange: handleSpeakingChange, threshold: 12, silenceDelay: 500,
+    onSpeakingChange: handleSpeakingChange, threshold: vadThreshold, silenceDelay: 500,
     audioConstraints,
   });
 
@@ -962,8 +971,20 @@ export default function Room() {
     return () => document.removeEventListener("keydown", handler);
   }, [settings.overlayHotkey, settings.settingsHotkey]);
 
-  // ─── Push-to-talk ─────────────────────────────────────────────────────────
+  // ─── Push-to-talk / self-mute ─────────────────────────────────────────────
+  // Self-mute and deafen always win: when active, the mic stays off regardless
+  // of voice mode or push-to-talk key.
+  const micSilenced = selfMuted || deafened;
   useEffect(() => {
+    micSilencedRef.current = micSilenced;
+    if (micSilenced) {
+      // Stop appearing "speaking" the instant we go silent.
+      setLocalSpeaking(false);
+      sendRef.current?.({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: false });
+    }
+  }, [micSilenced]);
+  useEffect(() => {
+    if (micSilenced) { setMicEnabled(false); setPttActive(false); return; }
     if (settings.voiceMode !== "ptt" || !micActive) { setMicEnabled(true); setPttActive(false); return; }
     setMicEnabled(false); // mic muted until key held in PTT mode
     setPttActive(false);
@@ -981,7 +1002,24 @@ export default function Room() {
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); setMicEnabled(true); };
-  }, [settings.voiceMode, settings.pttKey, micActive, setMicEnabled]);
+  }, [micSilenced, settings.voiceMode, settings.pttKey, micActive, setMicEnabled]);
+
+  // ─── Mute / deafen hotkeys ─────────────────────────────────────────────────
+  // Deafening implies muting (you can't be heard while you can't hear); undeafen
+  // restores the mic to whatever the mute toggle says.
+  const toggleSelfMute = useCallback(() => setSelfMuted(m => !m), []);
+  const toggleDeafen = useCallback(() => setDeafened(d => !d), []);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.repeat) return; // ignore key-repeat so a held key doesn't oscillate the toggle
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      if (matchesHotkey(e, settings.muteHotkey)) { e.preventDefault(); toggleSelfMute(); }
+      else if (matchesHotkey(e, settings.deafenHotkey)) { e.preventDefault(); toggleDeafen(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [settings.muteHotkey, settings.deafenHotkey, toggleSelfMute, toggleDeafen]);
 
   // ─── Idle / AFK auto-status ──────────────────────────────────────────────
   useEffect(() => {
@@ -1246,7 +1284,7 @@ export default function Room() {
         {Object.entries(remoteAudioStreams).map(([uid, stream]) => (
           <AudioPlayer key={uid} stream={stream}
             volume={settings.userVolumes[uid] ?? 100}
-            muted={!!settings.userMuted[uid]} />
+            muted={deafened || !!settings.userMuted[uid]} />
         ))}
       </div>
 
@@ -1498,6 +1536,16 @@ export default function Room() {
                 {micActive && settings.voiceMode === "ptt" && (
                   <span className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${pttActive ? "bg-green-400" : "bg-amber-400"}`} />
                 )}
+              </button>
+              <button onClick={toggleSelfMute}
+                title={`${selfMuted ? "Unmute" : "Mute"} yourself (${fmtHotkey(settings.muteHotkey)})`}
+                className={`p-1 rounded-md transition-colors ${selfMuted ? "text-red-400" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                {selfMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              </button>
+              <button onClick={toggleDeafen}
+                title={`${deafened ? "Undeafen" : "Deafen"} (${fmtHotkey(settings.deafenHotkey)})`}
+                className={`p-1 rounded-md transition-colors ${deafened ? "text-red-400" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                {deafened ? <HeadphoneOff className="w-3.5 h-3.5" /> : <Headphones className="w-3.5 h-3.5" />}
               </button>
               <button onClick={isSharing ? stopSharing : handleStartShare} title={isSharing ? "Stop sharing" : "Share screen"}
                 className={`p-1 rounded-md transition-colors ${isSharing ? "text-primary animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>

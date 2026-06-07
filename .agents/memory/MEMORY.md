@@ -1,4 +1,5 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Voice mute/deafen vs VAD presence](voice-mute-deafen.md) — silencing (mute/deafen) must gate the speaking-presence broadcast via a ref, not just disable the mic track, or muted users still show as talking.
 - [SSRF-safe link preview](ssrf-link-preview.md) — a one-time host check before fetch() is NOT enough; redirects + DNS rebinding bypass it. Re-validate every hop and connect to the pinned IP.
 - [Drop-in voice channels](drop-in-voice.md) — voice presence is in-memory (WS clients map); dedupe by user; WS join_channel clears server inVoice so switching voice channels needs leave-then-rejoin.
 - [Channel scoping & access control](channels-scoping.md) — new rooms must seed owner+default channel; HTTP & WS message paths must stay in lockstep on channel scoping & private-channel isolation.

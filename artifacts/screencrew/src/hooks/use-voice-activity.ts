@@ -25,6 +25,8 @@ export function useVoiceActivity({
   const isSpeakingRef = useRef(false);
   const onSpeakingChangeRef = useRef(onSpeakingChange);
   const audioConstraintsRef = useRef(audioConstraints);
+  const thresholdRef = useRef(threshold);
+  const silenceDelayRef = useRef(silenceDelay);
 
   useEffect(() => {
     onSpeakingChangeRef.current = onSpeakingChange;
@@ -33,6 +35,14 @@ export function useVoiceActivity({
   useEffect(() => {
     audioConstraintsRef.current = audioConstraints;
   }, [audioConstraints]);
+
+  useEffect(() => {
+    thresholdRef.current = threshold;
+  }, [threshold]);
+
+  useEffect(() => {
+    silenceDelayRef.current = silenceDelay;
+  }, [silenceDelay]);
 
   const stopDetection = useCallback(() => {
     if (animFrameRef.current) {
@@ -86,7 +96,7 @@ export function useVoiceActivity({
         }
         const rms = Math.sqrt(sum / dataArray.length);
 
-        if (rms > threshold) {
+        if (rms > thresholdRef.current) {
           if (silenceTimerRef.current) {
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
@@ -103,7 +113,7 @@ export function useVoiceActivity({
               setIsSpeaking(false);
               onSpeakingChangeRef.current(false);
               silenceTimerRef.current = null;
-            }, silenceDelay);
+            }, silenceDelayRef.current);
           }
         }
 
