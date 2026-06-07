@@ -1,4 +1,5 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Tauri desktop shell](tauri-desktop-shell.md) — LynxDock desktop app gotchas: don't double-create the `main` window (config + setup), server-picker boots from bundled ui, installers come from GitHub Actions.
 - [Runtime-mutable server config](server-runtime-config.md) — admin-editable settings override immutable startup config; all read paths must use the merged helper; persist via fixed-PK singleton row + atomic upsert.
 - [Preset rooms invariants](preset-rooms.md) — admin preset rooms are public-by-design: PATCH must lock privacy/password even for creator; preset join upserts membership to active.
 - [Backend switching isolation](backend-switching.md) — every active-backend switch path must clear the React Query cache and fire SERVER_CHANGED_EVENT so per-backend stores re-read; else cross-backend data bleeds.

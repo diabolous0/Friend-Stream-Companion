@@ -1,60 +1,90 @@
-# ScreenCrew Desktop (Tauri tray shell)
+# LynxDock Desktop (Tauri shell)
 
-A lightweight native desktop wrapper for ScreenCrew. It opens your ScreenCrew
-server in a native window and adds a system-tray icon so the app can live in the
-background (always-on "LAN-party" client).
+A lightweight native desktop app for LynxDock. On launch it shows a **server
+picker** where you type the address of the LynxDock server you want to use, then
+opens that server's web app in a native window. A system-tray icon keeps it
+running in the background (always-on "LAN-party" client).
 
-> **Scaffold only.** This package cannot be built on Replit — Tauri needs a local
-> Rust toolchain and platform build tools. Build it on your own machine (macOS,
-> Windows, or Linux). It is intentionally excluded from the pnpm workspace.
+> **Cannot be built on Replit.** Tauri needs a local Rust toolchain and
+> per-OS build tools, so this package is intentionally excluded from the pnpm
+> workspace. Build it with **GitHub Actions** (recommended — see below) or on
+> your own machine.
 
 ## What it does
 
-- Loads the ScreenCrew web app from a server URL (defaults to `http://localhost:8080`,
-  overridable with the `SCREENCREW_URL` env var at launch).
-- Runs a system-tray icon with **Show**, **Hide**, and **Quit**.
-- Closing the window hides to tray instead of quitting.
+- Shows a built-in **server picker** on first launch; remembers recent servers.
+- Loads the chosen LynxDock server in a native window (screen sharing works,
+  because the desktop webview runs on a secure origin).
+- System-tray icon with **Show**, **Hide**, **Switch Server…**, and **Quit**.
+- Closing the window hides it to the tray instead of quitting.
+- Optional: preset a server with the `LYNXDOCK_URL` env var to skip the picker.
 
-## Prerequisites
+## Download (for users)
+
+Once the GitHub Actions release has run, grab the installer for your OS from the
+repo's **Releases** page:
+
+- **Windows** — `LynxDock_x64-setup.exe` (or the `.msi`)
+- **Linux** — `lynxdock_*.AppImage` (portable) or the `.deb`
+
+Run it, type your LynxDock server address (e.g.
+`https://your-lynxdock.replit.app`), and click **Connect**.
+
+## Build automatically with GitHub Actions (recommended)
+
+This repo ships a workflow at `.github/workflows/desktop-release.yml` that builds
+Windows **and** Linux installers for you — no local toolchain needed.
+
+1. Push this project to a GitHub repository.
+2. Trigger a build either way:
+   - Push a version tag: `git tag v0.1.0 && git push origin v0.1.0`, **or**
+   - In GitHub → **Actions** → **Build LynxDock Desktop** → **Run workflow**.
+3. When it finishes, the installers are attached to a **draft Release**. Open
+   **Releases**, review it, and publish so others can download.
+
+## Build it yourself (local)
+
+### Prerequisites
 
 - [Rust](https://rustup.rs/) (stable)
 - Node.js 20+
-- Platform deps per the [Tauri prerequisites guide](https://tauri.app/start/prerequisites/)
+- Platform deps per the [Tauri prerequisites guide](https://tauri.app/start/prerequisites/).
+  On Debian/Ubuntu Linux:
+  ```bash
+  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+    librsvg2-dev patchelf libgtk-3-dev build-essential
+  ```
 
-## Develop
+### Develop
 
 ```bash
 cd artifacts/screencrew-desktop
 npm install
-SCREENCREW_URL="http://localhost:8080" npm run dev
+npm run dev
+# or preset a server and skip the picker:
+LYNXDOCK_URL="http://localhost:8080" npm run dev
 ```
 
-## App icons
-
-The bundle config references `src-tauri/icons/icon.png`. Generate the full icon
-set from a single source image before your first build:
-
-```bash
-npm run tauri icon path/to/logo.png
-```
-
-## Build installers
+### Build installers
 
 ```bash
 npm run build
 ```
 
-Outputs land in `src-tauri/target/release/bundle/` (`.dmg` / `.msi` / `.AppImage`
-depending on your OS).
+Outputs land in `src-tauri/target/release/bundle/` (`.msi`/`.exe` on Windows,
+`.AppImage`/`.deb` on Linux, `.dmg` on macOS).
 
-## Pointing at your server
+## App icons
 
-The shell loads `SCREENCREW_URL` (falling back to `http://localhost:8080`). Point it
-at your self-hosted server, e.g.:
+The icon set in `src-tauri/icons/` is generated from the LynxDock logo. To
+regenerate from a new source image:
 
 ```bash
-SCREENCREW_URL="https://screencrew.example.com" npm run dev
+npm run tauri icon path/to/logo.png
 ```
 
-Because screen capture requires a secure origin, use `https://` (or `localhost`)
-when running against a remote server. See `../../SELF_HOSTING.md`.
+## Notes
+
+- Screen capture requires a secure origin, so connect to an `https://` server
+  (or `http://localhost` when testing locally). See `../../SELF_HOSTING.md` for
+  running your own server.

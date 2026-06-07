@@ -1,7 +1,7 @@
 [package]
-name = "screencrew-desktop"
+name = "lynxdock-desktop"
 version = "0.1.0"
-description = "ScreenCrew desktop tray shell"
+description = "LynxDock desktop shell"
 edition = "2021"
 rust-version = "1.77"
 

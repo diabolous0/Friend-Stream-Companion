@@ -65,7 +65,7 @@ A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party
 - Ephemeral vs permanent rooms: ephemeral rooms get a TTL (`roomTtlHours`), extended on activity; an interval cleanup job cascade-deletes expired ones. Server default via `ephemeralRooms`; users can opt a room in at creation
 - Configurable WebRTC ICE: public `GET /server-info` (name + registration only) and authenticated `GET /ice-servers` (STUN/TURN, may carry credentials — never exposed publicly). TURN can be wired via config file or env (`TURN_URL`/`TURN_USERNAME`/`TURN_CREDENTIAL`); env appends TURN only when `TURN_URL` is set, default stays STUN-only
 - Single-container Docker image + `docker-compose.yml` serve API and SPA from one origin (`SCREENCREW_STATIC_DIR`). Compose also ships an opt-in bundled coturn TURN relay (Docker `turn` profile, fail-fast credentials). Beginner-friendly "Host it on your PC" walkthrough + `.env.example` in `SELF_HOSTING.md`
-- Optional native desktop tray shell in `artifacts/screencrew-desktop/` (Tauri; scaffold-only, excluded from the pnpm workspace, built off-Replit)
+- Downloadable native desktop app in `artifacts/screencrew-desktop/` (Tauri; branded LynxDock). On launch it shows a built-in **server picker** (bundled `ui/index.html`) so users enter/choose which LynxDock server to connect to — no server is baked in (optional `LYNXDOCK_URL` env preset skips the picker). System tray: Show/Hide/Switch Server/Quit. Cannot be compiled on Replit; excluded from the pnpm workspace. Windows + Linux installers are built by GitHub Actions (`.github/workflows/desktop-release.yml`, matrix windows-latest + ubuntu-22.04 via `tauri-action`) and attached to a draft Release on tag push (`v*`) or manual run
 
 ## User preferences
 

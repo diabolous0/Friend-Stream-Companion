@@ -1,0 +1,65 @@
+name: Build LynxDock Desktop
+
+# Builds the LynxDock desktop app for Windows and Linux, then attaches the
+# installers to a GitHub Release. Trigger by pushing a version tag (e.g. v0.1.0)
+# or by running it manually from the Actions tab.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+          - platform: windows-latest
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            build-essential \
+            curl wget file
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: artifacts/screencrew-desktop/src-tauri -> target
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: artifacts/screencrew-desktop
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('desktop-build-{0}', github.run_number) }}
+          releaseName: LynxDock Desktop ${{ github.ref_type == 'tag' && github.ref_name || github.run_number }}
+          releaseDraft: true
+          prerelease: false

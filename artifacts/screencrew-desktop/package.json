@@ -1,8 +1,8 @@
 {
-  "name": "screencrew-desktop",
+  "name": "lynxdock-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "ScreenCrew desktop tray shell (Tauri). Wraps a self-hosted ScreenCrew server in a native window with a system-tray launcher.",
+  "description": "LynxDock desktop shell (Tauri). Connects to a LynxDock server in a native window with a built-in server picker and a system-tray launcher.",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

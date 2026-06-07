@@ -3,26 +3,271 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ScreenCrew</title>
+    <title>LynxDock</title>
     <style>
+      :root {
+        --bg: #0a0e14;
+        --panel: #0e151c;
+        --border: #16313a;
+        --cyan: #5eead4;
+        --cyan-dim: #2dd4bf;
+        --muted: #5b7a82;
+        --danger: #f87171;
+      }
+      * { box-sizing: border-box; }
       html, body {
         margin: 0;
         height: 100%;
-        background: #0a0e0f;
-        color: #5eead4;
-        font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+        background:
+          radial-gradient(1200px 600px at 50% -10%, #0d1b22 0%, var(--bg) 60%);
+        color: var(--cyan);
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      body {
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 24px;
       }
+      .card {
+        width: 100%;
+        max-width: 440px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 28px 26px 24px;
+        box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.04),
+          0 24px 60px -24px rgba(0, 0, 0, 0.8);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+      .brand img {
+        width: 40px;
+        height: 40px;
+        border-radius: 9px;
+        image-rendering: -webkit-optimize-contrast;
+      }
+      .brand h1 {
+        font-size: 20px;
+        letter-spacing: 0.14em;
+        margin: 0;
+        text-transform: uppercase;
+        color: var(--cyan);
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 12.5px;
+        margin: 8px 0 22px;
+        line-height: 1.5;
+      }
+      label {
+        display: block;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .row { display: flex; gap: 8px; }
+      input {
+        flex: 1;
+        background: #070b10;
+        border: 1px solid var(--border);
+        color: var(--cyan);
+        font-family: inherit;
+        font-size: 14px;
+        padding: 12px 13px;
+        border-radius: 9px;
+        outline: none;
+      }
+      input:focus { border-color: var(--cyan-dim); }
+      input::placeholder { color: #3a565d; }
+      button {
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: 9px;
+        border: 1px solid transparent;
+        transition: filter 0.12s ease, background 0.12s ease;
+      }
+      .connect {
+        background: var(--cyan);
+        color: #06241f;
+        font-weight: 700;
+        font-size: 14px;
+        letter-spacing: 0.06em;
+        padding: 12px 18px;
+      }
+      .connect:hover { filter: brightness(1.08); }
+      .err {
+        color: var(--danger);
+        font-size: 12px;
+        min-height: 16px;
+        margin: 10px 2px 0;
+      }
+      .recent { margin-top: 22px; }
+      .recent .title {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .chip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        width: 100%;
+        background: #070b10;
+        border: 1px solid var(--border);
+        color: var(--cyan);
+        font-size: 13px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        text-align: left;
+      }
+      .chip:hover { background: #0a1219; border-color: var(--cyan-dim); }
+      .chip .x {
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1;
+        padding: 0 4px;
+      }
+      .chip .x:hover { color: var(--danger); }
+      .hint {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+        margin-top: 18px;
+        border-top: 1px solid var(--border);
+        padding-top: 14px;
+      }
+      .hint code { color: var(--cyan-dim); }
     </style>
   </head>
   <body>
-    <!--
-      Fallback page. The native shell (src-tauri/src/main.rs) navigates the
-      window straight to the configured ScreenCrew server (SCREENCREW_URL), so
-      this is only shown if that navigation has not happened yet.
-    -->
-    <p>Connecting to ScreenCrew…</p>
+    <main class="card">
+      <div class="brand">
+        <img src="icon.png" alt="LynxDock" />
+        <h1>LynxDock</h1>
+      </div>
+      <p class="sub">
+        Connect to a LynxDock server to join your crew, share your screen, and
+        watch streams.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label for="url">Server address</label>
+        <div class="row">
+          <input
+            id="url"
+            name="url"
+            type="text"
+            inputmode="url"
+            placeholder="https://your-lynxdock.replit.app"
+            spellcheck="false"
+            autofocus
+          />
+          <button class="connect" type="submit">Connect</button>
+        </div>
+        <div class="err" id="err"></div>
+      </form>
+
+      <section class="recent" id="recentWrap" hidden>
+        <div class="title">Recent servers</div>
+        <div id="recent"></div>
+      </section>
+
+      <p class="hint">
+        Screen sharing needs a secure connection — use an
+        <code>https://</code> address, or <code>http://localhost</code> when
+        testing a server on this computer.
+      </p>
+    </main>
+
+    <script>
+      const KEY = "lynxdock.servers";
+      const form = document.getElementById("form");
+      const input = document.getElementById("url");
+      const err = document.getElementById("err");
+      const recent = document.getElementById("recent");
+      const recentWrap = document.getElementById("recentWrap");
+
+      const loadList = () => {
+        try {
+          const v = JSON.parse(localStorage.getItem(KEY));
+          return Array.isArray(v) ? v : [];
+        } catch {
+          return [];
+        }
+      };
+      const saveList = (list) =>
+        localStorage.setItem(KEY, JSON.stringify(list.slice(0, 6)));
+
+      const normalize = (raw) => {
+        let v = (raw || "").trim();
+        if (!v) return null;
+        if (!/^https?:\/\//i.test(v)) v = "https://" + v;
+        try {
+          const u = new URL(v);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+          return u.toString().replace(/\/+$/, "");
+        } catch {
+          return null;
+        }
+      };
+
+      const connect = (raw) => {
+        const u = normalize(raw);
+        if (!u) {
+          err.textContent =
+            "Enter a valid server address, e.g. https://lynxdock.example.com";
+          return;
+        }
+        err.textContent = "";
+        const list = loadList().filter((x) => x !== u);
+        list.unshift(u);
+        saveList(list);
+        window.location.href = u;
+      };
+
+      const renderRecent = () => {
+        const list = loadList();
+        recentWrap.hidden = list.length === 0;
+        recent.innerHTML = "";
+        list.forEach((u) => {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip";
+          const label = document.createElement("span");
+          label.textContent = u.replace(/^https?:\/\//, "");
+          const x = document.createElement("span");
+          x.className = "x";
+          x.textContent = "×";
+          x.title = "Remove";
+          x.addEventListener("click", (e) => {
+            e.stopPropagation();
+            saveList(loadList().filter((v) => v !== u));
+            renderRecent();
+          });
+          chip.append(label, x);
+          chip.addEventListener("click", () => connect(u));
+          recent.appendChild(chip);
+        });
+      };
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        connect(input.value);
+      });
+
+      const last = loadList()[0];
+      if (last) input.value = last;
+      renderRecent();
+    </script>
   </body>
 </html>
