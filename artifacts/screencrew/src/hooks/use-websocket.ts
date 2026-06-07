@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { getWebSocketUrl } from "@/lib/server-connection";
 
 type WebSocketMessage =
   | { type: "presence_update"; roomId: number; entries: any[] }
@@ -78,8 +79,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
 
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${window.location.host}/api/ws`;
+    const wsUrl = getWebSocketUrl();
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

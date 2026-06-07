@@ -1,28 +1,28 @@
-import { pgTable, text, serial, timestamp, integer, unique, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { dbTable, dbUnique, idCol, txt, int, bool, ts, tsCreated } from "./_dialect";
 import { usersTable } from "./users";
 import { roomsTable } from "./rooms";
 
-export const messagesTable = pgTable("messages", {
-  id: serial("id").primaryKey(),
-  roomId: integer("room_id").notNull().references(() => roomsTable.id),
-  channelId: integer("channel_id"),
-  userId: integer("user_id").notNull().references(() => usersTable.id),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  editedAt: timestamp("edited_at"),
-  replyToId: integer("reply_to_id"),
-  pinned: boolean("pinned").notNull().default(false),
+export const messagesTable = dbTable("messages", {
+  id: idCol(),
+  roomId: int("room_id").notNull().references(() => roomsTable.id),
+  channelId: int("channel_id"),
+  userId: int("user_id").notNull().references(() => usersTable.id),
+  content: txt("content").notNull(),
+  createdAt: tsCreated("created_at"),
+  editedAt: ts("edited_at"),
+  replyToId: int("reply_to_id"),
+  pinned: bool("pinned").notNull().default(false),
 });
 
-export const messageReactionsTable = pgTable("message_reactions", {
-  id: serial("id").primaryKey(),
-  messageId: integer("message_id").notNull().references(() => messagesTable.id, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull().references(() => usersTable.id),
-  emoji: text("emoji").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => [unique().on(t.messageId, t.userId, t.emoji)]);
+export const messageReactionsTable = dbTable("message_reactions", {
+  id: idCol(),
+  messageId: int("message_id").notNull().references(() => messagesTable.id, { onDelete: "cascade" }),
+  userId: int("user_id").notNull().references(() => usersTable.id),
+  emoji: txt("emoji").notNull(),
+  createdAt: tsCreated("created_at"),
+}, (t) => [dbUnique().on(t.messageId, t.userId, t.emoji)]);
 
 export const insertMessageSchema = createInsertSchema(messagesTable).omit({ id: true, createdAt: true });
 export type InsertMessage = z.infer<typeof insertMessageSchema>;

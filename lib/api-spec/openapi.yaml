@@ -49,7 +49,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AuthInput"
+              $ref: "#/components/schemas/RegisterInput"
       responses:
         "201":
           description: Registered successfully
@@ -59,6 +59,8 @@ paths:
                 $ref: "#/components/schemas/AuthResponse"
         "400":
           description: Bad request
+        "403":
+          description: Registration not permitted (closed, server full, or invalid invite)
 
   /auth/login:
     post:
@@ -80,6 +82,128 @@ paths:
                 $ref: "#/components/schemas/AuthResponse"
         "401":
           description: Invalid credentials
+
+  /admin/claim:
+    post:
+      operationId: claimAdmin
+      tags: [admin]
+      summary: Become admin by presenting the server's configured admin password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimAdminInput"
+      responses:
+        "200":
+          description: Admin granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Admin password not configured or incorrect
+
+  /server-info:
+    get:
+      operationId: getServerInfo
+      tags: [server]
+      summary: Public server info (name and registration policy)
+      security: []
+      responses:
+        "200":
+          description: Server info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerInfo"
+
+  /ice-servers:
+    get:
+      operationId: getIceServers
+      tags: [server]
+      summary: WebRTC ICE servers (STUN/TURN) for authenticated peers. May include TURN credentials.
+      responses:
+        "200":
+          description: ICE server list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IceServerList"
+        "401":
+          description: Unauthorized
+
+  /admin/config:
+    get:
+      operationId: getServerConfig
+      tags: [admin]
+      summary: Get server configuration (admin only)
+      responses:
+        "200":
+          description: Server configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerConfigInfo"
+        "403":
+          description: Forbidden
+
+  /admin/invites:
+    get:
+      operationId: listInvites
+      tags: [admin]
+      summary: List server invite keys (admin only)
+      responses:
+        "200":
+          description: Invite keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServerInvite"
+        "403":
+          description: Forbidden
+    post:
+      operationId: createInvite
+      tags: [admin]
+      summary: Create a server invite key (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInviteInput"
+      responses:
+        "201":
+          description: Invite created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerInvite"
+        "403":
+          description: Forbidden
+
+  /admin/invites/{id}:
+    delete:
+      operationId: revokeInvite
+      tags: [admin]
+      summary: Revoke a server invite key (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Revoked
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
 
   /users/me:
     get:
@@ -1190,6 +1314,112 @@ components:
           type: string
           minLength: 4
 
+    RegisterInput:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 2
+        password:
+          type: string
+          minLength: 4
+        inviteKey:
+          type: string
+          nullable: true
+          description: Required when the server registration mode is "invite".
+
+    IceServer:
+      type: object
+      required: [urls]
+      properties:
+        urls:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        username:
+          type: string
+        credential:
+          type: string
+
+    ServerInfo:
+      type: object
+      required: [serverName, registration]
+      properties:
+        serverName:
+          type: string
+        registration:
+          type: string
+          enum: [open, invite, closed]
+
+    IceServerList:
+      type: object
+      required: [iceServers]
+      properties:
+        iceServers:
+          type: array
+          items:
+            $ref: "#/components/schemas/IceServer"
+
+    ServerConfigInfo:
+      type: object
+      required: [serverName, registration, maxUsers, userCount]
+      properties:
+        serverName:
+          type: string
+        registration:
+          type: string
+          enum: [open, invite, closed]
+        maxUsers:
+          type: integer
+        userCount:
+          type: integer
+
+    ServerInvite:
+      type: object
+      required: [id, key, createdBy, uses, createdAt]
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+        createdBy:
+          type: integer
+        maxUses:
+          type: integer
+          nullable: true
+        uses:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateInviteInput:
+      type: object
+      properties:
+        maxUses:
+          type: integer
+          minimum: 1
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ClaimAdminInput:
+      type: object
+      required: [adminPassword]
+      properties:
+        adminPassword:
+          type: string
+          minLength: 1
+
     AuthResponse:
       type: object
       required: [token, user]
@@ -1201,7 +1431,7 @@ components:
 
     User:
       type: object
-      required: [id, username, createdAt]
+      required: [id, username, isAdmin, createdAt]
       properties:
         id:
           type: integer
@@ -1228,6 +1458,8 @@ components:
         avatarStyle:
           type: string
           nullable: true
+        isAdmin:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -1365,6 +1597,13 @@ components:
           type: string
           format: date-time
           nullable: true
+        ephemeral:
+          type: boolean
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
         hasPassword:
           type: boolean
           nullable: true
@@ -1381,6 +1620,10 @@ components:
           minLength: 1
         isPrivate:
           type: boolean
+        ephemeral:
+          type: boolean
+          nullable: true
+          description: When true, the room auto-expires after a period of inactivity. Defaults to the server's configured behavior.
 
     UpdateRoomInput:
       type: object

@@ -1,28 +1,23 @@
+// config MUST be imported first: on load it injects database settings into
+// process.env before @workspace/db (pulled in via ./app) initializes.
+import { config } from "./lib/config";
 import { createServer } from "node:http";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { setupSignaling } from "./lib/signaling";
-
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+import { startCleanupJob } from "./lib/cleanup";
 
 const server = createServer(app);
 
 setupSignaling(server);
+startCleanupJob();
 
-server.listen(port, () => {
-  logger.info({ port }, "Server listening");
+// Bind 0.0.0.0 so a self-hosted server is reachable across the network.
+server.listen(config.port, "0.0.0.0", () => {
+  logger.info(
+    { port: config.port, serverName: config.serverName },
+    "Server listening",
+  );
 });
 
 server.on("error", (err) => {

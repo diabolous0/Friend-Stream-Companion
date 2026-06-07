@@ -10,7 +10,13 @@
   },
   "private": true,
   "devDependencies": {
+    "node-gyp": "^12.4.0",
     "prettier": "^3.8.3",
     "typescript": "~5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
   }
 }

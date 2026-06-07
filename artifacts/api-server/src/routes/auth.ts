@@ -1,10 +1,20 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, serverInvitesTable } from "@workspace/db";
+import { eq, sql, and, or, isNull, lt, gt } from "drizzle-orm";
 import { signToken, hashPassword } from "../middlewares/auth";
+import { config } from "../lib/config";
 import { RegisterBody, LoginBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+function authUser(user: typeof usersTable.$inferSelect) {
+  return {
+    id: user.id,
+    username: user.username,
+    isAdmin: user.isAdmin,
+    createdAt: user.createdAt,
+  };
+}
 
 router.post("/auth/register", async (req, res): Promise<void> => {
   const parsed = RegisterBody.safeParse(req.body);
@@ -13,12 +23,54 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
 
-  const { username, password } = parsed.data;
+  const { username, password, inviteKey } = parsed.data;
+
+  if (config.registration === "closed") {
+    res.status(403).json({ error: "Registration is closed on this server" });
+    return;
+  }
 
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.username, username));
   if (existing) {
     res.status(400).json({ error: "Username already taken" });
     return;
+  }
+
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(usersTable);
+  if (Number(count) >= config.maxUsers) {
+    res.status(403).json({ error: "This server is full" });
+    return;
+  }
+
+  if (config.registration === "invite") {
+    if (!inviteKey) {
+      res.status(403).json({ error: "An invite key is required to register" });
+      return;
+    }
+    // Atomically consume one use of a valid, unexpired, unexhausted invite.
+    const [consumed] = await db
+      .update(serverInvitesTable)
+      .set({ uses: sql`${serverInvitesTable.uses} + 1` })
+      .where(
+        and(
+          eq(serverInvitesTable.key, inviteKey),
+          or(
+            isNull(serverInvitesTable.maxUses),
+            lt(serverInvitesTable.uses, serverInvitesTable.maxUses)
+          ),
+          or(
+            isNull(serverInvitesTable.expiresAt),
+            gt(serverInvitesTable.expiresAt, new Date())
+          )
+        )
+      )
+      .returning();
+    if (!consumed) {
+      res.status(403).json({ error: "Invalid or expired invite key" });
+      return;
+    }
   }
 
   const passwordHash = hashPassword(password);
@@ -28,10 +80,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     .returning();
 
   const token = signToken(user.id);
-  res.status(201).json({
-    token,
-    user: { id: user.id, username: user.username, createdAt: user.createdAt },
-  });
+  res.status(201).json({ token, user: authUser(user) });
 });
 
 router.post("/auth/login", async (req, res): Promise<void> => {
@@ -55,10 +104,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   const token = signToken(user.id);
-  res.json({
-    token,
-    user: { id: user.id, username: user.username, createdAt: user.createdAt },
-  });
+  res.json({ token, user: authUser(user) });
 });
 
 export default router;

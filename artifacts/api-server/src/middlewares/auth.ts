@@ -2,8 +2,9 @@ import { type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { config } from "../lib/config";
 
-const SECRET = process.env.SESSION_SECRET ?? "screencrew-dev-secret";
+const SECRET = config.sessionSecret;
 
 export function signToken(userId: number): string {
   const payload = Buffer.from(JSON.stringify({ userId, iat: Date.now() })).toString("base64url");
@@ -33,6 +34,7 @@ export function hashPassword(password: string): string {
 export interface AuthenticatedRequest extends Request {
   userId?: number;
   username?: string;
+  isAdmin?: boolean;
 }
 
 export async function requireAuth(
@@ -60,5 +62,21 @@ export async function requireAuth(
 
   req.userId = user.id;
   req.username = user.username;
+  req.isAdmin = user.isAdmin;
+  next();
+}
+
+/**
+ * Must be chained AFTER `requireAuth` (relies on `req.isAdmin` being populated).
+ */
+export function requireAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (!req.isAdmin) {
+    res.status(403).json({ error: "Admin access required" });
+    return;
+  }
   next();
 }

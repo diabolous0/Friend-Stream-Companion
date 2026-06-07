@@ -3,7 +3,7 @@ import { type IncomingMessage } from "node:http";
 import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
-import { db, messagesTable, usersTable, roomMembersTable, channelsTable, roleAtLeast } from "@workspace/db";
+import { db, messagesTable, usersTable, roomMembersTable, channelsTable, roleAtLeast, IS_SQLITE } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 type UserStatus = "online" | "away" | "dnd";
@@ -411,7 +411,11 @@ export function setupSignaling(server: Server): void {
             if (!message) return;
             const updated = await db
               .update(roomMembersTable)
-              .set({ lastReadMessageId: sql`GREATEST(COALESCE(${roomMembersTable.lastReadMessageId}, 0), ${messageId})` })
+              .set({
+                lastReadMessageId: IS_SQLITE
+                  ? sql`MAX(COALESCE(${roomMembersTable.lastReadMessageId}, 0), ${messageId})`
+                  : sql`GREATEST(COALESCE(${roomMembersTable.lastReadMessageId}, 0), ${messageId})`,
+              })
               .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)))
               .returning({ lastReadMessageId: roomMembersTable.lastReadMessageId });
             if (!updated.length) return;

@@ -57,6 +57,16 @@ A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party
 - Mobile-friendly layout: room window fills the viewport and the stream window becomes a bottom sheet on small screens
 - Dark cyan monospace theme (Winamp/LAN-party aesthetic)
 
+### Self-hosting / portability
+
+- Two run modes from one codebase: **Quick Session** (Postgres + Replit storage, env-driven — the hosted default) and **Self-Hosted Permanent** (SQLite + local-disk storage, config-file-driven)
+- Central config resolver (`api-server/src/lib/config.ts`): defaults → JSON config file → env vars (later wins). If `DATABASE_URL` is set without `DB_DRIVER`, Postgres is assumed (keeps Replit working)
+- Account controls: `registration` mode (open/invite/closed), `maxUsers` cap, admin bootstrap via `adminPassword`, invite-key minting/revoking (`/admin` page)
+- Ephemeral vs permanent rooms: ephemeral rooms get a TTL (`roomTtlHours`), extended on activity; an interval cleanup job cascade-deletes expired ones. Server default via `ephemeralRooms`; users can opt a room in at creation
+- Configurable WebRTC ICE: public `GET /server-info` (name + registration only) and authenticated `GET /ice-servers` (STUN/TURN, may carry credentials — never exposed publicly)
+- Single-container Docker image + `docker-compose.yml` serve API and SPA from one origin (`SCREENCREW_STATIC_DIR`). See `SELF_HOSTING.md`
+- Optional native desktop tray shell in `artifacts/screencrew-desktop/` (Tauri; scaffold-only, excluded from the pnpm workspace, built off-Replit)
+
 ## User preferences
 
 _Populate as you build — explicit user instructions worth remembering across sessions._

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { apiUrl, isSameServerUrl } from "@/lib/server-connection";
 
 export interface UploadResult {
   objectPath: string;
@@ -14,7 +15,7 @@ export function useUpload(opts: { onSuccess?: (r: UploadResult) => void; onError
     setIsUploading(true); setProgress(0);
     try {
       const token = localStorage.getItem("screencrew_token");
-      const res = await fetch("/api/storage/uploads/request-url", {
+      const res = await fetch(apiUrl("/api/storage/uploads/request-url"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
@@ -22,17 +23,21 @@ export function useUpload(opts: { onSuccess?: (r: UploadResult) => void; onError
       if (!res.ok) throw new Error(`Upload URL request failed: ${res.status}`);
       const { uploadURL, objectPath } = await res.json() as { uploadURL: string; objectPath: string };
 
+      // Local-disk uploads PUT to our own server (relative URL) and need auth;
+      // cloud uploads PUT to an absolute signed URL that must not carry our token.
+      const putToOwnServer = isSameServerUrl(uploadURL);
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadURL);
+        xhr.open("PUT", apiUrl(uploadURL));
         xhr.setRequestHeader("Content-Type", file.type);
+        if (putToOwnServer && token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.upload.onprogress = e => { if (e.lengthComputable) setProgress(Math.round(e.loaded / e.total * 100)); };
-        xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(`GCS upload failed: ${xhr.status}`));
+        xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
         xhr.onerror = () => reject(new Error("Network error during upload"));
         xhr.send(file);
       });
 
-      const finalize = await fetch("/api/storage/uploads/finalize", {
+      const finalize = await fetch(apiUrl("/api/storage/uploads/finalize"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ objectPath }),

@@ -1,20 +1,21 @@
-import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { dbTable, idCol, txt, bool, tsCreated } from "./_dialect";
 
-export const usersTable = pgTable("users", {
-  id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
-  displayName: text("display_name"),
-  email: text("email"),
-  steamUrl: text("steam_url"),
-  discordUrl: text("discord_url"),
-  avatarUrl: text("avatar_url"),
-  nameColor: text("name_color"),
-  avatarStyle: text("avatar_style"),
-  isBot: boolean("is_bot").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+export const usersTable = dbTable("users", {
+  id: idCol(),
+  username: txt("username").notNull().unique(),
+  passwordHash: txt("password_hash").notNull(),
+  displayName: txt("display_name"),
+  email: txt("email"),
+  steamUrl: txt("steam_url"),
+  discordUrl: txt("discord_url"),
+  avatarUrl: txt("avatar_url"),
+  nameColor: txt("name_color"),
+  avatarStyle: txt("avatar_style"),
+  isBot: bool("is_bot").notNull().default(false),
+  isAdmin: bool("is_admin").notNull().default(false),
+  createdAt: tsCreated("created_at"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

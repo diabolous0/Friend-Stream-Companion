@@ -2,6 +2,9 @@ import { Storage, File } from "@google-cloud/storage";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
 import { ObjectAclPolicy, ObjectPermission, canAccessObject, getObjectAclPolicy, setObjectAclPolicy } from "./objectAcl";
+import { ObjectNotFoundError } from "./storage/types";
+
+export { ObjectNotFoundError };
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
@@ -19,10 +22,6 @@ export const objectStorageClient = new Storage({
   },
   projectId: "",
 });
-
-export class ObjectNotFoundError extends Error {
-  constructor() { super("Object not found"); this.name = "ObjectNotFoundError"; Object.setPrototypeOf(this, ObjectNotFoundError.prototype); }
-}
 
 export class ObjectStorageService {
   getPublicObjectSearchPaths(): string[] {

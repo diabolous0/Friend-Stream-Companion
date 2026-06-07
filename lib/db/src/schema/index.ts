@@ -6,3 +6,4 @@ export * from "./roomBans";
 export * from "./friendships";
 export * from "./blocks";
 export * from "./bots";
+export * from "./serverInvites";

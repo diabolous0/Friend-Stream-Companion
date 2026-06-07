@@ -10,11 +10,15 @@ import linkPreviewRouter from "./linkPreview";
 import friendsRouter from "./friends";
 import blocksRouter from "./blocks";
 import botsRouter from "./bots";
+import serverInvitesRouter from "./serverInvites";
+import serverInfoRouter from "./serverInfo";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(serverInfoRouter);
 router.use(authRouter);
+router.use(serverInvitesRouter);
 router.use(usersRouter);
 router.use(roomsRouter);
 router.use(channelsRouter);

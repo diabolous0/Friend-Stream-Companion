@@ -16,7 +16,8 @@ interface VoiceConfig {
 export function useWebRTC(
   wsSend: (message: any) => void,
   onStreamStart?: () => void,
-  onStreamStop?: () => void
+  onStreamStop?: () => void,
+  iceServers?: RTCIceServer[]
 ) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<number, MediaStream>>({});
@@ -34,13 +35,24 @@ export function useWebRTC(
   const wsSendRef = useRef(wsSend);
   wsSendRef.current = wsSend;
 
-  const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+  // ICE config is resolved from the connected server (STUN/TURN) and kept in a
+  // ref so peer-connection creation always reads the latest value.
+  const iceConfigRef = useRef<RTCConfiguration>({
+    iceServers: iceServers ?? [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  useEffect(() => {
+    // `undefined` means "not loaded yet" (keep the STUN fallback); an explicit
+    // empty array means the server intends no ICE servers, which we honor.
+    if (iceServers !== undefined) {
+      iceConfigRef.current = { iceServers };
+    }
+  }, [iceServers]);
 
   // ─── Screen share PCs ───────────────────────────────────────────────────────
 
   const getScreenPC = useCallback((userId: number) => {
     if (!screenPCsRef.current[userId]) {
-      const pc = new RTCPeerConnection(ICE);
+      const pc = new RTCPeerConnection(iceConfigRef.current);
       pc.onicecandidate = (e) => {
         if (e.candidate) wsSendRef.current({ type: "ice_candidate", to: userId, candidate: e.candidate });
       };
@@ -121,7 +133,7 @@ export function useWebRTC(
 
   const getAudioPC = useCallback((userId: number) => {
     if (!audioPCsRef.current[userId]) {
-      const pc = new RTCPeerConnection(ICE);
+      const pc = new RTCPeerConnection(iceConfigRef.current);
       pc.onicecandidate = (e) => {
         if (e.candidate) wsSendRef.current({ type: "audio_ice", to: userId, candidate: e.candidate });
       };

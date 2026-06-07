@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQueryKey,
+  useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, useGetServerInfo, getListRoomsQueryKey,
   useListFriends, getListFriendsQueryKey,
   useListFriendRequests, getListFriendRequestsQueryKey,
   useSendFriendRequest, useAcceptFriendRequest, useDeclineFriendRequest, useRemoveFriend,
@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon, UserPlus, UserCheck, UserX, Ban } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon, UserPlus, UserCheck, UserX, Ban, Shield } from "lucide-react";
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
@@ -39,6 +39,7 @@ export default function Rooms() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: me } = useGetMe();
+  const { data: serverInfo } = useGetServerInfo();
   const { data: rooms, isLoading } = useListRooms({
     query: { queryKey: getListRoomsQueryKey(), refetchInterval: 10000 },
   });
@@ -83,6 +84,7 @@ export default function Rooms() {
   const pendingCount = (friendRequests?.incoming?.length ?? 0);
 
   const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomEphemeral, setNewRoomEphemeral] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -121,7 +123,10 @@ export default function Rooms() {
   const handleCreateRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoomName.trim()) return;
-    createRoom.mutate({ data: { name: newRoomName } }, {
+    // Only send `ephemeral` when the user explicitly opts in; otherwise omit it
+    // so the server's configured default (config.ephemeralRooms) applies.
+    const data = newRoomEphemeral ? { name: newRoomName, ephemeral: true } : { name: newRoomName };
+    createRoom.mutate({ data }, {
       onSuccess: (room) => setLocation(`/room/${room.id}`),
       onError: (err) => toast({ title: "Failed to create room", description: err.message, variant: "destructive" }),
     });
@@ -193,7 +198,7 @@ export default function Rooms() {
                 {classic ? "SCREENCREW" : "ScreenCrew"}
               </h1>
               <p className={`text-xs text-muted-foreground ${classic ? "font-mono" : ""}`}>
-                {classic ? "ACTIVE NODES" : "Your rooms"}
+                {serverInfo?.serverName ?? (classic ? "ACTIVE NODES" : "Your rooms")}
               </p>
             </div>
           </div>
@@ -204,6 +209,13 @@ export default function Rooms() {
               </div>
               <span className={`text-sm text-muted-foreground ${classic ? "font-mono" : ""}`}>{me.username}</span>
             </div>
+            {me.isAdmin && (
+              <button onClick={() => setLocation("/admin")}
+                className={`p-2 text-muted-foreground/60 hover:text-primary hover:bg-muted/40 transition-colors ${r("rounded-lg", "rounded-sm")}`}
+                title={classic ? "ADMIN" : "Server admin"}>
+                <Shield className="w-4 h-4" />
+              </button>
+            )}
             <button onClick={handleLogout}
               className={`p-2 text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/40 transition-colors ${r("rounded-lg", "rounded-sm")}`}
               title={classic ? "DISCONNECT" : "Sign out"}>
@@ -358,14 +370,24 @@ export default function Rooms() {
           </div>
 
           {showCreate && (
-            <form onSubmit={handleCreateRoom} className="flex items-center gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
-              <Input value={newRoomName} onChange={e => setNewRoomName(e.target.value)}
-                placeholder={classic ? "Room Designation_" : "Room name…"} autoFocus
-                className={`h-8 text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 ${r("rounded-xl", "rounded-sm")}`} />
-              <Button type="submit" size="sm" className={`h-8 text-xs px-4 ${r("rounded-xl", "rounded-sm")}`}
-                disabled={createRoom.isPending || !newRoomName.trim()}>
-                {createRoom.isPending ? "…" : classic ? "CREATE" : "Create"}
-              </Button>
+            <form onSubmit={handleCreateRoom} className="flex flex-col gap-2 px-5 py-3 border-b border-border/20 bg-muted/20">
+              <div className="flex items-center gap-2">
+                <Input value={newRoomName} onChange={e => setNewRoomName(e.target.value)}
+                  placeholder={classic ? "Room Designation_" : "Room name…"} autoFocus
+                  className={`h-8 text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 ${r("rounded-xl", "rounded-sm")}`} />
+                <Button type="submit" size="sm" className={`h-8 text-xs px-4 ${r("rounded-xl", "rounded-sm")}`}
+                  disabled={createRoom.isPending || !newRoomName.trim()}>
+                  {createRoom.isPending ? "…" : classic ? "CREATE" : "Create"}
+                </Button>
+              </div>
+              <button type="button" onClick={() => setNewRoomEphemeral(v => !v)}
+                className={`flex items-center gap-2 self-start text-xs transition-colors ${classic ? "font-mono" : ""} ${newRoomEphemeral ? "text-cyan-400" : "text-muted-foreground/60 hover:text-muted-foreground"}`}>
+                <span className={`flex items-center justify-center w-3.5 h-3.5 rounded-sm border ${newRoomEphemeral ? "bg-cyan-500/20 border-cyan-400/60" : "border-border/50"}`}>
+                  {newRoomEphemeral && <Check className="w-2.5 h-2.5" />}
+                </span>
+                <Clock className="w-3 h-3" />
+                {classic ? "TEMPORARY NODE (auto-purged)" : "Temporary room (auto-deleted after inactivity)"}
+              </button>
             </form>
           )}
 
@@ -430,6 +452,7 @@ export default function Rooms() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           {room.hasPassword && <Lock className="w-3 h-3 text-amber-400 shrink-0" />}
+                          {room.ephemeral && <Clock className="w-3 h-3 text-cyan-400/70 shrink-0" />}
                           <p className={`text-sm font-medium truncate ${classic ? "font-mono group-hover:text-primary transition-colors" : ""}`}>{room.name}</p>
                           {hasUnread && <span className="shrink-0 w-2 h-2 rounded-full bg-primary" />}
                         </div>

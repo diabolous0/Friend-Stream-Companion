@@ -27,6 +27,76 @@ export interface AuthInput {
   password: string;
 }
 
+export interface RegisterInput {
+  /** @minLength 2 */
+  username: string;
+  /** @minLength 4 */
+  password: string;
+  /** Required when the server registration mode is "invite". */
+  inviteKey?: string | null;
+}
+
+export interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+export type ServerInfoRegistration = typeof ServerInfoRegistration[keyof typeof ServerInfoRegistration];
+
+
+export const ServerInfoRegistration = {
+  open: 'open',
+  invite: 'invite',
+  closed: 'closed',
+} as const;
+
+export interface ServerInfo {
+  serverName: string;
+  registration: ServerInfoRegistration;
+}
+
+export interface IceServerList {
+  iceServers: IceServer[];
+}
+
+export type ServerConfigInfoRegistration = typeof ServerConfigInfoRegistration[keyof typeof ServerConfigInfoRegistration];
+
+
+export const ServerConfigInfoRegistration = {
+  open: 'open',
+  invite: 'invite',
+  closed: 'closed',
+} as const;
+
+export interface ServerConfigInfo {
+  serverName: string;
+  registration: ServerConfigInfoRegistration;
+  maxUsers: number;
+  userCount: number;
+}
+
+export interface ServerInvite {
+  id: number;
+  key: string;
+  createdBy: number;
+  maxUses?: number | null;
+  uses: number;
+  expiresAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateInviteInput {
+  /** @minimum 1 */
+  maxUses?: number | null;
+  expiresAt?: string | null;
+}
+
+export interface ClaimAdminInput {
+  /** @minLength 1 */
+  adminPassword: string;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -37,6 +107,7 @@ export interface User {
   avatarUrl?: string | null;
   nameColor?: string | null;
   avatarStyle?: string | null;
+  isAdmin: boolean;
   createdAt: string;
 }
 
@@ -122,6 +193,8 @@ export interface Room {
   notes?: string | null;
   isPrivate?: boolean | null;
   inviteExpiresAt?: string | null;
+  ephemeral?: boolean | null;
+  expiresAt?: string | null;
   hasPassword?: boolean | null;
   pending?: boolean | null;
 }
@@ -130,6 +203,8 @@ export interface RoomInput {
   /** @minLength 1 */
   name: string;
   isPrivate?: boolean;
+  /** When true, the room auto-expires after a period of inactivity. Defaults to the server's configured behavior. */
+  ephemeral?: boolean | null;
 }
 
 export interface UpdateRoomInput {

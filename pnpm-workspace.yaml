@@ -1,5 +1,8 @@
 packages:
   - artifacts/*
+  # Standalone Tauri desktop shell: has its own npm + Rust toolchain and is
+  # built outside this monorepo, so keep it out of the pnpm workspace.
+  - '!artifacts/screencrew-desktop'
   - lib/*
   - lib/integrations/*
   - scripts

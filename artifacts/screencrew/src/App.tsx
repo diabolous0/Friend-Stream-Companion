@@ -7,6 +7,8 @@ import { SettingsProvider } from "@/lib/settings";
 import Login from "@/pages/login";
 import Rooms from "@/pages/rooms";
 import Room from "@/pages/room";
+import ConnectServer from "@/pages/connect-server";
+import Admin from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -15,6 +17,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Login} />
+      <Route path="/connect" component={ConnectServer} />
+      <Route path="/admin" component={Admin} />
       <Route path="/rooms" component={Rooms} />
       <Route path="/room/:roomId" component={Room} />
       <Route component={NotFound} />

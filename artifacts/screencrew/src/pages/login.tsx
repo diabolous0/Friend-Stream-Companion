@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { MonitorUp } from "lucide-react";
 import { useTheme, ThemeToggle } from "@/lib/theme";
+import { getServerLabel } from "@/lib/server-connection";
 
 setAuthTokenGetter(() => localStorage.getItem("screencrew_token"));
 
@@ -18,6 +19,9 @@ export default function Login() {
   const [tab, setTab] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteKey, setInviteKey] = useState(
+    () => new URLSearchParams(window.location.search).get("invite") ?? ""
+  );
 
   const loginMutation = useLogin();
   const registerMutation = useRegister();
@@ -42,7 +46,7 @@ export default function Login() {
         onError: () => toast({ title: classic ? "AUTH FAILED" : "Wrong username or password", variant: "destructive" }),
       });
     } else {
-      registerMutation.mutate({ data: { username, password } }, {
+      registerMutation.mutate({ data: { username, password, inviteKey: inviteKey || undefined } }, {
         onSuccess: (data) => handleSuccess(data.token),
         onError: (err) => toast({ title: classic ? "REG FAILED" : "Registration failed", description: err.message, variant: "destructive" }),
       });
@@ -129,6 +133,19 @@ export default function Login() {
                 ? "rounded-sm bg-background border-primary/20 font-mono focus-visible:ring-primary"
                 : "rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0"}`} />
           </div>
+          {tab === "register" && (
+            <div className="space-y-1.5">
+              <label className={`text-xs font-medium text-muted-foreground ${classic ? "font-mono uppercase tracking-wider text-primary/70" : ""}`}>
+                {classic ? "Invite key" : "Invite key"}
+                <span className="text-muted-foreground/40 normal-case"> {classic ? "(IF REQUIRED)" : "(if required)"}</span>
+              </label>
+              <Input value={inviteKey} onChange={e => setInviteKey(e.target.value)}
+                placeholder={classic ? "key_" : "paste invite key"}
+                className={`h-10 text-sm ${classic
+                  ? "rounded-sm bg-background border-primary/20 font-mono focus-visible:ring-primary"
+                  : "rounded-xl bg-muted/30 border-transparent focus-visible:border-primary/40 focus-visible:ring-0"}`} />
+            </div>
+          )}
           <Button type="submit" disabled={isPending || !username || !password}
             className={`w-full h-10 text-sm font-semibold mt-1 ${classic ? "rounded-sm font-mono uppercase tracking-widest" : "rounded-xl"}`}>
             {isPending ? (
@@ -139,8 +156,16 @@ export default function Login() {
           </Button>
         </form>
 
-        {/* Theme toggle */}
-        <div className="flex items-center justify-center gap-2 px-6 pb-5">
+        {/* Server + theme toggle */}
+        <div className="flex items-center justify-center gap-3 px-6 pb-5">
+          <button
+            type="button"
+            onClick={() => setLocation("/connect")}
+            className={`text-[10px] text-muted-foreground/50 hover:text-primary transition-colors ${classic ? "font-mono uppercase tracking-wider" : ""}`}
+          >
+            {classic ? `NODE: ${getServerLabel()}` : `Server: ${getServerLabel()}`}
+          </button>
+          <span className="text-muted-foreground/20">·</span>
           <span className="text-[10px] text-muted-foreground/40">UI:</span>
           <ThemeToggle />
         </div>

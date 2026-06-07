@@ -28,7 +28,8 @@ export const registerBodyPasswordMin = 4;
 
 export const RegisterBody = zod.object({
   "username": zod.string().min(registerBodyUsernameMin),
-  "password": zod.string().min(registerBodyPasswordMin)
+  "password": zod.string().min(registerBodyPasswordMin),
+  "inviteKey": zod.string().nullish().describe('Required when the server registration mode is \"invite\".')
 })
 
 
@@ -58,8 +59,101 @@ export const LoginResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
   "createdAt": zod.coerce.date()
 })
+})
+
+
+/**
+ * @summary Become admin by presenting the server's configured admin password
+ */
+
+
+
+export const ClaimAdminBody = zod.object({
+  "adminPassword": zod.string().min(1)
+})
+
+export const ClaimAdminResponse = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "email": zod.string().nullish(),
+  "steamUrl": zod.string().nullish(),
+  "discordUrl": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Public server info (name and registration policy)
+ */
+export const GetServerInfoResponse = zod.object({
+  "serverName": zod.string(),
+  "registration": zod.enum(['open', 'invite', 'closed'])
+})
+
+
+/**
+ * @summary WebRTC ICE servers (STUN/TURN) for authenticated peers. May include TURN credentials.
+ */
+export const GetIceServersResponse = zod.object({
+  "iceServers": zod.array(zod.object({
+  "urls": zod.union([zod.string(),zod.array(zod.string())]),
+  "username": zod.string().optional(),
+  "credential": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Get server configuration (admin only)
+ */
+export const GetServerConfigResponse = zod.object({
+  "serverName": zod.string(),
+  "registration": zod.enum(['open', 'invite', 'closed']),
+  "maxUsers": zod.number(),
+  "userCount": zod.number()
+})
+
+
+/**
+ * @summary List server invite keys (admin only)
+ */
+export const ListInvitesResponseItem = zod.object({
+  "id": zod.number(),
+  "key": zod.string(),
+  "createdBy": zod.number(),
+  "maxUses": zod.number().nullish(),
+  "uses": zod.number(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListInvitesResponse = zod.array(ListInvitesResponseItem)
+
+
+/**
+ * @summary Create a server invite key (admin only)
+ */
+
+
+
+export const CreateInviteBody = zod.object({
+  "maxUses": zod.number().min(1).nullish(),
+  "expiresAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Revoke a server invite key (admin only)
+ */
+export const RevokeInviteParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 
@@ -76,6 +170,7 @@ export const GetMeResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
   "createdAt": zod.coerce.date()
 })
 
@@ -109,6 +204,7 @@ export const UpdateMeResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
   "createdAt": zod.coerce.date()
 })
 
@@ -138,6 +234,8 @@ export const ListRoomsResponseItem = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
@@ -152,7 +250,8 @@ export const ListRoomsResponse = zod.array(ListRoomsResponseItem)
 
 export const CreateRoomBody = zod.object({
   "name": zod.string().min(1),
-  "isPrivate": zod.boolean().optional()
+  "isPrivate": zod.boolean().optional(),
+  "ephemeral": zod.boolean().nullish().describe('When true, the room auto-expires after a period of inactivity. Defaults to the server\'s configured behavior.')
 })
 
 
@@ -185,6 +284,8 @@ export const GetRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
@@ -234,6 +335,8 @@ export const UpdateRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
@@ -281,6 +384,8 @@ export const JoinRoomResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })
@@ -316,6 +421,8 @@ export const JoinRoomByCodeResponse = zod.object({
   "notes": zod.string().nullish(),
   "isPrivate": zod.boolean().nullish(),
   "inviteExpiresAt": zod.coerce.date().nullish(),
+  "ephemeral": zod.boolean().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
   "hasPassword": zod.boolean().nullish(),
   "pending": zod.boolean().nullish()
 })

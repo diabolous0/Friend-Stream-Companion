@@ -1,0 +1,19 @@
+{
+  "serverName": "My ScreenCrew Server",
+  "port": 8080,
+  "sessionSecret": "CHANGE-ME-to-a-long-random-string",
+  "adminPassword": "CHANGE-ME-admin-password",
+  "maxUsers": 100,
+  "registration": "open",
+  "database": {
+    "driver": "sqlite",
+    "path": "./data/screencrew.db"
+  },
+  "storage": {
+    "driver": "local",
+    "dataDir": "./data/uploads"
+  },
+  "iceServers": [
+    { "urls": "stun:stun.l.google.com:19302" }
+  ]
+}

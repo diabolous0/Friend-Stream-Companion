@@ -18,6 +18,7 @@ function publicUser(user: typeof usersTable.$inferSelect) {
     avatarUrl: user.avatarUrl,
     nameColor: user.nameColor,
     avatarStyle: user.avatarStyle,
+    isAdmin: user.isAdmin,
     createdAt: user.createdAt,
   };
 }

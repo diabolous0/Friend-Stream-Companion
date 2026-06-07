@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, roomMembersTable, channelsTable, messagesTable, CHANNEL_TYPES, ROOM_ROLES, roleAtLeast } from "@workspace/db";
 import { eq, and, max } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
-import { CreateChannelBody, UpdateChannelBody, UpdateMemberRoleBody } from "@workspace/api-zod";
+import { CreateChannelBody, UpdateChannelBody } from "@workspace/api-zod";
 import { broadcastToRoom, revalidateChannelAccess } from "../lib/signaling";
 
 const router: IRouter = Router();
@@ -165,37 +165,6 @@ router.delete("/rooms/:roomId/channels/:channelId", requireAuth, async (req, res
 
   broadcastToRoom(roomId, { type: "channels_updated", roomId });
   res.status(204).end();
-});
-
-router.patch("/rooms/:roomId/members/:userId/role", requireAuth, async (req, res): Promise<void> => {
-  const authReq = req as AuthenticatedRequest;
-  const roomId = parseIdParam(req.params.roomId);
-  const targetUserId = parseIdParam(req.params.userId);
-  if (isNaN(roomId) || isNaN(targetUserId)) { res.status(400).json({ error: "Invalid ID" }); return; }
-
-  const membership = await getActiveMembership(roomId, authReq.userId!);
-  if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
-  if (membership.role !== "owner") { res.status(403).json({ error: "Only the owner can change roles" }); return; }
-
-  const parsed = UpdateMemberRoleBody.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
-  const role = parsed.data.role;
-
-  if (targetUserId === authReq.userId!) { res.status(400).json({ error: "You cannot change your own role" }); return; }
-
-  const target = await getActiveMembership(roomId, targetUserId);
-  if (!target) { res.status(404).json({ error: "Member not found" }); return; }
-
-  // Only one owner: promoting another member to owner is not allowed in v1.
-  if (role === "owner") { res.status(400).json({ error: "A room can only have one owner" }); return; }
-
-  await db
-    .update(roomMembersTable)
-    .set({ role })
-    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, targetUserId)));
-
-  broadcastToRoom(roomId, { type: "role_updated", roomId, userId: targetUserId, role });
-  res.json({ userId: targetUserId, role });
 });
 
 export default router;

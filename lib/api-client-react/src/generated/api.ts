@@ -30,8 +30,10 @@ import type {
   BotCreated,
   BotWebhookInput,
   Channel,
+  ClaimAdminInput,
   CreateBotInput,
   CreateChannelInput,
+  CreateInviteInput,
   EditMessageInput,
   FriendRequest,
   FriendRequests,
@@ -39,6 +41,7 @@ import type {
   GetRoomMessagesParams,
   GiphyGif,
   HealthStatus,
+  IceServerList,
   JoinByCodeInput,
   JoinRoomInput,
   LinkPreview,
@@ -49,10 +52,14 @@ import type {
   PublicUser,
   Reaction,
   ReactionInput,
+  RegisterInput,
   Room,
   RoomInput,
   SearchGiphyParams,
   SearchRoomMessagesParams,
+  ServerConfigInfo,
+  ServerInfo,
+  ServerInvite,
   UpdateChannelInput,
   UpdateMemberRoleInput,
   UpdateProfileInput,
@@ -161,7 +168,7 @@ export const getRegisterUrl = () => {
 /**
  * @summary Register a new user
  */
-export const register = async (authInput: AuthInput, options?: RequestInit): Promise<AuthResponse> => {
+export const register = async (registerInput: RegisterInput, options?: RequestInit): Promise<AuthResponse> => {
 
   return customFetch<AuthResponse>(getRegisterUrl(),
   {
@@ -169,7 +176,7 @@ export const register = async (authInput: AuthInput, options?: RequestInit): Pro
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      authInput,)
+      registerInput,)
   }
 );}
 
@@ -177,8 +184,8 @@ export const register = async (authInput: AuthInput, options?: RequestInit): Pro
 
 
 export const getRegisterMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<AuthInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<AuthInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<RegisterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<RegisterInput>}, TContext> => {
 
 const mutationKey = ['register'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -190,7 +197,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof register>>, {data: BodyType<AuthInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof register>>, {data: BodyType<RegisterInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  register(data,requestOptions)
@@ -204,18 +211,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type RegisterMutationResult = NonNullable<Awaited<ReturnType<typeof register>>>
-    export type RegisterMutationBody = BodyType<AuthInput>
+    export type RegisterMutationBody = BodyType<RegisterInput>
     export type RegisterMutationError = ErrorType<void>
 
     /**
  * @summary Register a new user
  */
 export const useRegister = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<AuthInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof register>>, TError,{data: BodyType<RegisterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof register>>,
         TError,
-        {data: BodyType<AuthInput>},
+        {data: BodyType<RegisterInput>},
         TContext
       > => {
       return useMutation(getRegisterMutationOptions(options));
@@ -290,6 +297,526 @@ export const useLogin = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getLoginMutationOptions(options));
+    }
+
+export const getClaimAdminUrl = () => {
+
+
+
+
+  return `/api/admin/claim`
+}
+
+/**
+ * @summary Become admin by presenting the server's configured admin password
+ */
+export const claimAdmin = async (claimAdminInput: ClaimAdminInput, options?: RequestInit): Promise<User> => {
+
+  return customFetch<User>(getClaimAdminUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      claimAdminInput,)
+  }
+);}
+
+
+
+
+export const getClaimAdminMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimAdmin>>, TError,{data: BodyType<ClaimAdminInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof claimAdmin>>, TError,{data: BodyType<ClaimAdminInput>}, TContext> => {
+
+const mutationKey = ['claimAdmin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof claimAdmin>>, {data: BodyType<ClaimAdminInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  claimAdmin(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClaimAdminMutationResult = NonNullable<Awaited<ReturnType<typeof claimAdmin>>>
+    export type ClaimAdminMutationBody = BodyType<ClaimAdminInput>
+    export type ClaimAdminMutationError = ErrorType<void>
+
+    /**
+ * @summary Become admin by presenting the server's configured admin password
+ */
+export const useClaimAdmin = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimAdmin>>, TError,{data: BodyType<ClaimAdminInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof claimAdmin>>,
+        TError,
+        {data: BodyType<ClaimAdminInput>},
+        TContext
+      > => {
+      return useMutation(getClaimAdminMutationOptions(options));
+    }
+
+export const getGetServerInfoUrl = () => {
+
+
+
+
+  return `/api/server-info`
+}
+
+/**
+ * @summary Public server info (name and registration policy)
+ */
+export const getServerInfo = async ( options?: RequestInit): Promise<ServerInfo> => {
+
+  return customFetch<ServerInfo>(getGetServerInfoUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetServerInfoQueryKey = () => {
+    return [
+    `/api/server-info`
+    ] as const;
+    }
+
+
+export const getGetServerInfoQueryOptions = <TData = Awaited<ReturnType<typeof getServerInfo>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServerInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetServerInfoQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getServerInfo>>> = ({ signal }) => getServerInfo({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getServerInfo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetServerInfoQueryResult = NonNullable<Awaited<ReturnType<typeof getServerInfo>>>
+export type GetServerInfoQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Public server info (name and registration policy)
+ */
+
+export function useGetServerInfo<TData = Awaited<ReturnType<typeof getServerInfo>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServerInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetServerInfoQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetIceServersUrl = () => {
+
+
+
+
+  return `/api/ice-servers`
+}
+
+/**
+ * @summary WebRTC ICE servers (STUN/TURN) for authenticated peers. May include TURN credentials.
+ */
+export const getIceServers = async ( options?: RequestInit): Promise<IceServerList> => {
+
+  return customFetch<IceServerList>(getGetIceServersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetIceServersQueryKey = () => {
+    return [
+    `/api/ice-servers`
+    ] as const;
+    }
+
+
+export const getGetIceServersQueryOptions = <TData = Awaited<ReturnType<typeof getIceServers>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getIceServers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetIceServersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getIceServers>>> = ({ signal }) => getIceServers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getIceServers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetIceServersQueryResult = NonNullable<Awaited<ReturnType<typeof getIceServers>>>
+export type GetIceServersQueryError = ErrorType<void>
+
+
+/**
+ * @summary WebRTC ICE servers (STUN/TURN) for authenticated peers. May include TURN credentials.
+ */
+
+export function useGetIceServers<TData = Awaited<ReturnType<typeof getIceServers>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getIceServers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetIceServersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetServerConfigUrl = () => {
+
+
+
+
+  return `/api/admin/config`
+}
+
+/**
+ * @summary Get server configuration (admin only)
+ */
+export const getServerConfig = async ( options?: RequestInit): Promise<ServerConfigInfo> => {
+
+  return customFetch<ServerConfigInfo>(getGetServerConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetServerConfigQueryKey = () => {
+    return [
+    `/api/admin/config`
+    ] as const;
+    }
+
+
+export const getGetServerConfigQueryOptions = <TData = Awaited<ReturnType<typeof getServerConfig>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServerConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetServerConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getServerConfig>>> = ({ signal }) => getServerConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getServerConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetServerConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getServerConfig>>>
+export type GetServerConfigQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get server configuration (admin only)
+ */
+
+export function useGetServerConfig<TData = Awaited<ReturnType<typeof getServerConfig>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServerConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetServerConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListInvitesUrl = () => {
+
+
+
+
+  return `/api/admin/invites`
+}
+
+/**
+ * @summary List server invite keys (admin only)
+ */
+export const listInvites = async ( options?: RequestInit): Promise<ServerInvite[]> => {
+
+  return customFetch<ServerInvite[]>(getListInvitesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListInvitesQueryKey = () => {
+    return [
+    `/api/admin/invites`
+    ] as const;
+    }
+
+
+export const getListInvitesQueryOptions = <TData = Awaited<ReturnType<typeof listInvites>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listInvites>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListInvitesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listInvites>>> = ({ signal }) => listInvites({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listInvites>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListInvitesQueryResult = NonNullable<Awaited<ReturnType<typeof listInvites>>>
+export type ListInvitesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List server invite keys (admin only)
+ */
+
+export function useListInvites<TData = Awaited<ReturnType<typeof listInvites>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listInvites>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListInvitesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateInviteUrl = () => {
+
+
+
+
+  return `/api/admin/invites`
+}
+
+/**
+ * @summary Create a server invite key (admin only)
+ */
+export const createInvite = async (createInviteInput: CreateInviteInput, options?: RequestInit): Promise<ServerInvite> => {
+
+  return customFetch<ServerInvite>(getCreateInviteUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createInviteInput,)
+  }
+);}
+
+
+
+
+export const getCreateInviteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createInvite>>, TError,{data: BodyType<CreateInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createInvite>>, TError,{data: BodyType<CreateInviteInput>}, TContext> => {
+
+const mutationKey = ['createInvite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createInvite>>, {data: BodyType<CreateInviteInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createInvite(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateInviteMutationResult = NonNullable<Awaited<ReturnType<typeof createInvite>>>
+    export type CreateInviteMutationBody = BodyType<CreateInviteInput>
+    export type CreateInviteMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a server invite key (admin only)
+ */
+export const useCreateInvite = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createInvite>>, TError,{data: BodyType<CreateInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createInvite>>,
+        TError,
+        {data: BodyType<CreateInviteInput>},
+        TContext
+      > => {
+      return useMutation(getCreateInviteMutationOptions(options));
+    }
+
+export const getRevokeInviteUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/invites/${id}`
+}
+
+/**
+ * @summary Revoke a server invite key (admin only)
+ */
+export const revokeInvite = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getRevokeInviteUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRevokeInviteMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeInvite>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeInvite>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['revokeInvite'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeInvite>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokeInvite(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeInviteMutationResult = NonNullable<Awaited<ReturnType<typeof revokeInvite>>>
+
+    export type RevokeInviteMutationError = ErrorType<void>
+
+    /**
+ * @summary Revoke a server invite key (admin only)
+ */
+export const useRevokeInvite = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeInvite>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeInvite>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRevokeInviteMutationOptions(options));
     }
 
 export const getGetMeUrl = () => {

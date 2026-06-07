@@ -1,0 +1,60 @@
+# ScreenCrew — self-hosted stack.
+#
+# Default: a single ScreenCrew container using SQLite + local-disk storage,
+# persisted to a named volume. This is the simplest way to run a permanent
+# community server.
+#
+#   docker compose up -d --build
+#
+# Then open http://<your-server-ip>:8080.
+#
+# To run against Postgres instead of SQLite, uncomment the `db` service and the
+# Postgres environment block on the `screencrew` service below.
+
+services:
+  screencrew:
+    build:
+      context: .
+      dockerfile: artifacts/api-server/Dockerfile
+    image: screencrew
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - screencrew-data:/data
+      # Optional: mount a config file (see screencrew.config.example.json).
+      # - ./screencrew.config.json:/app/screencrew.config.json:ro
+    environment:
+      # Always set a real secret in production:
+      #   SESSION_SECRET=$(openssl rand -hex 32) docker compose up -d
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      SERVER_NAME: ${SERVER_NAME:-ScreenCrew Server}
+      # --- SQLite (default) ---
+      DB_DRIVER: sqlite
+      SQLITE_PATH: /data/screencrew.db
+      # --- Postgres (uncomment to use the db service below) ---
+      # DB_DRIVER: postgres
+      # DATABASE_URL: postgres://screencrew:screencrew@db:5432/screencrew
+    # depends_on:
+    #   db:
+    #     condition: service_healthy
+
+  # Uncomment to run a bundled Postgres instead of SQLite.
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: screencrew
+  #     POSTGRES_PASSWORD: screencrew
+  #     POSTGRES_DB: screencrew
+  #   volumes:
+  #     - screencrew-db:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U screencrew"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+
+volumes:
+  screencrew-data:
+  # screencrew-db:

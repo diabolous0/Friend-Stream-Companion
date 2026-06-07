@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ScreenCrew</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0a0e0f;
+        color: #5eead4;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Fallback page. The native shell (src-tauri/src/main.rs) navigates the
+      window straight to the configured ScreenCrew server (SCREENCREW_URL), so
+      this is only shown if that navigation has not happened yet.
+    -->
+    <p>Connecting to ScreenCrew…</p>
+  </body>
+</html>

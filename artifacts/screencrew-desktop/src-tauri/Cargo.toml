@@ -1,0 +1,15 @@
+[package]
+name = "screencrew-desktop"
+version = "0.1.0"
+description = "ScreenCrew desktop tray shell"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

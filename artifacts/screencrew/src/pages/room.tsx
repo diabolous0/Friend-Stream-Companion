@@ -24,6 +24,7 @@ import {
   useSendFriendRequest, useAcceptFriendRequest, useDeclineFriendRequest, useRemoveFriend,
   useListBlocks, getListBlocksQueryKey, useBlockUser, useUnblockUser,
   useListBots, getListBotsQueryKey, useCreateBot, useDeleteBot,
+  useGetIceServers,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -582,6 +583,8 @@ export default function Room() {
   }, [playEvent]);
 
   // ─── WebRTC ────────────────────────────────────────────────────────────────
+  const { data: iceData } = useGetIceServers();
+  const iceServers = iceData?.iceServers as RTCIceServer[] | undefined;
   const {
     remoteStreams, remoteAudioStreams,
     isSharing, isInVoice,
@@ -595,6 +598,7 @@ export default function Room() {
     (msg) => sendRef.current?.(msg),
     () => { isSharingRef.current = true; sendRef.current?.({ type: "presence", speaking: false, streaming: true, inVoice: isInVoice }); },
     () => { isSharingRef.current = false; sendRef.current?.({ type: "presence", speaking: false, streaming: false, inVoice: isInVoice }); },
+    iceServers,
   );
 
   // ─── WebSocket ─────────────────────────────────────────────────────────────
@@ -1625,6 +1629,11 @@ export default function Room() {
                 <MonitorUp className="w-3.5 h-3.5 text-primary" />
               </div>
               <span className="text-sm font-semibold text-foreground truncate">{room.name}</span>
+              {room.ephemeral && (
+                <span className="flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400/80 text-[10px] font-mono uppercase tracking-wider" title="Temporary room — auto-deleted after inactivity">
+                  <Clock className="w-2.5 h-2.5" /> Temp
+                </span>
+              )}
               <div className={`w-2 h-2 rounded-full shrink-0 transition-colors ${isConnected ? "bg-green-400 shadow-[0_0_5px_#4ade80]" : "bg-muted-foreground/30"}`} />
             </div>
             <div className="flex items-center gap-1.5 shrink-0">

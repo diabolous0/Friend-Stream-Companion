@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable, roomBansTable, roleAtLeast } from "@workspace/db";
-import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt, ilike } from "drizzle-orm";
+import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt, sql } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
+import { config } from "../lib/config";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms, evictUserFromRoom, revalidateMemberChannelAccess } from "../lib/signaling";
@@ -194,9 +195,22 @@ router.post("/rooms", requireAuth, async (req, res): Promise<void> => {
   }
 
   const inviteCode = generateInviteCode();
+  const ephemeral = parsed.data.ephemeral ?? config.ephemeralRooms;
+  const now = new Date();
+  const expiresAt = ephemeral
+    ? new Date(now.getTime() + config.roomTtlHours * 60 * 60 * 1000)
+    : null;
   const [room] = await db
     .insert(roomsTable)
-    .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId!, isPrivate: parsed.data.isPrivate ?? true })
+    .values({
+      name: parsed.data.name,
+      inviteCode,
+      createdBy: authReq.userId!,
+      isPrivate: parsed.data.isPrivate ?? true,
+      ephemeral,
+      lastActivityAt: now,
+      expiresAt,
+    })
     .returning();
 
   await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active", role: "owner" });
@@ -567,9 +581,15 @@ router.get("/rooms/:roomId/messages/search", requireAuth, async (req, res): Prom
   const channelIdParam = req.query.channelId ? parseInt(req.query.channelId as string, 10) : undefined;
   const isStaff = isStaffRole(membership.role);
 
-  // Escape LIKE wildcards so user input is treated literally.
+  // Escape LIKE wildcards so user input is treated literally. Use lower(...) LIKE
+  // for case-insensitive search that works on both Postgres and SQLite (Postgres
+  // has ILIKE but SQLite does not).
   const escaped = q.replace(/[\\%_]/g, (c) => `\\${c}`);
-  const conditions = [eq(messagesTable.roomId, roomId), ilike(messagesTable.content, `%${escaped}%`)];
+  const pattern = `%${escaped.toLowerCase()}%`;
+  const conditions = [
+    eq(messagesTable.roomId, roomId),
+    sql`lower(${messagesTable.content}) LIKE ${pattern} ESCAPE '\\'`,
+  ];
 
   if (channelIdParam && !isNaN(channelIdParam)) {
     const [ch] = await db
@@ -724,6 +744,18 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
     .insert(messagesTable)
     .values({ roomId, channelId, userId: authReq.userId!, content, replyToId })
     .returning();
+
+  // Keep ephemeral rooms alive while they are in active use. Two dialect-safe
+  // updates (Date values go through drizzle's column mapping, unlike raw sql``).
+  const activityAt = new Date();
+  await db
+    .update(roomsTable)
+    .set({ lastActivityAt: activityAt })
+    .where(eq(roomsTable.id, roomId));
+  await db
+    .update(roomsTable)
+    .set({ expiresAt: new Date(activityAt.getTime() + config.roomTtlHours * 60 * 60 * 1000) })
+    .where(and(eq(roomsTable.id, roomId), eq(roomsTable.ephemeral, true)));
 
   const [user] = await db
     .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle, isBot: usersTable.isBot })
