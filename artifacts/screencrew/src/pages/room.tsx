@@ -32,7 +32,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   MonitorUp, Mic, MicOff, Phone, PhoneOff, Headphones, HeadphoneOff,
-  Plus, Bell, VolumeX, Volume2,
+  Plus, Bell, BellOff, BellRing, AtSign, VolumeX, Volume2,
   Pin, PinOff, X, Settings, Search,
   Users, MessageSquare, Pencil, Trash2, Smile,
   Copy, Check, Share2, ChevronLeft, ExternalLink, Maximize2,
@@ -46,7 +46,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
 import { buildAudioConstraints, buildDisplayConstraints, VIDEO_QUALITY_LABELS } from "@/lib/media";
-import type { VideoQuality } from "@/lib/settings";
+import type { VideoQuality, NotifyLevel } from "@/lib/settings";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
@@ -307,6 +307,20 @@ export default function Room() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const notifPermRef = useRef<NotificationPermission>("default");
 
+  // Resolve whether an incoming chat message should ping (sound + browser notification).
+  // Channel-level setting overrides room-level; "Do not disturb" status mutes everything.
+  // Assigned during render (not in an effect) so a message arriving immediately after a
+  // settings/status change is gated by the latest preferences, not a stale snapshot.
+  const shouldNotifyRef = useRef<(channelId: number | null, mentioned: boolean) => boolean>(() => true);
+  shouldNotifyRef.current = (channelId, mentioned) => {
+    if (settings.myStatus === "dnd") return false;
+    const chLevel = channelId != null ? settings.channelNotify[String(channelId)] : undefined;
+    const level = chLevel ?? settings.roomNotify[String(roomId)] ?? "all";
+    if (level === "none") return false;
+    if (level === "mentions") return mentioned;
+    return true;
+  };
+
   const [showSettings, setShowSettings] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -345,6 +359,7 @@ export default function Room() {
   const [showNotes, setShowNotes] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
   const [showPending, setShowPending] = useState(false);
+  const [showNotif, setShowNotif] = useState(false);
   const [gifReactionFor, setGifReactionFor] = useState<number | null>(null);
   const [connHealth, setConnHealth] = useState<Record<number, "good" | "ok" | "poor">>({});
   const [pttActive, setPttActive] = useState(false);
@@ -544,11 +559,13 @@ export default function Room() {
       setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
       if (msg.userId !== me?.id) {
         const mentioned = me?.username ? containsMention(msg.content, me.username) : false;
-        playForUser(msg.userId, mentioned ? "mention" : "message");
-        if (notifPermRef.current === "granted" && (document.visibilityState === "hidden" || mentioned)) {
-          new Notification(mentioned ? `${msg.username} mentioned you` : msg.username, {
-            body: msg.content, tag: `screencrew-room-${roomId}`, silent: !mentioned,
-          });
+        if (shouldNotifyRef.current(msg.channelId ?? null, mentioned)) {
+          playForUser(msg.userId, mentioned ? "mention" : "message");
+          if (notifPermRef.current === "granted" && (document.visibilityState === "hidden" || mentioned)) {
+            new Notification(mentioned ? `${msg.username} mentioned you` : msg.username, {
+              body: msg.content, tag: `screencrew-room-${roomId}`, silent: !mentioned,
+            });
+          }
         }
       }
     },
@@ -1661,6 +1678,21 @@ export default function Room() {
                     <span className="text-sm truncate flex-1">{ch.name}</span>
                     {ch.isPrivate && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
                     {voiceCount > 0 && <span className="text-[10px] text-violet-400/70 shrink-0">{voiceCount}</span>}
+                    {ch.type !== "voice" && (() => {
+                      const muted = settings.channelNotify[String(ch.id)] === "none";
+                      return (
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          const next = { ...settings.channelNotify };
+                          if (muted) delete next[String(ch.id)]; else next[String(ch.id)] = "none";
+                          setSetting("channelNotify", next);
+                        }}
+                          title={muted ? "Unmute channel" : "Mute channel"}
+                          className={`p-0.5 rounded shrink-0 transition-opacity ${muted ? "text-red-400/70 hover:text-red-400" : "text-muted-foreground/50 hover:text-foreground opacity-0 group-hover:opacity-100"}`}>
+                          {muted ? <BellOff className="w-3 h-3" /> : <Bell className="w-3 h-3" />}
+                        </button>
+                      );
+                    })()}
                     {isStaff && (
                       <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         <button onClick={(e) => { e.stopPropagation(); handleToggleChannelPrivate(ch); }}
@@ -1773,11 +1805,19 @@ export default function Room() {
                 className={`p-1 rounded-md transition-colors ${isInVoice ? "text-violet-400 animate-pulse" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 {isInVoice ? <PhoneOff className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={notifPermission === "default" ? requestNotifPermission : undefined}
-                title={notifPermission === "granted" ? "Notifications on" : "Enable notifications"}
-                className={`p-1 rounded-md transition-colors ${notifPermission === "granted" ? "text-primary/60" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
-                <Bell className="w-3.5 h-3.5" />
-              </button>
+              {(() => {
+                const chLvl = activeChannelId != null ? settings.channelNotify[String(activeChannelId)] : undefined;
+                const lvl: NotifyLevel = settings.myStatus === "dnd" ? "none" : (chLvl ?? settings.roomNotify[String(roomId)] ?? "all");
+                const NotifIcon = lvl === "none" ? BellOff : lvl === "mentions" ? AtSign : Bell;
+                const muted = lvl === "none";
+                return (
+                  <button onClick={() => { setShowNotif(s => !s); setShowActivityEdit(false); setShowSoundboard(false); }}
+                    title="Notifications"
+                    className={`p-1 rounded-md transition-colors ${showNotif ? "text-primary/80" : muted ? "text-red-400/70 hover:text-red-400" : lvl === "mentions" ? "text-amber-400/70 hover:text-amber-300" : notifPermission === "granted" ? "text-primary/60" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                    <NotifIcon className="w-3.5 h-3.5" />
+                  </button>
+                );
+              })()}
               <button onClick={() => { setShowActivityEdit(s => !s); setShowSoundboard(false); }} title="Set activity"
                 className={`p-1 rounded-md transition-colors ${showActivityEdit || activityInput ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                 <BarChart3 className="w-3.5 h-3.5" />
@@ -1799,6 +1839,42 @@ export default function Room() {
               </button>
             </div>
           </div>
+
+          {/* Notification settings */}
+          {showNotif && (
+            <div className="mb-2.5 rounded-lg bg-muted/20 border border-border/30 p-2 space-y-2">
+              {notifPermission !== "granted" && (
+                <button onClick={requestNotifPermission}
+                  className="w-full flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 transition-colors">
+                  <BellRing className="w-3 h-3 shrink-0" /> Enable browser notifications
+                </button>
+              )}
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground/50 mb-1">This server</div>
+                <div className="flex gap-1">
+                  {([
+                    { v: "all" as NotifyLevel, label: "All", Icon: Bell },
+                    { v: "mentions" as NotifyLevel, label: "@Mentions", Icon: AtSign },
+                    { v: "none" as NotifyLevel, label: "Mute", Icon: BellOff },
+                  ]).map(({ v, label, Icon }) => {
+                    const cur = settings.roomNotify[String(roomId)] ?? "all";
+                    const on = cur === v;
+                    return (
+                      <button key={v}
+                        onClick={() => setSetting("roomNotify", { ...settings.roomNotify, [String(roomId)]: v })}
+                        className={`flex-1 flex items-center justify-center gap-1 text-[10px] rounded-md border py-1 transition-colors ${on ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/20 border-border/30 text-muted-foreground/60 hover:text-foreground"}`}>
+                        <Icon className="w-3 h-3" /> {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button onClick={() => setMyStatus(settings.myStatus === "dnd" ? "online" : "dnd", settings.myStatusMessage)}
+                className={`w-full flex items-center gap-1.5 text-[11px] rounded-md border py-1 px-1.5 transition-colors ${settings.myStatus === "dnd" ? "bg-red-400/15 border-red-400/40 text-red-400" : "bg-muted/20 border-border/30 text-muted-foreground/60 hover:text-foreground"}`}>
+                <BellOff className="w-3 h-3 shrink-0" /> Do not disturb {settings.myStatus === "dnd" ? "(on)" : "(off)"}
+              </button>
+            </div>
+          )}
 
           {/* Activity tag input */}
           {showActivityEdit && (

@@ -13,6 +13,7 @@ export type VideoCodec = "auto" | "VP9" | "VP8" | "H264" | "AV1";
 // Custom UI builder
 export type WindowStyle = "smooth" | "squared";
 export type UserStatus = "online" | "away" | "dnd";
+export type NotifyLevel = "all" | "mentions" | "none";
 
 export const FONT_OPTIONS: { id: string; label: string; stack: string }[] = [
   { id: "space-mono", label: "Space Mono",  stack: "'Space Mono', monospace" },
@@ -153,6 +154,10 @@ export interface AppSettings {
   eventSounds: EventSounds;
   userSounds: Record<string, string>;  // userId -> soundId
 
+  // Notification routing
+  roomNotify: Record<string, NotifyLevel>;     // roomId -> level (default "all")
+  channelNotify: Record<string, NotifyLevel>;  // channelId -> level (overrides room)
+
   // Status
   myStatus: UserStatus;
   myStatusMessage: string;
@@ -229,6 +234,8 @@ const DEFAULT: AppSettings = {
   customSounds: [],
   eventSounds: { message: "beep", mention: "chime", reaction: "pop", join: "join", leave: "leave", knock: "knock" },
   userSounds: {},
+  roomNotify: {},
+  channelNotify: {},
   myStatus: "online",
   myStatusMessage: "",
   fontSize: "md",
