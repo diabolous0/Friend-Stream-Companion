@@ -4,7 +4,9 @@ import { avatarSrc, displayNameOf } from "@/lib/avatar";
 import { useSettings, BUILTIN_SOUNDS, type UserStatus } from "@/lib/settings";
 import { useSounds } from "@/hooks/use-sounds";
 import { PixelAvatar } from "@/components/pixel-avatar";
-import { Gamepad2, Circle, Play, Volume2, VolumeX, Star } from "lucide-react";
+import { Gamepad2, Circle, Play, Volume2, VolumeX, Star, UserPlus, UserMinus, Ban, Check, Clock, Bot } from "lucide-react";
+
+export type FriendState = "none" | "pending_out" | "pending_in" | "friends";
 
 function safeHref(url?: string | null): string | null {
   if (!url) return null;
@@ -92,10 +94,14 @@ function UserSoundControl({ userId }: { userId: number }) {
   );
 }
 
-export function ProfileHoverCard({ user, square, enableUserSound, children, volume, muted, onVolumeChange, onMuteToggle, watched, onWatchToggle }: {
+export function ProfileHoverCard({ user, square, enableUserSound, children, volume, muted, onVolumeChange, onMuteToggle, watched, onWatchToggle, isBot, friendState, blocked, onAddFriend, onAcceptFriend, onRemoveFriend, onBlock, onUnblock }: {
   user: ProfileInfo; square?: boolean; enableUserSound?: boolean; children: React.ReactNode;
   volume?: number; muted?: boolean; onVolumeChange?: (v: number) => void; onMuteToggle?: () => void;
   watched?: boolean; onWatchToggle?: () => void;
+  isBot?: boolean;
+  friendState?: FriendState; blocked?: boolean;
+  onAddFriend?: () => void; onAcceptFriend?: () => void; onRemoveFriend?: () => void;
+  onBlock?: () => void; onUnblock?: () => void;
 }) {
   const status: UserStatus = user.online === false ? "away" : (user.status ?? "online");
   const meta = user.online === false
@@ -179,7 +185,64 @@ export function ProfileHoverCard({ user, square, enableUserSound, children, volu
             </button>
           )}
 
-          {enableUserSound && !user.isMe && <UserSoundControl userId={user.userId} />}
+          {isBot && (
+            <div className="mt-3 pt-3 border-t border-border/40 flex items-center gap-1.5 text-xs text-cyan-400">
+              <Bot className="w-3.5 h-3.5" />
+              <span className="font-medium">Bot account</span>
+            </div>
+          )}
+
+          {!user.isMe && !isBot && (onAddFriend || onBlock || onUnblock) && (
+            <div className="mt-3 pt-3 border-t border-border/40 space-y-1.5">
+              {blocked ? (
+                <button onClick={onUnblock}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-red-400/40 bg-red-400/10 text-red-400 hover:bg-red-400/20 transition-colors">
+                  <Ban className="w-3.5 h-3.5" /> Unblock
+                </button>
+              ) : (
+                <>
+                  {friendState === "friends" && (
+                    <button onClick={onRemoveFriend}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors">
+                      <UserMinus className="w-3.5 h-3.5" /> Remove friend
+                    </button>
+                  )}
+                  {friendState === "pending_out" && (
+                    <button onClick={onRemoveFriend}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors">
+                      <Clock className="w-3.5 h-3.5" /> Cancel request
+                    </button>
+                  )}
+                  {friendState === "pending_in" && (
+                    <div className="flex gap-1.5">
+                      <button onClick={onAcceptFriend}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-green-400/40 bg-green-400/10 text-green-400 hover:bg-green-400/20 transition-colors">
+                        <Check className="w-3.5 h-3.5" /> Accept
+                      </button>
+                      <button onClick={onRemoveFriend}
+                        className="flex-1 flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors">
+                        Decline
+                      </button>
+                    </div>
+                  )}
+                  {(friendState === "none" || friendState === undefined) && onAddFriend && (
+                    <button onClick={onAddFriend}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+                      <UserPlus className="w-3.5 h-3.5" /> Add friend
+                    </button>
+                  )}
+                  {onBlock && (
+                    <button onClick={onBlock}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs rounded-lg py-1.5 border border-border/40 text-muted-foreground/60 hover:text-red-400 hover:border-red-400/40 transition-colors">
+                      <Ban className="w-3.5 h-3.5" /> Block
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {enableUserSound && !user.isMe && !isBot && <UserSoundControl userId={user.userId} />}
         </div>
       </HoverCardContent>
     </HoverCard>

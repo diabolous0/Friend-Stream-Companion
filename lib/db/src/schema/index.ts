@@ -3,3 +3,6 @@ export * from "./rooms";
 export * from "./messages";
 export * from "./channels";
 export * from "./roomBans";
+export * from "./friendships";
+export * from "./blocks";
+export * from "./bots";

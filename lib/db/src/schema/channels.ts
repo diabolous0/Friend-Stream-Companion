@@ -13,6 +13,8 @@ export const channelsTable = pgTable("channels", {
   type: text("type").notNull().default("text"),
   position: integer("position").notNull().default(0),
   isPrivate: boolean("is_private").notNull().default(false),
+  minViewRole: text("min_view_role").notNull().default("member"),
+  minSendRole: text("min_send_role").notNull().default("member"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

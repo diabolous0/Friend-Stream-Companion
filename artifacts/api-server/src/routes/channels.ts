@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
-import { db, roomMembersTable, channelsTable, messagesTable, CHANNEL_TYPES } from "@workspace/db";
+import { db, roomMembersTable, channelsTable, messagesTable, CHANNEL_TYPES, ROOM_ROLES, roleAtLeast } from "@workspace/db";
 import { eq, and, max } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateChannelBody, UpdateChannelBody, UpdateMemberRoleBody } from "@workspace/api-zod";
-import { broadcastToRoom } from "../lib/signaling";
+import { broadcastToRoom, revalidateChannelAccess } from "../lib/signaling";
 
 const router: IRouter = Router();
 
@@ -42,7 +42,9 @@ router.get("/rooms/:roomId/channels", requireAuth, async (req, res): Promise<voi
     .orderBy(channelsTable.position, channelsTable.id);
 
   const staff = isStaffRole(membership.role);
-  res.json(channels.filter((c) => staff || !c.isPrivate));
+  res.json(channels.filter((c) =>
+    (staff || !c.isPrivate) && roleAtLeast(membership.role, c.minViewRole),
+  ));
 });
 
 router.post("/rooms/:roomId/channels", requireAuth, async (req, res): Promise<void> => {
@@ -61,6 +63,9 @@ router.post("/rooms/:roomId/channels", requireAuth, async (req, res): Promise<vo
   if (!name) { res.status(400).json({ error: "Name cannot be empty" }); return; }
   const type = parsed.data.type ?? "text";
   if (!CHANNEL_TYPES.includes(type)) { res.status(400).json({ error: "Invalid channel type" }); return; }
+  const minViewRole = parsed.data.minViewRole ?? "member";
+  const minSendRole = parsed.data.minSendRole ?? "member";
+  if (!ROOM_ROLES.includes(minViewRole) || !ROOM_ROLES.includes(minSendRole)) { res.status(400).json({ error: "Invalid role" }); return; }
 
   const [{ value }] = await db
     .select({ value: max(channelsTable.position) })
@@ -70,7 +75,7 @@ router.post("/rooms/:roomId/channels", requireAuth, async (req, res): Promise<vo
 
   const [channel] = await db
     .insert(channelsTable)
-    .values({ roomId, name, type, isPrivate: parsed.data.isPrivate ?? false, position })
+    .values({ roomId, name, type, isPrivate: parsed.data.isPrivate ?? false, minViewRole, minSendRole, position })
     .returning();
 
   broadcastToRoom(roomId, { type: "channels_updated", roomId });
@@ -109,6 +114,14 @@ router.patch("/rooms/:roomId/channels/:channelId", requireAuth, async (req, res)
   }
   if (data.isPrivate !== undefined) updates.isPrivate = data.isPrivate;
   if (data.position !== undefined) updates.position = data.position;
+  if (data.minViewRole !== undefined) {
+    if (!ROOM_ROLES.includes(data.minViewRole)) { res.status(400).json({ error: "Invalid role" }); return; }
+    updates.minViewRole = data.minViewRole;
+  }
+  if (data.minSendRole !== undefined) {
+    if (!ROOM_ROLES.includes(data.minSendRole)) { res.status(400).json({ error: "Invalid role" }); return; }
+    updates.minSendRole = data.minSendRole;
+  }
 
   if (Object.keys(updates).length === 0) { res.status(400).json({ error: "No fields to update" }); return; }
 
@@ -119,6 +132,10 @@ router.patch("/rooms/:roomId/channels/:channelId", requireAuth, async (req, res)
     .returning();
 
   broadcastToRoom(roomId, { type: "channels_updated", roomId });
+  // Tightened minViewRole/isPrivate may revoke access for currently-joined clients — evict them.
+  if (data.minViewRole !== undefined || data.isPrivate !== undefined) {
+    await revalidateChannelAccess(channelId);
+  }
   res.json(updated);
 });
 

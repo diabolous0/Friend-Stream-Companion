@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -13,6 +13,7 @@ export const usersTable = pgTable("users", {
   avatarUrl: text("avatar_url"),
   nameColor: text("name_color"),
   avatarStyle: text("avatar_style"),
+  isBot: boolean("is_bot").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -31,6 +31,13 @@ export const roomMembersTable = pgTable("room_members", {
 export const ROOM_ROLES = ["owner", "mod", "member"] as const;
 export type RoomRole = (typeof ROOM_ROLES)[number];
 
+export const ROOM_ROLE_RANK: Record<string, number> = { owner: 3, mod: 2, member: 1 };
+
+/** True if `role` is at least as privileged as `required`. Unknown roles rank lowest. */
+export function roleAtLeast(role: string | null | undefined, required: string): boolean {
+  return (ROOM_ROLE_RANK[role ?? ""] ?? 0) >= (ROOM_ROLE_RANK[required] ?? 0);
+}
+
 export const insertRoomSchema = createInsertSchema(roomsTable).omit({ id: true, createdAt: true });
 export type InsertRoom = z.infer<typeof insertRoomSchema>;
 export type Room = typeof roomsTable.$inferSelect;

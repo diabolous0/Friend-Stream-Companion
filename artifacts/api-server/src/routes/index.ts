@@ -7,6 +7,9 @@ import channelsRouter from "./channels";
 import storageRouter from "./storage";
 import giphyRouter from "./giphy";
 import linkPreviewRouter from "./linkPreview";
+import friendsRouter from "./friends";
+import blocksRouter from "./blocks";
+import botsRouter from "./bots";
 
 const router: IRouter = Router();
 
@@ -18,5 +21,8 @@ router.use(channelsRouter);
 router.use(storageRouter);
 router.use(giphyRouter);
 router.use(linkPreviewRouter);
+router.use(friendsRouter);
+router.use(blocksRouter);
+router.use(botsRouter);
 
 export default router;

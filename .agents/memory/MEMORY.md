@@ -1,4 +1,5 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Channel permissions & bots](channel-permissions-and-bots.md) — enforce role/channel access on EVERY read+write path (incl. WS join_channel); bot/webhook messages need a concrete channelId or they render invisible.
 - [WS access-control eviction](ws-access-control-eviction.md) — kick/ban must evict live WebSocket sessions, not just delete DB membership + notify; clients can ignore the notice.
 - [Notification gate ref freshness](notify-gate-ref.md) — refs mirroring render state consumed by WS/event callbacks must be assigned during render, not in useEffect, or you get a one-message race.
 - [Browser WebRTC perf limits](browser-webrtc-perf-limits.md) — which perf goals are real JS knobs (quality, bitrate, reconnect, reduce-motion) vs only hint-able (hardware encoding, fullscreen priority).

@@ -19,6 +19,11 @@ import {
   useUpdateMemberRole,
   useDenyMember, useRemoveMember, useBanMember, useUnbanMember,
   useGetBans, getGetBansQueryKey,
+  useListFriends, getListFriendsQueryKey,
+  useListFriendRequests, getListFriendRequestsQueryKey,
+  useSendFriendRequest, useAcceptFriendRequest, useDeclineFriendRequest, useRemoveFriend,
+  useListBlocks, getListBlocksQueryKey, useBlockUser, useUnblockUser,
+  useListBots, getListBotsQueryKey, useCreateBot, useDeleteBot,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -41,7 +46,7 @@ import {
   Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
   PictureInPicture2, LayoutGrid, Gauge, Eye,
   Hash, Image as ImageIcon, Shield, ShieldCheck, Crown,
-  UserMinus, Ban,
+  UserMinus, Ban, Bot,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
@@ -273,6 +278,72 @@ export default function Room() {
   const banMemberMutation = useBanMember();
   const unbanMemberMutation = useUnbanMember();
 
+  // ─── Friends / blocks / bots ─────────────────────────────────────────────────
+  const { data: friends } = useListFriends({ query: { queryKey: getListFriendsQueryKey() } });
+  const { data: friendRequests } = useListFriendRequests({ query: { queryKey: getListFriendRequestsQueryKey() } });
+  const { data: blocks } = useListBlocks({ query: { queryKey: getListBlocksQueryKey() } });
+  const { data: roomBots } = useListBots(roomId, { query: { enabled: !!roomId && isStaff, queryKey: getListBotsQueryKey(roomId) } });
+
+  const sendFriendRequestMutation = useSendFriendRequest();
+  const acceptFriendRequestMutation = useAcceptFriendRequest();
+  const declineFriendRequestMutation = useDeclineFriendRequest();
+  const removeFriendMutation = useRemoveFriend();
+  const blockUserMutation = useBlockUser();
+  const unblockUserMutation = useUnblockUser();
+  const createBotMutation = useCreateBot();
+  const deleteBotMutation = useDeleteBot();
+
+  const blockedIds = useMemo(() => new Set((blocks ?? []).map((b: any) => b.id)), [blocks]);
+  const friendIds = useMemo(() => new Set((friends ?? []).map((f: any) => f.id)), [friends]);
+  const incomingReqByUser = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of (friendRequests?.incoming ?? [])) m.set(r.user.id, r.id);
+    return m;
+  }, [friendRequests]);
+  const outgoingReqUsers = useMemo(() => new Set((friendRequests?.outgoing ?? []).map((r: any) => r.user.id)), [friendRequests]);
+
+  const friendStateOf = useCallback((userId: number) => {
+    if (friendIds.has(userId)) return "friends" as const;
+    if (incomingReqByUser.has(userId)) return "pending_in" as const;
+    if (outgoingReqUsers.has(userId)) return "pending_out" as const;
+    return "none" as const;
+  }, [friendIds, incomingReqByUser, outgoingReqUsers]);
+
+  const invalidateFriends = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getListFriendsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListFriendRequestsQueryKey() });
+  }, [queryClient]);
+
+  const handleAddFriend = useCallback((username: string) => {
+    sendFriendRequestMutation.mutate({ data: { username } }, {
+      onSuccess: () => { invalidateFriends(); toast({ title: "Friend request sent" }); },
+      onError: (err: any) => toast({ title: "Couldn't send request", description: err?.message, variant: "destructive" }),
+    });
+  }, [sendFriendRequestMutation, invalidateFriends, toast]);
+
+  const handleAcceptFriend = useCallback((requestId: number) => {
+    acceptFriendRequestMutation.mutate({ id: requestId }, { onSuccess: invalidateFriends });
+  }, [acceptFriendRequestMutation, invalidateFriends]);
+
+  const handleDeclineFriend = useCallback((requestId: number) => {
+    declineFriendRequestMutation.mutate({ id: requestId }, { onSuccess: invalidateFriends });
+  }, [declineFriendRequestMutation, invalidateFriends]);
+
+  const handleRemoveFriend = useCallback((userId: number) => {
+    removeFriendMutation.mutate({ userId }, { onSuccess: invalidateFriends });
+  }, [removeFriendMutation, invalidateFriends]);
+
+  const handleBlockUser = useCallback((userId: number) => {
+    blockUserMutation.mutate({ data: { userId } }, {
+      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListBlocksQueryKey() }); invalidateFriends(); },
+      onError: (err: any) => toast({ title: "Couldn't block", description: err?.message, variant: "destructive" }),
+    });
+  }, [blockUserMutation, queryClient, invalidateFriends, toast]);
+
+  const handleUnblockUser = useCallback((userId: number) => {
+    unblockUserMutation.mutate({ userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListBlocksQueryKey() }) });
+  }, [unblockUserMutation, queryClient]);
+
   // ─── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
   const [presence, setPresence] = useState<Record<number, any>>({});
@@ -292,6 +363,12 @@ export default function Room() {
   const [editingChannelId, setEditingChannelId] = useState<number | null>(null);
   const [editChannelName, setEditChannelName] = useState("");
   const [showRoles, setShowRoles] = useState(false);
+  const [newChannelMinView, setNewChannelMinView] = useState<"member" | "mod" | "owner">("member");
+  const [newChannelMinSend, setNewChannelMinSend] = useState<"member" | "mod" | "owner">("member");
+  const [permChannelId, setPermChannelId] = useState<number | null>(null);
+  const [showBots, setShowBots] = useState(false);
+  const [newBotName, setNewBotName] = useState("");
+  const [createdBot, setCreatedBot] = useState<{ name: string; token: string; webhookUrl: string } | null>(null);
 
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -618,6 +695,13 @@ export default function Room() {
     onChannelsUpdated: (rid) => {
       if (rid !== roomId) return;
       queryClient.invalidateQueries({ queryKey: getGetChannelsQueryKey(roomId) });
+    },
+    onChannelAccessRevoked: () => {
+      // Server evicted us from the current channel (perms/role changed). Refetch the
+      // channel list (the gated channel will disappear) and drop to a viewable one.
+      queryClient.invalidateQueries({ queryKey: getGetChannelsQueryKey(roomId) });
+      setActiveChannelId(null);
+      toast({ title: "Channel access changed", description: "You no longer have access to that channel." });
     },
     onRoleUpdated: (rid) => {
       if (rid !== roomId) return;
@@ -987,17 +1071,46 @@ export default function Room() {
     const name = newChannelName.trim();
     if (!name) return;
     createChannelMutation.mutate(
-      { roomId, data: { name, type: newChannelType, isPrivate: newChannelPrivate } },
+      { roomId, data: { name, type: newChannelType, isPrivate: newChannelPrivate, minViewRole: newChannelMinView, minSendRole: newChannelMinSend } },
       { onSuccess: (ch: any) => {
           invalidateChannels();
           setShowCreateChannel(false);
           setNewChannelName("");
           setNewChannelType("text");
           setNewChannelPrivate(false);
+          setNewChannelMinView("member");
+          setNewChannelMinSend("member");
           if (ch?.id) setActiveChannelId(ch.id);
         } },
     );
-  }, [roomId, newChannelName, newChannelType, newChannelPrivate, createChannelMutation, invalidateChannels]);
+  }, [roomId, newChannelName, newChannelType, newChannelPrivate, newChannelMinView, newChannelMinSend, createChannelMutation, invalidateChannels]);
+
+  const handleSetChannelRole = useCallback((channelId: number, field: "minViewRole" | "minSendRole", value: "member" | "mod" | "owner") => {
+    updateChannelMutation.mutate(
+      { roomId, channelId, data: { [field]: value } },
+      { onSuccess: invalidateChannels },
+    );
+  }, [roomId, updateChannelMutation, invalidateChannels]);
+
+  const handleCreateBot = useCallback(() => {
+    const name = newBotName.trim();
+    if (!name) return;
+    createBotMutation.mutate({ roomId, data: { name } }, {
+      onSuccess: (res: any) => {
+        queryClient.invalidateQueries({ queryKey: getListBotsQueryKey(roomId) });
+        setCreatedBot({ name, token: res.token, webhookUrl: res.webhookUrl });
+        setNewBotName("");
+      },
+      onError: (err: any) => toast({ title: "Couldn't create bot", description: err?.message, variant: "destructive" }),
+    });
+  }, [roomId, newBotName, createBotMutation, queryClient, toast]);
+
+  const handleDeleteBot = useCallback((botId: number) => {
+    if (!window.confirm("Delete this bot? Its webhook will stop working.")) return;
+    deleteBotMutation.mutate({ roomId, botId }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListBotsQueryKey(roomId) }),
+    });
+  }, [roomId, deleteBotMutation, queryClient]);
 
   const handleRenameChannel = useCallback((id: number) => {
     const name = editChannelName.trim();
@@ -1374,9 +1487,13 @@ export default function Room() {
   }, [pillPos, setSetting]);
 
   // ─── Derived ───────────────────────────────────────────────────────────────
+  const visibleMessages = useMemo(
+    () => messages.filter(m => m.userId === me?.id || !blockedIds.has(m.userId)),
+    [messages, blockedIds, me?.id],
+  );
   const filteredMessages = searchQuery.trim()
-    ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
-    : messages;
+    ? visibleMessages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
+    : visibleMessages;
 
   // Debounced server-side search across the full room history.
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -1563,6 +1680,12 @@ export default function Room() {
                 </button>
               )}
               {isStaff && (
+                <button onClick={() => setShowBots(s => !s)} title="Bots & webhooks"
+                  className={`p-1 rounded-md transition-colors ${showBots ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <Bot className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {isStaff && (
                 <button onClick={() => setShowCreateChannel(s => !s)} title="Create channel"
                   className={`p-1 rounded-md transition-colors ${showCreateChannel ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
                   <Plus className="w-3.5 h-3.5" />
@@ -1592,12 +1715,72 @@ export default function Room() {
                 <input type="checkbox" checked={newChannelPrivate} onChange={e => setNewChannelPrivate(e.target.checked)} className="accent-primary" />
                 <Lock className="w-3 h-3" /> Private (staff only)
               </label>
+              {newChannelType !== "voice" && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <label className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">View
+                    <select value={newChannelMinView} onChange={e => setNewChannelMinView(e.target.value as any)}
+                      className="mt-0.5 w-full text-[10px] bg-muted/30 border border-border/30 rounded-md px-1 py-0.5 text-foreground focus:outline-none">
+                      <option value="member">Members</option>
+                      <option value="mod">Mods+</option>
+                      <option value="owner">Owner only</option>
+                    </select>
+                  </label>
+                  <label className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">Post
+                    <select value={newChannelMinSend} onChange={e => setNewChannelMinSend(e.target.value as any)}
+                      className="mt-0.5 w-full text-[10px] bg-muted/30 border border-border/30 rounded-md px-1 py-0.5 text-foreground focus:outline-none">
+                      <option value="member">Members</option>
+                      <option value="mod">Mods+</option>
+                      <option value="owner">Owner only</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               <div className="flex items-center gap-1 justify-end">
                 <button onClick={() => { setShowCreateChannel(false); setNewChannelName(""); }}
                   className="text-[10px] px-2 py-0.5 rounded-md text-muted-foreground/60 hover:text-foreground">Cancel</button>
                 <button onClick={handleCreateChannel} disabled={!newChannelName.trim() || createChannelMutation.isPending}
                   className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-40">Create</button>
               </div>
+            </div>
+          )}
+
+          {showBots && isStaff && (
+            <div className="mb-2.5 space-y-2 bg-muted/20 border border-border/30 rounded-lg p-2">
+              <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest flex items-center gap-1"><Bot className="w-3 h-3" /> Bots & webhooks</p>
+              <div className="flex items-center gap-1">
+                <Input value={newBotName} onChange={e => setNewBotName(e.target.value.slice(0, 40))}
+                  onKeyDown={e => { if (e.key === "Enter") handleCreateBot(); }}
+                  placeholder="Bot name"
+                  className="h-7 rounded-md bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs" />
+                <button onClick={handleCreateBot} disabled={!newBotName.trim() || createBotMutation.isPending}
+                  className="text-[10px] font-semibold px-2 py-1 rounded-md bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-40 shrink-0">Add</button>
+              </div>
+              {createdBot && (
+                <div className="space-y-1 bg-background/60 border border-primary/30 rounded-md p-2">
+                  <p className="text-[10px] text-primary/80 font-semibold">{createdBot.name} created — copy the token now, it won't be shown again.</p>
+                  <div className="flex items-center gap-1">
+                    <code className="flex-1 truncate text-[9px] bg-muted/40 rounded px-1.5 py-1 text-foreground/80">{createdBot.token}</code>
+                    <button onClick={() => navigator.clipboard?.writeText(createdBot.token)} title="Copy token"
+                      className="p-1 rounded-md text-muted-foreground/60 hover:text-primary"><Copy className="w-3 h-3" /></button>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/60 break-all">POST {createdBot.webhookUrl} → {`{ token, content, channelId? }`}</p>
+                  <button onClick={() => setCreatedBot(null)} className="text-[9px] text-muted-foreground/50 hover:text-foreground">Dismiss</button>
+                </div>
+              )}
+              {(roomBots ?? []).length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/40">No bots yet.</p>
+              ) : (
+                (roomBots ?? []).map((b: any) => (
+                  <div key={b.id} className="flex items-center gap-2">
+                    <Bot className="w-3 h-3 text-cyan-400/70 shrink-0" />
+                    <span className="text-xs flex-1 truncate">{b.name}</span>
+                    <button onClick={() => handleDeleteBot(b.id)} disabled={deleteBotMutation.isPending}
+                      className="text-[10px] font-semibold rounded-md bg-destructive/15 hover:bg-destructive/25 text-destructive px-2 py-0.5 transition-colors disabled:opacity-40">
+                      Delete
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
@@ -1704,6 +1887,12 @@ export default function Room() {
                           title="Rename" className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
                           <Pencil className="w-3 h-3" />
                         </button>
+                        {ch.type !== "voice" && (
+                          <button onClick={(e) => { e.stopPropagation(); setPermChannelId(p => p === ch.id ? null : ch.id); }}
+                            title="Permissions" className={`p-0.5 rounded hover:text-foreground ${permChannelId === ch.id ? "text-primary/80" : "text-muted-foreground/50"}`}>
+                            <Shield className="w-3 h-3" />
+                          </button>
+                        )}
                         {(channels?.length ?? 0) > 1 && (
                           <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id); }}
                             title="Delete channel" className="p-0.5 rounded text-muted-foreground/50 hover:text-red-400">
@@ -1713,6 +1902,26 @@ export default function Room() {
                       </span>
                     )}
                   </div>
+                  {isStaff && permChannelId === ch.id && ch.type !== "voice" && (
+                    <div className="ml-6 mt-1 mb-1 grid grid-cols-2 gap-1.5 bg-muted/20 border border-border/30 rounded-md p-1.5">
+                      <label className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">View
+                        <select value={ch.minViewRole ?? "member"} onClick={e => e.stopPropagation()} onChange={e => handleSetChannelRole(ch.id, "minViewRole", e.target.value as any)}
+                          className="mt-0.5 w-full text-[10px] bg-muted/30 border border-border/30 rounded-md px-1 py-0.5 text-foreground focus:outline-none">
+                          <option value="member">Members</option>
+                          <option value="mod">Mods+</option>
+                          <option value="owner">Owner only</option>
+                        </select>
+                      </label>
+                      <label className="text-[9px] text-muted-foreground/60 uppercase tracking-wide">Post
+                        <select value={ch.minSendRole ?? "member"} onClick={e => e.stopPropagation()} onChange={e => handleSetChannelRole(ch.id, "minSendRole", e.target.value as any)}
+                          className="mt-0.5 w-full text-[10px] bg-muted/30 border border-border/30 rounded-md px-1 py-0.5 text-foreground focus:outline-none">
+                          <option value="member">Members</option>
+                          <option value="mod">Mods+</option>
+                          <option value="owner">Owner only</option>
+                        </select>
+                      </label>
+                    </div>
+                  )}
                   {ch.type === "voice" && voiceOccupants.length > 0 && (
                     <div className="ml-6 mt-0.5 mb-0.5 flex flex-col gap-0.5">
                       {voiceOccupants.map((p: any) => (
@@ -2085,7 +2294,15 @@ export default function Room() {
                   watched={settings.watchedUsers.includes(member.id)}
                   onWatchToggle={() => setSetting("watchedUsers", settings.watchedUsers.includes(member.id)
                     ? settings.watchedUsers.filter(u => u !== member.id)
-                    : [...settings.watchedUsers, member.id])}>
+                    : [...settings.watchedUsers, member.id])}
+                  isBot={!!member.isBot}
+                  friendState={friendStateOf(member.id)}
+                  blocked={blockedIds.has(member.id)}
+                  onAddFriend={() => handleAddFriend(member.username)}
+                  onAcceptFriend={() => { const rid = incomingReqByUser.get(member.id); if (rid) handleAcceptFriend(rid); }}
+                  onRemoveFriend={() => { const rid = incomingReqByUser.get(member.id); if (friendStateOf(member.id) === "pending_in" && rid) handleDeclineFriend(rid); else handleRemoveFriend(member.id); }}
+                  onBlock={() => handleBlockUser(member.id)}
+                  onUnblock={() => handleUnblockUser(member.id)}>
                   {rowInner}
                 </ProfileHoverCard>
               );
@@ -2272,6 +2489,7 @@ export default function Room() {
                               <span className="self-center shrink-0"><PixelAvatar userId={msg.userId} size={16} /></span>
                             ) : null}
                             <span className={`font-semibold shrink-0 ${nameClass(msg.userId, msg.nameColor)}`} style={nameStyle(msg.nameColor)}>{displayNameOf(msg) || msg.username}</span>
+                            {msg.isBot && <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-px rounded bg-cyan-500/20 text-cyan-400 self-center">Bot</span>}
                             <span className={`${tSize} text-foreground/85`}>
                               <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} embedImages={activeChannel?.type === "media"} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}

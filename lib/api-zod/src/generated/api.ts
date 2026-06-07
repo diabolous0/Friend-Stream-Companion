@@ -338,6 +338,7 @@ export const GetRoomMembersResponseItem = zod.object({
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
   "role": zod.enum(['owner', 'mod', 'member']).nullish(),
+  "isBot": zod.boolean().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetRoomMembersResponse = zod.array(GetRoomMembersResponseItem)
@@ -393,6 +394,7 @@ export const GetRoomMessagesResponseItem = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isBot": zod.boolean().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -453,6 +455,7 @@ export const SearchRoomMessagesResponseItem = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isBot": zod.boolean().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -510,6 +513,7 @@ export const EditMessageResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isBot": zod.boolean().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -572,6 +576,7 @@ export const TogglePinResponse = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isBot": zod.boolean().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -604,6 +609,7 @@ export const GetPinnedMessagesResponseItem = zod.object({
   "avatarUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "isBot": zod.boolean().nullish(),
   "content": zod.string(),
   "createdAt": zod.coerce.date(),
   "editedAt": zod.coerce.date().nullish(),
@@ -637,6 +643,7 @@ export const GetPendingMembersResponseItem = zod.object({
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
   "role": zod.enum(['owner', 'mod', 'member']).nullish(),
+  "isBot": zod.boolean().nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetPendingMembersResponse = zod.array(GetPendingMembersResponseItem)
@@ -665,6 +672,8 @@ export const GetChannelsResponseItem = zod.object({
   "type": zod.enum(['text', 'voice', 'announcement', 'media']),
   "position": zod.number(),
   "isPrivate": zod.boolean(),
+  "minViewRole": zod.enum(['owner', 'mod', 'member']).optional(),
+  "minSendRole": zod.enum(['owner', 'mod', 'member']).optional(),
   "createdAt": zod.coerce.date()
 })
 export const GetChannelsResponse = zod.array(GetChannelsResponseItem)
@@ -684,7 +693,9 @@ export const createChannelBodyNameMax = 40;
 export const CreateChannelBody = zod.object({
   "name": zod.string().min(1).max(createChannelBodyNameMax),
   "type": zod.enum(['text', 'voice', 'announcement', 'media']).optional(),
-  "isPrivate": zod.boolean().optional()
+  "isPrivate": zod.boolean().optional(),
+  "minViewRole": zod.enum(['owner', 'mod', 'member']).optional(),
+  "minSendRole": zod.enum(['owner', 'mod', 'member']).optional()
 })
 
 
@@ -704,7 +715,9 @@ export const UpdateChannelBody = zod.object({
   "name": zod.string().min(1).max(updateChannelBodyNameMax).optional(),
   "type": zod.enum(['text', 'voice', 'announcement', 'media']).optional(),
   "isPrivate": zod.boolean().optional(),
-  "position": zod.number().optional()
+  "position": zod.number().optional(),
+  "minViewRole": zod.enum(['owner', 'mod', 'member']).optional(),
+  "minSendRole": zod.enum(['owner', 'mod', 'member']).optional()
 })
 
 export const UpdateChannelResponse = zod.object({
@@ -714,6 +727,8 @@ export const UpdateChannelResponse = zod.object({
   "type": zod.enum(['text', 'voice', 'announcement', 'media']),
   "position": zod.number(),
   "isPrivate": zod.boolean(),
+  "minViewRole": zod.enum(['owner', 'mod', 'member']).optional(),
+  "minSendRole": zod.enum(['owner', 'mod', 'member']).optional(),
   "createdAt": zod.coerce.date()
 })
 
@@ -817,5 +832,179 @@ export const SearchGiphyResponseItem = zod.object({
   "height": zod.number()
 })
 export const SearchGiphyResponse = zod.array(SearchGiphyResponseItem)
+
+
+/**
+ * @summary List accepted friends
+ */
+export const ListFriendsResponseItem = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListFriendsResponse = zod.array(ListFriendsResponseItem)
+
+
+/**
+ * @summary List pending incoming and outgoing friend requests
+ */
+export const ListFriendRequestsResponse = zod.object({
+  "incoming": zod.array(zod.object({
+  "id": zod.number(),
+  "user": zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}),
+  "createdAt": zod.coerce.date()
+})),
+  "outgoing": zod.array(zod.object({
+  "id": zod.number(),
+  "user": zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Send a friend request by username
+ */
+
+
+
+export const SendFriendRequestBody = zod.object({
+  "username": zod.string().min(1)
+})
+
+
+/**
+ * @summary Accept an incoming friend request
+ */
+export const AcceptFriendRequestParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Decline an incoming friend request
+ */
+export const DeclineFriendRequestParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+/**
+ * @summary Remove a friend or cancel a sent request
+ */
+export const RemoveFriendParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List blocked users
+ */
+export const ListBlocksResponseItem = zod.object({
+  "id": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBlocksResponse = zod.array(ListBlocksResponseItem)
+
+
+/**
+ * @summary Block a user
+ */
+export const BlockUserBody = zod.object({
+  "userId": zod.number()
+})
+
+
+/**
+ * @summary Unblock a user
+ */
+export const UnblockUserParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List bots in a room (owner/mod only)
+ */
+export const ListBotsParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const ListBotsResponseItem = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "userId": zod.number(),
+  "name": zod.string(),
+  "createdAt": zod.coerce.date()
+})
+export const ListBotsResponse = zod.array(ListBotsResponseItem)
+
+
+/**
+ * @summary Create a bot and get its webhook token (owner/mod only)
+ */
+export const CreateBotParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const createBotBodyNameMax = 40;
+
+
+
+export const CreateBotBody = zod.object({
+  "name": zod.string().min(1).max(createBotBodyNameMax)
+})
+
+
+/**
+ * @summary Delete a bot (owner/mod only)
+ */
+export const DeleteBotParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "botId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Post a message via a bot webhook token (no auth)
+ */
+export const PostBotMessageParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "botId": zod.coerce.number()
+})
+
+
+
+
+export const PostBotMessageBody = zod.object({
+  "token": zod.string(),
+  "content": zod.string().min(1),
+  "channelId": zod.number().nullish()
+})
 
 

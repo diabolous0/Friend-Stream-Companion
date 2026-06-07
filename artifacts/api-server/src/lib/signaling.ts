@@ -3,7 +3,7 @@ import { type IncomingMessage } from "node:http";
 import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
-import { db, messagesTable, usersTable, roomMembersTable, channelsTable } from "@workspace/db";
+import { db, messagesTable, usersTable, roomMembersTable, channelsTable, roleAtLeast } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 type UserStatus = "online" | "away" | "dnd";
@@ -108,6 +108,81 @@ export function evictUserFromRoom(roomId: number, userId: number): void {
   }
   // Reflect the departure to everyone still in the room.
   broadcastPresence(roomId);
+}
+
+// True if a member with `role` may view a channel with the given gating.
+function canViewChannel(
+  role: string | null | undefined,
+  channel: { isPrivate: boolean; minViewRole: string },
+): boolean {
+  const isStaff = role === "owner" || role === "mod";
+  if (channel.isPrivate && !isStaff) return false;
+  return roleAtLeast(role, channel.minViewRole);
+}
+
+// Evict a single user's live sessions from a specific channel (without leaving the room),
+// notifying them so the client navigates away. Used when access is revoked dynamically.
+function evictSessionFromChannel(client: ClientState): void {
+  client.channelId = null;
+  client.streaming = false;
+  client.speaking = false;
+  client.inVoice = false;
+  client.watching = [];
+  if (client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(JSON.stringify({ type: "channel_access_revoked" }));
+  }
+}
+
+// Re-check every client currently joined to a channel against its (possibly updated)
+// permissions and evict any who no longer qualify. Call after channel perm changes so
+// stale WS subscriptions can't keep receiving traffic until manual leave/rejoin.
+export async function revalidateChannelAccess(channelId: number): Promise<void> {
+  const joined = getChannelClients(channelId);
+  if (joined.length === 0) return;
+  const [channel] = await db
+    .select({ isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole, roomId: channelsTable.roomId })
+    .from(channelsTable)
+    .where(eq(channelsTable.id, channelId));
+  if (!channel) return;
+  const affectedRooms = new Set<number>();
+  for (const client of joined) {
+    const [membership] = await db
+      .select({ role: roomMembersTable.role, status: roomMembersTable.status })
+      .from(roomMembersTable)
+      .where(and(eq(roomMembersTable.roomId, channel.roomId), eq(roomMembersTable.userId, client.userId)));
+    const allowed = membership?.status === "active" && canViewChannel(membership.role, channel);
+    if (!allowed) {
+      evictSessionFromChannel(client);
+      if (client.roomId != null) affectedRooms.add(client.roomId);
+    }
+  }
+  for (const roomId of affectedRooms) broadcastPresence(roomId);
+}
+
+// Re-check all channels a user is currently joined to in a room against their
+// (possibly lowered) role and evict them from any they can no longer view.
+export async function revalidateMemberChannelAccess(roomId: number, userId: number): Promise<void> {
+  const sessions = Array.from(clients.values()).filter(
+    (c) => c.userId === userId && c.roomId === roomId && c.channelId != null,
+  );
+  if (sessions.length === 0) return;
+  const [membership] = await db
+    .select({ role: roomMembersTable.role, status: roomMembersTable.status })
+    .from(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, userId)));
+  let evicted = false;
+  for (const client of sessions) {
+    const [channel] = await db
+      .select({ isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole })
+      .from(channelsTable)
+      .where(eq(channelsTable.id, client.channelId!));
+    const allowed = channel != null && membership?.status === "active" && canViewChannel(membership.role, channel);
+    if (!allowed) {
+      evictSessionFromChannel(client);
+      evicted = true;
+    }
+  }
+  if (evicted) broadcastPresence(roomId);
 }
 
 export function setupSignaling(server: Server): void {
@@ -220,6 +295,10 @@ export function setupSignaling(server: Server): void {
           const isStaff = membership.role === "owner" || membership.role === "mod";
           if (channel.isPrivate && !isStaff) {
             ws.send(JSON.stringify({ type: "error", error: "Channel is private" }));
+            return;
+          }
+          if (!roleAtLeast(membership.role, channel.minViewRole)) {
+            ws.send(JSON.stringify({ type: "error", error: "No access to this channel" }));
             return;
           }
 
@@ -349,19 +428,24 @@ export function setupSignaling(server: Server): void {
           const content = (msg.content as string)?.trim();
           if (!content) return;
 
-          // Announcement channels: only owner/mod may post.
           const [channel] = await db.select().from(channelsTable).where(eq(channelsTable.id, channelId));
           if (!channel || channel.roomId !== state.roomId) return;
-          if (channel.type === "announcement") {
-            const [membership] = await db
-              .select({ role: roomMembersTable.role })
-              .from(roomMembersTable)
-              .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)));
-            const isStaff = membership?.role === "owner" || membership?.role === "mod";
-            if (!isStaff) {
-              ws.send(JSON.stringify({ type: "error", error: "Only staff can post in announcement channels" }));
-              return;
-            }
+          const [membership] = await db
+            .select({ role: roomMembersTable.role })
+            .from(roomMembersTable)
+            .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)));
+          const isStaff = membership?.role === "owner" || membership?.role === "mod";
+          if (channel.type === "announcement" && !isStaff) {
+            ws.send(JSON.stringify({ type: "error", error: "Only staff can post in announcement channels" }));
+            return;
+          }
+          if (!roleAtLeast(membership?.role, channel.minViewRole)) {
+            ws.send(JSON.stringify({ type: "error", error: "No access to this channel" }));
+            return;
+          }
+          if (!roleAtLeast(membership?.role, channel.minSendRole)) {
+            ws.send(JSON.stringify({ type: "error", error: "You don't have permission to post in this channel" }));
+            return;
           }
 
           const key = `${channelId}:${state.userId}`;
@@ -401,6 +485,7 @@ export function setupSignaling(server: Server): void {
               avatarUrl: state.avatarUrl,
               nameColor: state.nameColor,
               avatarStyle: state.avatarStyle,
+              isBot: false,
               content: saved.content,
               createdAt: saved.createdAt,
               editedAt: null,

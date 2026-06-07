@@ -18,6 +18,12 @@ tags:
     description: Chat messages
   - name: users
     description: User management
+  - name: friends
+    description: Friend requests and friendships
+  - name: blocks
+    description: Blocked users
+  - name: bots
+    description: Room bots and incoming webhooks
 paths:
   /healthz:
     get:
@@ -893,6 +899,257 @@ paths:
         "503":
           description: Giphy is not configured on the server
 
+  /friends:
+    get:
+      operationId: listFriends
+      tags: [friends]
+      summary: List accepted friends
+      responses:
+        "200":
+          description: List of friends
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicUser"
+
+  /friends/requests:
+    get:
+      operationId: listFriendRequests
+      tags: [friends]
+      summary: List pending incoming and outgoing friend requests
+      responses:
+        "200":
+          description: Pending friend requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendRequests"
+    post:
+      operationId: sendFriendRequest
+      tags: [friends]
+      summary: Send a friend request by username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddFriendInput"
+      responses:
+        "201":
+          description: Request sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FriendRequest"
+        "400":
+          description: Invalid request
+        "404":
+          description: User not found
+        "409":
+          description: Already friends or request exists
+
+  /friends/requests/{id}/accept:
+    post:
+      operationId: acceptFriendRequest
+      tags: [friends]
+      summary: Accept an incoming friend request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Accepted
+        "404":
+          description: Request not found
+
+  /friends/requests/{id}/decline:
+    post:
+      operationId: declineFriendRequest
+      tags: [friends]
+      summary: Decline an incoming friend request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Declined
+        "404":
+          description: Request not found
+
+  /friends/{userId}:
+    delete:
+      operationId: removeFriend
+      tags: [friends]
+      summary: Remove a friend or cancel a sent request
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  /blocks:
+    get:
+      operationId: listBlocks
+      tags: [blocks]
+      summary: List blocked users
+      responses:
+        "200":
+          description: List of blocked users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicUser"
+    post:
+      operationId: blockUser
+      tags: [blocks]
+      summary: Block a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockInput"
+      responses:
+        "204":
+          description: Blocked
+        "400":
+          description: Invalid request
+
+  /blocks/{userId}:
+    delete:
+      operationId: unblockUser
+      tags: [blocks]
+      summary: Unblock a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Unblocked
+
+  /rooms/{roomId}/bots:
+    get:
+      operationId: listBots
+      tags: [bots]
+      summary: List bots in a room (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of bots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bot"
+        "403":
+          description: Insufficient permissions
+    post:
+      operationId: createBot
+      tags: [bots]
+      summary: Create a bot and get its webhook token (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBotInput"
+      responses:
+        "201":
+          description: Bot created (token shown once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotCreated"
+        "403":
+          description: Insufficient permissions
+
+  /rooms/{roomId}/bots/{botId}:
+    delete:
+      operationId: deleteBot
+      tags: [bots]
+      summary: Delete a bot (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: botId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Bot not found
+
+  /rooms/{roomId}/bots/{botId}/webhook:
+    post:
+      operationId: postBotMessage
+      tags: [bots]
+      summary: Post a message via a bot webhook token (no auth)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: botId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotWebhookInput"
+      responses:
+        "201":
+          description: Message posted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          description: Invalid token
+        "404":
+          description: Bot not found
+
 components:
   schemas:
     HealthStatus:
@@ -1028,6 +1285,9 @@ components:
         role:
           type: string
           enum: [owner, mod, member]
+          nullable: true
+        isBot:
+          type: boolean
           nullable: true
         createdAt:
           type: string
@@ -1270,6 +1530,9 @@ components:
         avatarStyle:
           type: string
           nullable: true
+        isBot:
+          type: boolean
+          nullable: true
         content:
           type: string
         createdAt:
@@ -1346,6 +1609,12 @@ components:
           type: integer
         isPrivate:
           type: boolean
+        minViewRole:
+          type: string
+          enum: [owner, mod, member]
+        minSendRole:
+          type: string
+          enum: [owner, mod, member]
         createdAt:
           type: string
           format: date-time
@@ -1363,6 +1632,12 @@ components:
           enum: [text, voice, announcement, media]
         isPrivate:
           type: boolean
+        minViewRole:
+          type: string
+          enum: [owner, mod, member]
+        minSendRole:
+          type: string
+          enum: [owner, mod, member]
 
     UpdateChannelInput:
       type: object
@@ -1378,6 +1653,12 @@ components:
           type: boolean
         position:
           type: integer
+        minViewRole:
+          type: string
+          enum: [owner, mod, member]
+        minSendRole:
+          type: string
+          enum: [owner, mod, member]
 
     UpdateMemberRoleInput:
       type: object
@@ -1429,3 +1710,92 @@ components:
       properties:
         emoji:
           type: string
+
+    FriendRequest:
+      type: object
+      required: [id, user, createdAt]
+      properties:
+        id:
+          type: integer
+        user:
+          $ref: "#/components/schemas/PublicUser"
+        createdAt:
+          type: string
+          format: date-time
+
+    FriendRequests:
+      type: object
+      required: [incoming, outgoing]
+      properties:
+        incoming:
+          type: array
+          items:
+            $ref: "#/components/schemas/FriendRequest"
+        outgoing:
+          type: array
+          items:
+            $ref: "#/components/schemas/FriendRequest"
+
+    AddFriendInput:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 1
+
+    BlockInput:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: integer
+
+    Bot:
+      type: object
+      required: [id, roomId, userId, name, createdAt]
+      properties:
+        id:
+          type: integer
+        roomId:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateBotInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+
+    BotCreated:
+      type: object
+      required: [bot, token, webhookUrl]
+      properties:
+        bot:
+          $ref: "#/components/schemas/Bot"
+        token:
+          type: string
+        webhookUrl:
+          type: string
+
+    BotWebhookInput:
+      type: object
+      required: [token, content]
+      properties:
+        token:
+          type: string
+        content:
+          type: string
+          minLength: 1
+        channelId:
+          type: integer
+          nullable: true

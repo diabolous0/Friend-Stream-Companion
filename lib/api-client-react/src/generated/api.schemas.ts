@@ -74,6 +74,7 @@ export interface MemberUser {
   nameColor?: string | null;
   avatarStyle?: string | null;
   role?: MemberUserRole;
+  isBot?: boolean | null;
   createdAt: string;
 }
 
@@ -195,6 +196,7 @@ export interface Message {
   avatarUrl?: string | null;
   nameColor?: string | null;
   avatarStyle?: string | null;
+  isBot?: boolean | null;
   content: string;
   createdAt: string;
   editedAt?: string | null;
@@ -230,6 +232,24 @@ export const ChannelType = {
   media: 'media',
 } as const;
 
+export type ChannelMinViewRole = typeof ChannelMinViewRole[keyof typeof ChannelMinViewRole];
+
+
+export const ChannelMinViewRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
+export type ChannelMinSendRole = typeof ChannelMinSendRole[keyof typeof ChannelMinSendRole];
+
+
+export const ChannelMinSendRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
 export interface Channel {
   id: number;
   roomId: number;
@@ -237,6 +257,8 @@ export interface Channel {
   type: ChannelType;
   position: number;
   isPrivate: boolean;
+  minViewRole?: ChannelMinViewRole;
+  minSendRole?: ChannelMinSendRole;
   createdAt: string;
 }
 
@@ -250,6 +272,24 @@ export const CreateChannelInputType = {
   media: 'media',
 } as const;
 
+export type CreateChannelInputMinViewRole = typeof CreateChannelInputMinViewRole[keyof typeof CreateChannelInputMinViewRole];
+
+
+export const CreateChannelInputMinViewRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
+export type CreateChannelInputMinSendRole = typeof CreateChannelInputMinSendRole[keyof typeof CreateChannelInputMinSendRole];
+
+
+export const CreateChannelInputMinSendRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
 export interface CreateChannelInput {
   /**
      * @minLength 1
@@ -258,6 +298,8 @@ export interface CreateChannelInput {
   name: string;
   type?: CreateChannelInputType;
   isPrivate?: boolean;
+  minViewRole?: CreateChannelInputMinViewRole;
+  minSendRole?: CreateChannelInputMinSendRole;
 }
 
 export type UpdateChannelInputType = typeof UpdateChannelInputType[keyof typeof UpdateChannelInputType];
@@ -270,6 +312,24 @@ export const UpdateChannelInputType = {
   media: 'media',
 } as const;
 
+export type UpdateChannelInputMinViewRole = typeof UpdateChannelInputMinViewRole[keyof typeof UpdateChannelInputMinViewRole];
+
+
+export const UpdateChannelInputMinViewRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
+export type UpdateChannelInputMinSendRole = typeof UpdateChannelInputMinSendRole[keyof typeof UpdateChannelInputMinSendRole];
+
+
+export const UpdateChannelInputMinSendRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
 export interface UpdateChannelInput {
   /**
      * @minLength 1
@@ -279,6 +339,8 @@ export interface UpdateChannelInput {
   type?: UpdateChannelInputType;
   isPrivate?: boolean;
   position?: number;
+  minViewRole?: UpdateChannelInputMinViewRole;
+  minSendRole?: UpdateChannelInputMinSendRole;
 }
 
 export type UpdateMemberRoleInputRole = typeof UpdateMemberRoleInputRole[keyof typeof UpdateMemberRoleInputRole];
@@ -314,6 +376,55 @@ export interface EditMessageInput {
 
 export interface ReactionInput {
   emoji: string;
+}
+
+export interface FriendRequest {
+  id: number;
+  user: PublicUser;
+  createdAt: string;
+}
+
+export interface FriendRequests {
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+}
+
+export interface AddFriendInput {
+  /** @minLength 1 */
+  username: string;
+}
+
+export interface BlockInput {
+  userId: number;
+}
+
+export interface Bot {
+  id: number;
+  roomId: number;
+  userId: number;
+  name: string;
+  createdAt: string;
+}
+
+export interface CreateBotInput {
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  name: string;
+}
+
+export interface BotCreated {
+  bot: Bot;
+  token: string;
+  webhookUrl: string;
+}
+
+export interface BotWebhookInput {
+  token: string;
+  /** @minLength 1 */
+  content: string;
+  channelId?: number | null;
 }
 
 export type GetRoomMessagesParams = {

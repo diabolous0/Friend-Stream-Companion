@@ -22,6 +22,7 @@ type WebSocketMessage =
   | { type: "knock_resolved"; roomId: number; userId: number }
   | { type: "joined_channel"; channelId: number }
   | { type: "channels_updated"; roomId: number }
+  | { type: "channel_access_revoked" }
   | { type: "role_updated"; roomId: number; userId: number; role: string }
   | { type: "knock_denied"; roomId: number }
   | { type: "member_removed"; roomId: number; userId: number }
@@ -51,6 +52,7 @@ interface UseWebSocketOptions {
   onKnockResolved?: (roomId: number, userId: number) => void;
   onJoinedChannel?: (channelId: number) => void;
   onChannelsUpdated?: (roomId: number) => void;
+  onChannelAccessRevoked?: () => void;
   onRoleUpdated?: (roomId: number, userId: number, role: string) => void;
   onMemberRemoved?: (roomId: number, userId: number) => void;
   onRemovedFromRoom?: (roomId: number, banned: boolean) => void;
@@ -114,6 +116,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "knock_resolved":    o.onKnockResolved?.(data.roomId, data.userId); break;
           case "joined_channel":    o.onJoinedChannel?.(data.channelId); break;
           case "channels_updated":  o.onChannelsUpdated?.(data.roomId); break;
+          case "channel_access_revoked": o.onChannelAccessRevoked?.(); break;
           case "role_updated":      o.onRoleUpdated?.(data.roomId, data.userId, data.role); break;
           case "knock_denied":      o.onKnockResolved?.(data.roomId, -1); break;
           case "member_removed":    o.onMemberRemoved?.(data.roomId, data.userId); break;

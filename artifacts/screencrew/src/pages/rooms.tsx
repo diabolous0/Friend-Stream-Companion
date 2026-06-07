@@ -1,10 +1,16 @@
 import { useState, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQueryKey } from "@workspace/api-client-react";
+import {
+  useListRooms, useCreateRoom, useJoinRoomByCode, useGetMe, getListRoomsQueryKey,
+  useListFriends, getListFriendsQueryKey,
+  useListFriendRequests, getListFriendRequestsQueryKey,
+  useSendFriendRequest, useAcceptFriendRequest, useDeclineFriendRequest, useRemoveFriend,
+  useListBlocks, getListBlocksQueryKey, useUnblockUser,
+} from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon } from "lucide-react";
+import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2, Link as LinkIcon, UserPlus, UserCheck, UserX, Ban } from "lucide-react";
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
@@ -41,6 +47,40 @@ export default function Rooms() {
 
   const createRoom = useCreateRoom();
   const joinRoom = useJoinRoomByCode();
+
+  const { data: friends } = useListFriends({ query: { queryKey: getListFriendsQueryKey(), refetchInterval: 15000 } });
+  const { data: friendRequests } = useListFriendRequests({ query: { queryKey: getListFriendRequestsQueryKey(), refetchInterval: 15000 } });
+  const { data: blocks } = useListBlocks({ query: { queryKey: getListBlocksQueryKey(), refetchInterval: 30000 } });
+  const sendFriendRequest = useSendFriendRequest();
+  const acceptFriendRequest = useAcceptFriendRequest();
+  const declineFriendRequest = useDeclineFriendRequest();
+  const removeFriend = useRemoveFriend();
+  const unblockUser = useUnblockUser();
+
+  const [showFriends, setShowFriends] = useState(false);
+  const [friendUsername, setFriendUsername] = useState("");
+
+  const invalidateFriends = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getListFriendsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListFriendRequestsQueryKey() });
+  }, [queryClient]);
+
+  const handleSendFriendRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    const username = friendUsername.trim();
+    if (!username) return;
+    sendFriendRequest.mutate({ data: { username } }, {
+      onSuccess: () => { setFriendUsername(""); invalidateFriends(); toast({ title: "Friend request sent", description: `Waiting for ${username} to accept.` }); },
+      onError: (err) => toast({ title: "Couldn't send request", description: err.message, variant: "destructive" }),
+    });
+  };
+
+  const handleAcceptFriend = (id: number) => acceptFriendRequest.mutate({ id }, { onSuccess: invalidateFriends });
+  const handleDeclineFriend = (id: number) => declineFriendRequest.mutate({ id }, { onSuccess: invalidateFriends });
+  const handleRemoveFriend = (userId: number) => removeFriend.mutate({ userId }, { onSuccess: invalidateFriends });
+  const handleUnblock = (userId: number) => unblockUser.mutate({ userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListBlocksQueryKey() }) });
+
+  const pendingCount = (friendRequests?.incoming?.length ?? 0);
 
   const [newRoomName, setNewRoomName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -198,6 +238,102 @@ export default function Rooms() {
             </div>
           </div>
         )}
+
+        {/* Friends card */}
+        <div className={`bg-card border border-border/50 overflow-hidden shadow-xl mb-4 ${r("rounded-2xl", "rounded-sm border-primary/20")}`}>
+          <button onClick={() => setShowFriends(s => !s)}
+            className="w-full flex items-center justify-between px-5 py-4 border-b border-border/30 hover:bg-muted/20 transition-colors">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+              <Users className="w-3.5 h-3.5" /> {classic ? "CREW" : "Friends"}
+              {(friends?.length ?? 0) > 0 && <span className="text-muted-foreground/50">{friends?.length}</span>}
+            </span>
+            <span className="flex items-center gap-2">
+              {pendingCount > 0 && (
+                <span className="text-[10px] font-bold bg-primary/20 text-primary px-1.5 py-0.5 rounded-full">{pendingCount}</span>
+              )}
+              <Plus className={`w-3.5 h-3.5 text-muted-foreground/60 transition-transform ${showFriends ? "rotate-45" : ""}`} />
+            </span>
+          </button>
+
+          {showFriends && (
+            <div className="px-5 py-3 space-y-3">
+              {/* Add friend */}
+              <form onSubmit={handleSendFriendRequest} className="flex items-center gap-2">
+                <Input value={friendUsername} onChange={e => setFriendUsername(e.target.value)}
+                  placeholder={classic ? "ADD BY HANDLE_" : "Add friend by username…"}
+                  className={`h-8 text-sm bg-background border-border/40 focus-visible:ring-1 focus-visible:ring-primary/40 flex-1 ${r("rounded-xl", "rounded-sm")}`} />
+                <Button type="submit" size="sm" className={`h-8 text-xs px-3 ${r("rounded-xl", "rounded-sm")}`}
+                  disabled={sendFriendRequest.isPending || !friendUsername.trim()}>
+                  <UserPlus className="w-3.5 h-3.5" />
+                </Button>
+              </form>
+
+              {/* Incoming requests */}
+              {(friendRequests?.incoming?.length ?? 0) > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest">Requests</p>
+                  {friendRequests!.incoming.map(req => (
+                    <div key={req.id} className="flex items-center gap-2">
+                      <PixelAvatar userId={req.user.id} size={20} square={classic} />
+                      <span className="text-sm flex-1 truncate">{req.user.displayName || req.user.username}</span>
+                      <button onClick={() => handleAcceptFriend(req.id)} title="Accept"
+                        className="p-1 rounded-md text-green-400/80 hover:text-green-400 hover:bg-green-400/10"><UserCheck className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => handleDeclineFriend(req.id)} title="Decline"
+                        className="p-1 rounded-md text-muted-foreground/50 hover:text-red-400 hover:bg-red-400/10"><UserX className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Outgoing requests */}
+              {(friendRequests?.outgoing?.length ?? 0) > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest">Pending</p>
+                  {friendRequests!.outgoing.map(req => (
+                    <div key={req.id} className="flex items-center gap-2 opacity-70">
+                      <PixelAvatar userId={req.user.id} size={20} square={classic} />
+                      <span className="text-sm flex-1 truncate">{req.user.displayName || req.user.username}</span>
+                      <span className="text-[10px] text-muted-foreground/50">sent</span>
+                      <button onClick={() => handleDeclineFriend(req.id)} title="Cancel"
+                        className="p-1 rounded-md text-muted-foreground/50 hover:text-red-400 hover:bg-red-400/10"><UserX className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Friends list */}
+              <div className="space-y-1">
+                {(friends?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-muted-foreground/40 py-1">No friends yet — add someone by username.</p>
+                ) : (
+                  friends!.map(f => (
+                    <div key={f.id} className="flex items-center gap-2 group">
+                      <PixelAvatar userId={f.id} size={20} square={classic} />
+                      <span className="text-sm flex-1 truncate">{f.displayName || f.username}</span>
+                      <button onClick={() => handleRemoveFriend(f.id)} title="Remove friend"
+                        className="p-1 rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-opacity"><UserX className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Blocked users */}
+              {(blocks?.length ?? 0) > 0 && (
+                <div className="space-y-1 pt-1 border-t border-border/20">
+                  <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest flex items-center gap-1"><Ban className="w-2.5 h-2.5" /> Blocked</p>
+                  {blocks!.map(b => (
+                    <div key={b.id} className="flex items-center gap-2 opacity-60">
+                      <PixelAvatar userId={b.id} size={20} square={classic} />
+                      <span className="text-sm flex-1 truncate">{b.displayName || b.username}</span>
+                      <button onClick={() => handleUnblock(b.id)} title="Unblock"
+                        className="text-[10px] font-semibold rounded-md px-2 py-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/40">Unblock</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Room list card */}
         <div className={`bg-card border border-border/50 overflow-hidden shadow-xl mb-4 ${r("rounded-2xl", "rounded-sm border-primary/20")}`}>

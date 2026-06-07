@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
-import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable, roomBansTable } from "@workspace/db";
+import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable, roomBansTable, roleAtLeast } from "@workspace/db";
 import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt, ilike } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms, evictUserFromRoom } from "../lib/signaling";
+import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser, getVoicePresenceForRooms, evictUserFromRoom, revalidateMemberChannelAccess } from "../lib/signaling";
 
 const router: IRouter = Router();
 
@@ -57,14 +57,30 @@ async function isBanned(roomId: number, userId: number): Promise<boolean> {
   return !!ban;
 }
 
-// Non-staff cannot read/interact with messages in private channels.
-async function canAccessMessageChannel(channelId: number | null, isStaff: boolean): Promise<boolean> {
-  if (channelId == null || isStaff) return true;
+// A member cannot read/interact with messages in private channels (staff-only) or
+// channels whose minViewRole is above their role. minViewRole is a true threshold
+// that applies to EVERYONE (including mods); only isPrivate has a staff bypass.
+async function canAccessMessageChannel(channelId: number | null, role: string | null | undefined): Promise<boolean> {
+  if (channelId == null) return true;
   const [ch] = await db
-    .select({ isPrivate: channelsTable.isPrivate })
+    .select({ isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole })
     .from(channelsTable)
     .where(eq(channelsTable.id, channelId));
-  return !ch?.isPrivate;
+  if (!ch) return true;
+  if (ch.isPrivate && !isStaffRole(role)) return false;
+  return roleAtLeast(role, ch.minViewRole);
+}
+
+// Channel ids a member may NOT view (private-and-not-staff, or minViewRole above their role).
+// Used to filter cross-channel reads (list/search/pins) when no channel filter is given.
+// minViewRole is enforced for everyone, so even staff are filtered from owner-only channels.
+async function getHiddenChannelIds(roomId: number, role: string | null | undefined): Promise<number[]> {
+  const staff = isStaffRole(role);
+  const chans = await db
+    .select({ id: channelsTable.id, isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole })
+    .from(channelsTable)
+    .where(eq(channelsTable.roomId, roomId));
+  return chans.filter((c) => (c.isPrivate && !staff) || !roleAtLeast(role, c.minViewRole)).map((c) => c.id);
 }
 
 function broadcastMessageEvent(roomId: number, channelId: number | null, message: object): void {
@@ -414,6 +430,7 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
       avatarStyle: usersTable.avatarStyle,
       steamUrl: usersTable.steamUrl,
       discordUrl: usersTable.discordUrl,
+      isBot: usersTable.isBot,
       createdAt: usersTable.createdAt,
       role: roomMembersTable.role,
     })
@@ -496,14 +513,11 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       .where(and(eq(channelsTable.id, channelIdParam), eq(channelsTable.roomId, roomId)));
     if (!ch) { res.status(404).json({ error: "Channel not found" }); return; }
     if (ch.isPrivate && !isStaff) { res.status(403).json({ error: "No access to this channel" }); return; }
+    if (!roleAtLeast(membership.role, ch.minViewRole)) { res.status(403).json({ error: "No access to this channel" }); return; }
     conditions.push(eq(messagesTable.channelId, channelIdParam));
-  } else if (!isStaff) {
-    // Exclude private-channel messages for non-staff when listing across channels.
-    const priv = await db
-      .select({ id: channelsTable.id })
-      .from(channelsTable)
-      .where(and(eq(channelsTable.roomId, roomId), eq(channelsTable.isPrivate, true)));
-    const ids = priv.map((c) => c.id);
+  } else {
+    // Exclude messages from channels this member can't view (private or role-gated).
+    const ids = await getHiddenChannelIds(roomId, membership.role);
     if (ids.length) {
       const cond = or(isNull(messagesTable.channelId), notInArray(messagesTable.channelId, ids));
       if (cond) conditions.push(cond);
@@ -522,6 +536,7 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
       avatarUrl: usersTable.avatarUrl,
       nameColor: usersTable.nameColor,
       avatarStyle: usersTable.avatarStyle,
+      isBot: usersTable.isBot,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
@@ -563,13 +578,10 @@ router.get("/rooms/:roomId/messages/search", requireAuth, async (req, res): Prom
       .where(and(eq(channelsTable.id, channelIdParam), eq(channelsTable.roomId, roomId)));
     if (!ch) { res.status(404).json({ error: "Channel not found" }); return; }
     if (ch.isPrivate && !isStaff) { res.status(403).json({ error: "No access to this channel" }); return; }
+    if (!roleAtLeast(membership.role, ch.minViewRole)) { res.status(403).json({ error: "No access to this channel" }); return; }
     conditions.push(eq(messagesTable.channelId, channelIdParam));
-  } else if (!isStaff) {
-    const priv = await db
-      .select({ id: channelsTable.id })
-      .from(channelsTable)
-      .where(and(eq(channelsTable.roomId, roomId), eq(channelsTable.isPrivate, true)));
-    const ids = priv.map((c) => c.id);
+  } else {
+    const ids = await getHiddenChannelIds(roomId, membership.role);
     if (ids.length) {
       const cond = or(isNull(messagesTable.channelId), notInArray(messagesTable.channelId, ids));
       if (cond) conditions.push(cond);
@@ -587,6 +599,7 @@ router.get("/rooms/:roomId/messages/search", requireAuth, async (req, res): Prom
       avatarUrl: usersTable.avatarUrl,
       nameColor: usersTable.nameColor,
       avatarStyle: usersTable.avatarStyle,
+      isBot: usersTable.isBot,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
@@ -617,7 +630,7 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
-  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, membership.role))) { res.status(403).json({ error: "No access to this channel" }); return; }
   if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
 
   const ageMs = Date.now() - new Date(message.createdAt).getTime();
@@ -634,12 +647,12 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle, isBot: usersTable.isBot })
     .from(usersTable)
     .where(eq(usersTable.id, updated.userId));
   const [enriched] = await enrichMessages([updated]);
 
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle, isBot: user.isBot ?? false };
   broadcastMessageEvent(roomId, message.channelId, { type: "message_updated", message: result });
   res.json(result);
 });
@@ -658,7 +671,7 @@ router.delete("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
-  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, membership.role))) { res.status(403).json({ error: "No access to this channel" }); return; }
   if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
 
   await db.delete(messagesTable).where(eq(messagesTable.id, messageId));
@@ -691,6 +704,8 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
     const isStaff = membership.role === "owner" || membership.role === "mod";
     if (channel.isPrivate && !isStaff) { res.status(403).json({ error: "No access to this channel" }); return; }
     if (channel.type === "announcement" && !isStaff) { res.status(403).json({ error: "Only owner/mod can post in announcement channels" }); return; }
+    if (!roleAtLeast(membership.role, channel.minViewRole)) { res.status(403).json({ error: "No access to this channel" }); return; }
+    if (!roleAtLeast(membership.role, channel.minSendRole)) { res.status(403).json({ error: "You don't have permission to post in this channel" }); return; }
     if (channel.type === "voice") { res.status(400).json({ error: "Cannot post text to a voice channel" }); return; }
     channelId = channel.id;
   }
@@ -711,11 +726,11 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle, isBot: usersTable.isBot })
     .from(usersTable)
     .where(eq(usersTable.id, authReq.userId!));
   const [enriched] = await enrichMessages([saved]);
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle, isBot: user.isBot ?? false };
 
   if (channelId != null) {
     broadcastChannel(channelId, { type: "new_message", message: result });
@@ -744,7 +759,7 @@ router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
-  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, membership.role))) { res.status(403).json({ error: "No access to this channel" }); return; }
 
   const [existing] = await db
     .select()
@@ -805,11 +820,11 @@ router.post("/rooms/:roomId/messages/:messageId/pin", requireAuth, async (req, r
     .returning();
 
   const [user] = await db
-    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle })
+    .select({ username: usersTable.username, displayName: usersTable.displayName, avatarUrl: usersTable.avatarUrl, nameColor: usersTable.nameColor, avatarStyle: usersTable.avatarStyle, isBot: usersTable.isBot })
     .from(usersTable)
     .where(eq(usersTable.id, updated.userId));
   const [enriched] = await enrichMessages([updated]);
-  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
+  const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle, isBot: user.isBot ?? false };
 
   broadcastMessageEvent(roomId, message.channelId, { type: "message_updated", message: result });
   res.json(result);
@@ -824,12 +839,8 @@ router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> =
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
 
   const pinConditions = [eq(messagesTable.roomId, roomId), eq(messagesTable.pinned, true)];
-  if (!isStaffRole(membership.role)) {
-    const priv = await db
-      .select({ id: channelsTable.id })
-      .from(channelsTable)
-      .where(and(eq(channelsTable.roomId, roomId), eq(channelsTable.isPrivate, true)));
-    const ids = priv.map((c) => c.id);
+  {
+    const ids = await getHiddenChannelIds(roomId, membership.role);
     if (ids.length) {
       const cond = or(isNull(messagesTable.channelId), notInArray(messagesTable.channelId, ids));
       if (cond) pinConditions.push(cond);
@@ -846,6 +857,7 @@ router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> =
       avatarUrl: usersTable.avatarUrl,
       nameColor: usersTable.nameColor,
       avatarStyle: usersTable.avatarStyle,
+      isBot: usersTable.isBot,
       content: messagesTable.content,
       createdAt: messagesTable.createdAt,
       editedAt: messagesTable.editedAt,
@@ -956,6 +968,8 @@ router.patch("/rooms/:roomId/members/:userId/role", requireAuth, async (req, res
   if (!updated.length) { res.status(404).json({ error: "Member not found" }); return; }
 
   broadcastToRoom(roomId, { type: "role_updated", roomId, userId: targetUserId, role });
+  // A lowered role may no longer satisfy some channels' minViewRole — evict stale WS sessions.
+  await revalidateMemberChannelAccess(roomId, targetUserId);
   res.status(204).end();
 });
 
