@@ -4,7 +4,7 @@ import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
 import { db, messagesTable, usersTable, roomMembersTable, channelsTable, roleAtLeast, IS_SQLITE } from "@workspace/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 
 type UserStatus = "online" | "away" | "dnd";
 
@@ -144,12 +144,19 @@ export async function revalidateChannelAccess(channelId: number): Promise<void> 
     .from(channelsTable)
     .where(eq(channelsTable.id, channelId));
   if (!channel) return;
+
+  // Batch all membership lookups into one query instead of one per joined
+  // client (was N+1: a channel with N clients ran N membership selects).
+  const userIds = Array.from(new Set(joined.map((c) => c.userId)));
+  const memberships = await db
+    .select({ userId: roomMembersTable.userId, role: roomMembersTable.role, status: roomMembersTable.status })
+    .from(roomMembersTable)
+    .where(and(eq(roomMembersTable.roomId, channel.roomId), inArray(roomMembersTable.userId, userIds)));
+  const membershipByUser = new Map(memberships.map((m) => [m.userId, m]));
+
   const affectedRooms = new Set<number>();
   for (const client of joined) {
-    const [membership] = await db
-      .select({ role: roomMembersTable.role, status: roomMembersTable.status })
-      .from(roomMembersTable)
-      .where(and(eq(roomMembersTable.roomId, channel.roomId), eq(roomMembersTable.userId, client.userId)));
+    const membership = membershipByUser.get(client.userId);
     const allowed = membership?.status === "active" && canViewChannel(membership.role, channel);
     if (!allowed) {
       evictSessionFromChannel(client);
@@ -170,12 +177,17 @@ export async function revalidateMemberChannelAccess(roomId: number, userId: numb
     .select({ role: roomMembersTable.role, status: roomMembersTable.status })
     .from(roomMembersTable)
     .where(and(eq(roomMembersTable.roomId, roomId), eq(roomMembersTable.userId, userId)));
+  // Batch all channel lookups into one query instead of one per session.
+  const channelIds = Array.from(new Set(sessions.map((c) => c.channelId!)));
+  const channelRows = await db
+    .select({ id: channelsTable.id, isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole })
+    .from(channelsTable)
+    .where(inArray(channelsTable.id, channelIds));
+  const channelById = new Map(channelRows.map((c) => [c.id, c]));
+
   let evicted = false;
   for (const client of sessions) {
-    const [channel] = await db
-      .select({ isPrivate: channelsTable.isPrivate, minViewRole: channelsTable.minViewRole })
-      .from(channelsTable)
-      .where(eq(channelsTable.id, client.channelId!));
+    const channel = channelById.get(client.channelId!);
     const allowed = channel != null && membership?.status === "active" && canViewChannel(membership.role, channel);
     if (!allowed) {
       evictSessionFromChannel(client);
