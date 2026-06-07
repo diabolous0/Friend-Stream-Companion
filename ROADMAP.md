@@ -47,7 +47,20 @@ Server config + packaging:
 - `[NEW]  artifacts/api-server/Dockerfile` — containerized standalone server.
 - `[NEW]  artifacts/api-server/SELF_HOSTING.md` — run instructions (Windows/Linux/Docker).
 
-Storage (Postgres + SQLite via Drizzle):
+File storage (must be portable — currently Replit-only):
+- `[CHANGE] artifacts/api-server/src/lib/objectStorage.ts` — extract a `StorageBackend` interface
+  (request-upload, finalize, serve, ACL). Today this file hard-binds to the Replit sidecar
+  (`127.0.0.1:1106`) + `@google-cloud/storage` — that endpoint does not exist off-Replit.
+- `[NEW]  artifacts/api-server/src/lib/storage/localDisk.ts` — **default self-host backend**: stores
+  uploads under `config.dataDir/uploads`, serves them through the existing `/storage/*` routes.
+- `[NEW]  artifacts/api-server/src/lib/storage/replitObject.ts` — the current GCS/sidecar logic moved
+  behind the interface (used on Replit/cloud).
+- `[CHANGE] artifacts/api-server/src/routes/storage.ts` — depend on the selected backend, not the
+  concrete `ObjectStorageService`.
+- `[CHANGE] artifacts/api-server/src/lib/config.ts` — add `storageDriver` (`local|replit`) and
+  `dataDir`. Self-host defaults to `local`.
+
+Database (Postgres + SQLite via Drizzle):
 - `[CHANGE] lib/db/src/index.ts` — select driver at startup: `drizzle-orm/node-postgres` (default,
   cloud) or `drizzle-orm/better-sqlite3` (self-host) based on config.
 - `[CHANGE] lib/db/src/schema/*.ts` — make column types dialect-neutral (or add a parallel
@@ -163,8 +176,26 @@ runs from Docker on a home server/VPS.
 
 ---
 
+## Portability guarantee (no Replit-only dependencies)
+
+A self-hosted server must run with **zero** Replit infrastructure. Audit of current Replit-coupled
+surfaces and how each is made portable:
+
+| Surface | Today (Replit-coupled) | Portable design |
+| --- | --- | --- |
+| Database | `DATABASE_URL` Postgres | SQLite default for self-host; Postgres opt-in (Phase 2) |
+| File storage | Replit sidecar `127.0.0.1:1106` + GCS | Local-disk backend default (Phase 2) |
+| Config | env vars only | config file with env overrides (Phase 2) |
+| WebRTC ICE | hardcoded Google STUN | configurable STUN/TURN (Phase 5) |
+| GIPHY | `GIPHY_API_KEY` | optional; feature hidden when key absent (degrade gracefully) |
+| Hosting/port | Replit-assigned `PORT` | `port` from config file; binds `0.0.0.0` |
+
+Rule going forward: any new server feature must work behind the `local`/`sqlite`/config-file path,
+not just the Replit path. A feature that only works on Replit is not "done."
+
 ## Cross-cutting notes
 
 - Run codegen after every `openapi.yaml` change: `pnpm --filter @workspace/api-spec run codegen`.
-- Keep Postgres as the default engine on Replit; SQLite is opt-in via config for self-hosters.
+- Keep Postgres + Replit storage as the *cloud* defaults; SQLite + local-disk are the *self-host*
+  defaults — both selected by one config, never a code fork.
 - Each phase ends with `pnpm run typecheck` green and the existing app verified working.
