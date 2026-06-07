@@ -18,6 +18,7 @@ import {
 import { useTheme } from "@/lib/theme";
 import { useFavoriteRoomIds } from "@/lib/favorites";
 import { getServerLabel } from "@/lib/server-connection";
+import { ServerInfoHover } from "@/components/server-info-hover";
 
 function channelIcon(type: string) {
   switch (type) {
@@ -135,7 +136,9 @@ export function NavColumn() {
         }`}
       >
         <ServerIcon className="w-4 h-4 text-primary shrink-0" />
-        <span className="font-semibold text-sm truncate">{serverName}</span>
+        <ServerInfoHover>
+          <span className="font-semibold text-sm truncate cursor-default">{serverName}</span>
+        </ServerInfoHover>
       </div>
 
       <div className="flex items-center gap-1.5 px-3 pt-3 pb-1.5">

@@ -60,6 +60,7 @@ import type {
   SearchGiphyParams,
   SearchRoomMessagesParams,
   ServerConfigInfo,
+  ServerConfigUpdate,
   ServerInfo,
   ServerInvite,
   UpdateChannelInput,
@@ -602,6 +603,77 @@ export function useGetServerConfig<TData = Awaited<ReturnType<typeof getServerCo
 
 
 
+
+export const getUpdateServerConfigUrl = () => {
+
+
+
+
+  return `/api/admin/config`
+}
+
+/**
+ * @summary Update server configuration (admin only)
+ */
+export const updateServerConfig = async (serverConfigUpdate: ServerConfigUpdate, options?: RequestInit): Promise<ServerConfigInfo> => {
+
+  return customFetch<ServerConfigInfo>(getUpdateServerConfigUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      serverConfigUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateServerConfigMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateServerConfig>>, TError,{data: BodyType<ServerConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateServerConfig>>, TError,{data: BodyType<ServerConfigUpdate>}, TContext> => {
+
+const mutationKey = ['updateServerConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateServerConfig>>, {data: BodyType<ServerConfigUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateServerConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateServerConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateServerConfig>>>
+    export type UpdateServerConfigMutationBody = BodyType<ServerConfigUpdate>
+    export type UpdateServerConfigMutationError = ErrorType<void>
+
+    /**
+ * @summary Update server configuration (admin only)
+ */
+export const useUpdateServerConfig = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateServerConfig>>, TError,{data: BodyType<ServerConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateServerConfig>>,
+        TError,
+        {data: BodyType<ServerConfigUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateServerConfigMutationOptions(options));
+    }
 
 export const getListInvitesUrl = () => {
 

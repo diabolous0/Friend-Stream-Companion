@@ -53,7 +53,9 @@ export const ServerInfoRegistration = {
 
 export interface ServerInfo {
   serverName: string;
+  description?: string | null;
   registration: ServerInfoRegistration;
+  userCount: number;
 }
 
 export interface IceServerList {
@@ -71,9 +73,28 @@ export const ServerConfigInfoRegistration = {
 
 export interface ServerConfigInfo {
   serverName: string;
+  description?: string | null;
   registration: ServerConfigInfoRegistration;
   maxUsers: number;
   userCount: number;
+}
+
+export type ServerConfigUpdateRegistration = typeof ServerConfigUpdateRegistration[keyof typeof ServerConfigUpdateRegistration];
+
+
+export const ServerConfigUpdateRegistration = {
+  open: 'open',
+  invite: 'invite',
+  closed: 'closed',
+} as const;
+
+export interface ServerConfigUpdate {
+  /** @minLength 1 */
+  serverName?: string;
+  description?: string | null;
+  registration?: ServerConfigUpdateRegistration;
+  /** @minimum 1 */
+  maxUsers?: number;
 }
 
 export interface ServerInvite {

@@ -149,6 +149,27 @@ paths:
                 $ref: "#/components/schemas/ServerConfigInfo"
         "403":
           description: Forbidden
+    patch:
+      operationId: updateServerConfig
+      tags: [admin]
+      summary: Update server configuration (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServerConfigUpdate"
+      responses:
+        "200":
+          description: Updated server configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerConfigInfo"
+        "400":
+          description: Invalid request
+        "403":
+          description: Forbidden
 
   /admin/invites:
     get:
@@ -1424,13 +1445,18 @@ components:
 
     ServerInfo:
       type: object
-      required: [serverName, registration]
+      required: [serverName, registration, userCount]
       properties:
         serverName:
           type: string
+        description:
+          type: string
+          nullable: true
         registration:
           type: string
           enum: [open, invite, closed]
+        userCount:
+          type: integer
 
     IceServerList:
       type: object
@@ -1447,6 +1473,9 @@ components:
       properties:
         serverName:
           type: string
+        description:
+          type: string
+          nullable: true
         registration:
           type: string
           enum: [open, invite, closed]
@@ -1454,6 +1483,22 @@ components:
           type: integer
         userCount:
           type: integer
+
+    ServerConfigUpdate:
+      type: object
+      properties:
+        serverName:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          nullable: true
+        registration:
+          type: string
+          enum: [open, invite, closed]
+        maxUsers:
+          type: integer
+          minimum: 1
 
     ServerInvite:
       type: object

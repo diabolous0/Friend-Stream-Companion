@@ -95,7 +95,9 @@ export const ClaimAdminResponse = zod.object({
  */
 export const GetServerInfoResponse = zod.object({
   "serverName": zod.string(),
-  "registration": zod.enum(['open', 'invite', 'closed'])
+  "description": zod.string().nullish(),
+  "registration": zod.enum(['open', 'invite', 'closed']),
+  "userCount": zod.number()
 })
 
 
@@ -116,6 +118,30 @@ export const GetIceServersResponse = zod.object({
  */
 export const GetServerConfigResponse = zod.object({
   "serverName": zod.string(),
+  "description": zod.string().nullish(),
+  "registration": zod.enum(['open', 'invite', 'closed']),
+  "maxUsers": zod.number(),
+  "userCount": zod.number()
+})
+
+
+/**
+ * @summary Update server configuration (admin only)
+ */
+
+
+
+
+export const UpdateServerConfigBody = zod.object({
+  "serverName": zod.string().min(1).optional(),
+  "description": zod.string().nullish(),
+  "registration": zod.enum(['open', 'invite', 'closed']).optional(),
+  "maxUsers": zod.number().min(1).optional()
+})
+
+export const UpdateServerConfigResponse = zod.object({
+  "serverName": zod.string(),
+  "description": zod.string().nullish(),
   "registration": zod.enum(['open', 'invite', 'closed']),
   "maxUsers": zod.number(),
   "userCount": zod.number()

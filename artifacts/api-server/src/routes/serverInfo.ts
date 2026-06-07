@@ -1,16 +1,26 @@
 import { Router, type IRouter } from "express";
+import { db, usersTable } from "@workspace/db";
+import { sql } from "drizzle-orm";
 import { config } from "../lib/config";
+import { getServerSettings } from "../lib/serverSettings";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-// Public endpoint: lets clients discover the server name and registration policy
-// before authenticating (the login screen needs these). Deliberately excludes
-// ICE servers so TURN credentials are never exposed to anonymous callers.
-router.get("/server-info", (_req, res): void => {
+// Public endpoint: lets clients discover the server name, description, member
+// count, and registration policy before authenticating (the login screen and
+// the server-info hover window need these). Deliberately excludes ICE servers
+// so TURN credentials are never exposed to anonymous callers.
+router.get("/server-info", async (_req, res): Promise<void> => {
+  const settings = await getServerSettings();
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(usersTable);
   res.json({
-    serverName: config.serverName,
-    registration: config.registration,
+    serverName: settings.serverName,
+    description: settings.description,
+    registration: settings.registration,
+    userCount: Number(count),
   });
 });
 

@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, usersTable, serverInvitesTable } from "@workspace/db";
 import { eq, sql, and, or, isNull, lt, gt } from "drizzle-orm";
 import { signToken, hashPassword } from "../middlewares/auth";
-import { config } from "../lib/config";
+import { getServerSettings } from "../lib/serverSettings";
 import { RegisterBody, LoginBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -25,7 +25,9 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const { username, password, inviteKey } = parsed.data;
 
-  if (config.registration === "closed") {
+  const settings = await getServerSettings();
+
+  if (settings.registration === "closed") {
     res.status(403).json({ error: "Registration is closed on this server" });
     return;
   }
@@ -39,12 +41,12 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
     .from(usersTable);
-  if (Number(count) >= config.maxUsers) {
+  if (Number(count) >= settings.maxUsers) {
     res.status(403).json({ error: "This server is full" });
     return;
   }
 
-  if (config.registration === "invite") {
+  if (settings.registration === "invite") {
     if (!inviteKey) {
       res.status(403).json({ error: "An invite key is required to register" });
       return;

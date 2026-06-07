@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
 import { clearActiveToken } from "@/lib/server-connection";
 import { useFavoriteRoomIds, toggleFavoriteRoom } from "@/lib/favorites";
+import { ServerInfoHover } from "@/components/server-info-hover";
 
 function getLastVisited(roomId: number): Date | null {
   const ts = localStorage.getItem(`screencrew_visited_${roomId}`);
@@ -228,9 +229,11 @@ export default function Rooms() {
               <h1 className={`font-semibold text-base text-foreground ${classic ? "font-mono tracking-widest uppercase text-primary" : ""}`}>
                 {classic ? "SCREENCREW" : "ScreenCrew"}
               </h1>
-              <p className={`text-xs text-muted-foreground ${classic ? "font-mono" : ""}`}>
-                {serverInfo?.serverName ?? (classic ? "ACTIVE NODES" : "Your rooms")}
-              </p>
+              <ServerInfoHover>
+                <p className={`text-xs text-muted-foreground cursor-default inline-block ${classic ? "font-mono" : ""}`}>
+                  {serverInfo?.serverName ?? (classic ? "ACTIVE NODES" : "Your rooms")}
+                </p>
+              </ServerInfoHover>
             </div>
           </div>
           <div className="flex items-center gap-3">

@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Play, Trash2, Volume2 } from "lucide-react";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Play, Trash2, Volume2, ServerCog } from "lucide-react";
 import {
   useSettings, ACCENT_COLORS, FONT_OPTIONS, CUSTOM_COLOR_FIELDS, DEFAULT_CUSTOM_COLORS,
   BUILTIN_SOUNDS, SOUND_EVENTS, SOUND_THEMES, SKIN_PRESETS,
@@ -13,7 +13,11 @@ import {
 } from "@/lib/settings";
 import { useSounds } from "@/hooks/use-sounds";
 import { VIDEO_QUALITY_LABELS, VIDEO_BITRATE_OPTIONS } from "@/lib/media";
-import { useGetMe, useUpdateMe, getGetMeQueryKey } from "@workspace/api-client-react";
+import {
+  useGetMe, useUpdateMe, getGetMeQueryKey,
+  useGetServerConfig, useUpdateServerConfig,
+  getGetServerConfigQueryKey, getGetServerInfoQueryKey,
+} from "@workspace/api-client-react";
 import { useUpload } from "@/hooks/use-upload";
 import { avatarSrc, initials } from "@/lib/avatar";
 import { useToast } from "@/hooks/use-toast";
@@ -582,6 +586,113 @@ function ProfileTab() {
   );
 }
 
+// ─── Server (admin) ────────────────────────────────────────────────────────────
+
+function ServerTab() {
+  const { data: config } = useGetServerConfig();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const updateConfig = useUpdateServerConfig();
+
+  const [form, setForm] = useState({
+    serverName: "",
+    description: "",
+    registration: "open" as "open" | "invite" | "closed",
+    maxUsers: 100,
+  });
+  const [seeded, setSeeded] = useState(false);
+
+  useEffect(() => {
+    if (config && !seeded) {
+      setForm({
+        serverName: config.serverName ?? "",
+        description: config.description ?? "",
+        registration: config.registration,
+        maxUsers: config.maxUsers,
+      });
+      setSeeded(true);
+    }
+  }, [config, seeded]);
+
+  const save = () => {
+    if (!form.serverName.trim()) {
+      toast({ title: "Server name can't be empty", variant: "destructive" });
+      return;
+    }
+    if (!Number.isFinite(form.maxUsers) || form.maxUsers < 1) {
+      toast({ title: "Max members must be at least 1", variant: "destructive" });
+      return;
+    }
+    updateConfig.mutate(
+      {
+        data: {
+          serverName: form.serverName.trim(),
+          description: form.description.trim() || null,
+          registration: form.registration,
+          maxUsers: Math.floor(form.maxUsers),
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetServerConfigQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetServerInfoQueryKey() });
+          toast({ title: "Server updated" });
+        },
+        onError: () => toast({ title: "Could not update server", variant: "destructive" }),
+      },
+    );
+  };
+
+  const inputCls = "h-9 w-full rounded-xl bg-muted/25 border border-transparent px-3 text-sm text-foreground outline-none focus:border-primary/30 placeholder:text-muted-foreground/40";
+
+  return (
+    <div className="space-y-5">
+      <Section title="Identity">
+        <Field label="Server name" description="Shown in the sidebar, login screen, and hover card">
+          <div className="relative">
+            <ServerCog className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input value={form.serverName} maxLength={60}
+              onChange={e => setForm(f => ({ ...f, serverName: e.target.value }))}
+              placeholder="My Server"
+              className={inputCls + " pl-9"} />
+          </div>
+        </Field>
+        <Field label="Description" description="A short tagline shown in the server hover card">
+          <textarea value={form.description} maxLength={280} rows={3}
+            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="What's this server about?"
+            className="w-full rounded-xl bg-muted/25 border border-transparent px-3 py-2 text-sm text-foreground outline-none focus:border-primary/30 placeholder:text-muted-foreground/40 resize-none" />
+        </Field>
+      </Section>
+
+      <Divider />
+
+      <Section title="Access">
+        <Field label="Registration" description="Who can create an account on this server">
+          <select value={form.registration}
+            onChange={e => setForm(f => ({ ...f, registration: e.target.value as typeof f.registration }))}
+            className={inputCls}>
+            <option value="open">Open — anyone can join</option>
+            <option value="invite">Invite only — needs an invite key</option>
+            <option value="closed">Closed — no new accounts</option>
+          </select>
+        </Field>
+        <Field label="Max members" description={config ? `${config.userCount} registered so far` : undefined}>
+          <input type="number" min={1} value={form.maxUsers}
+            onChange={e => setForm(f => ({ ...f, maxUsers: e.target.valueAsNumber }))}
+            className={inputCls} />
+        </Field>
+      </Section>
+
+      <Button onClick={save} disabled={updateConfig.isPending || !config}
+        className="w-full h-9 rounded-xl text-sm gap-2">
+        {updateConfig.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+        Save server settings
+      </Button>
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 interface SettingsModalProps {
@@ -604,6 +715,8 @@ export function SettingsModal({
 }: SettingsModalProps) {
   const { settings, set, applyMany, reset, exportCode, importCode } = useSettings();
   const { toast } = useToast();
+  const { data: me } = useGetMe();
+  const isAdmin = !!me?.isAdmin;
 
   const [renameValue, setRenameValue] = useState(roomName ?? "");
   const [importValue, setImportValue] = useState("");
@@ -649,9 +762,10 @@ export function SettingsModal({
         </DialogHeader>
 
         <Tabs defaultValue="profile" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid grid-cols-6">
+          <TabsList className={`mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid ${isAdmin ? "grid-cols-7" : "grid-cols-6"}`}>
             {[
               { key: "profile", label: "You" },
+              ...(isAdmin ? [{ key: "server", label: "Server" }] : []),
               { key: "appearance", label: "Look" },
               { key: "chat", label: "Chat" },
               { key: "audio", label: "Media" },
@@ -669,6 +783,13 @@ export function SettingsModal({
           <TabsContent value="profile" className="flex-1 overflow-y-auto px-6 py-5">
             <ProfileTab />
           </TabsContent>
+
+          {/* ── Server (admin) ── */}
+          {isAdmin && (
+            <TabsContent value="server" className="flex-1 overflow-y-auto px-6 py-5">
+              <ServerTab />
+            </TabsContent>
+          )}
 
           {/* ── Appearance ── */}
           <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
