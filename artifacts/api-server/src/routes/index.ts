@@ -6,6 +6,7 @@ import roomsRouter from "./rooms";
 import channelsRouter from "./channels";
 import storageRouter from "./storage";
 import giphyRouter from "./giphy";
+import linkPreviewRouter from "./linkPreview";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(roomsRouter);
 router.use(channelsRouter);
 router.use(storageRouter);
 router.use(giphyRouter);
+router.use(linkPreviewRouter);
 
 export default router;

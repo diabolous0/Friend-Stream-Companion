@@ -358,6 +358,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/Message"
 
+  /rooms/{roomId}/messages/search:
+    get:
+      operationId: searchRoomMessages
+      tags: [messages]
+      summary: Search messages across a room's history
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Search query (matched against message content)
+        - name: channelId
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Restrict results to a specific channel
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 40
+      responses:
+        "200":
+          description: Matching messages, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+
+  /link-preview:
+    get:
+      operationId: getLinkPreview
+      tags: [messages]
+      summary: Fetch Open Graph link preview metadata for a URL
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The http(s) URL to unfurl
+      responses:
+        "200":
+          description: Link preview metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkPreview"
+
   /rooms/{roomId}/messages/{messageId}:
     patch:
       operationId: editMessage
@@ -1110,6 +1170,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Reaction"
+
+    LinkPreview:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        image:
+          type: string
+          nullable: true
+        siteName:
+          type: string
+          nullable: true
 
     MessageInput:
       type: object

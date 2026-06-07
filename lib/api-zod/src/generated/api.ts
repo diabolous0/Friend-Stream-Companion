@@ -427,6 +427,65 @@ export const SendMessageBody = zod.object({
 
 
 /**
+ * @summary Search messages across a room's history
+ */
+export const SearchRoomMessagesParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const searchRoomMessagesQueryQMin = 2;
+
+export const searchRoomMessagesQueryLimitDefault = 40;
+
+export const SearchRoomMessagesQueryParams = zod.object({
+  "q": zod.coerce.string().min(searchRoomMessagesQueryQMin).describe('Search query (matched against message content)'),
+  "channelId": zod.coerce.number().optional().describe('Restrict results to a specific channel'),
+  "limit": zod.coerce.number().default(searchRoomMessagesQueryLimitDefault)
+})
+
+export const SearchRoomMessagesResponseItem = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "channelId": zod.number().nullish(),
+  "userId": zod.number(),
+  "username": zod.string(),
+  "displayName": zod.string().nullish(),
+  "avatarUrl": zod.string().nullish(),
+  "nameColor": zod.string().nullish(),
+  "avatarStyle": zod.string().nullish(),
+  "content": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "editedAt": zod.coerce.date().nullish(),
+  "pinned": zod.boolean().nullish(),
+  "replyToId": zod.number().nullish(),
+  "replyToContent": zod.string().nullish(),
+  "replyToUsername": zod.string().nullish(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.string(),
+  "count": zod.number(),
+  "userIds": zod.array(zod.number())
+}))
+})
+export const SearchRoomMessagesResponse = zod.array(SearchRoomMessagesResponseItem)
+
+
+/**
+ * @summary Fetch Open Graph link preview metadata for a URL
+ */
+export const GetLinkPreviewQueryParams = zod.object({
+  "url": zod.coerce.string().describe('The http(s) URL to unfurl')
+})
+
+export const GetLinkPreviewResponse = zod.object({
+  "url": zod.string(),
+  "title": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "image": zod.string().nullish(),
+  "siteName": zod.string().nullish()
+})
+
+
+/**
  * @summary Edit a message (owner only, within 15 minutes)
  */
 export const EditMessageParams = zod.object({

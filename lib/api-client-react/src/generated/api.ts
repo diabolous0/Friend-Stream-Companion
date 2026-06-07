@@ -25,11 +25,13 @@ import type {
   Channel,
   CreateChannelInput,
   EditMessageInput,
+  GetLinkPreviewParams,
   GetRoomMessagesParams,
   GiphyGif,
   HealthStatus,
   JoinByCodeInput,
   JoinRoomInput,
+  LinkPreview,
   MemberUser,
   Message,
   MessageInput,
@@ -39,6 +41,7 @@ import type {
   Room,
   RoomInput,
   SearchGiphyParams,
+  SearchRoomMessagesParams,
   UpdateChannelInput,
   UpdateMemberRoleInput,
   UpdateProfileInput,
@@ -1250,6 +1253,179 @@ export const useSendMessage = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getSendMessageMutationOptions(options));
     }
+
+export const getSearchRoomMessagesUrl = (roomId: number,
+    params: SearchRoomMessagesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/rooms/${roomId}/messages/search?${stringifiedParams}` : `/api/rooms/${roomId}/messages/search`
+}
+
+/**
+ * @summary Search messages across a room's history
+ */
+export const searchRoomMessages = async (roomId: number,
+    params: SearchRoomMessagesParams, options?: RequestInit): Promise<Message[]> => {
+
+  return customFetch<Message[]>(getSearchRoomMessagesUrl(roomId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchRoomMessagesQueryKey = (roomId: number,
+    params?: SearchRoomMessagesParams,) => {
+    return [
+    `/api/rooms/${roomId}/messages/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchRoomMessagesQueryOptions = <TData = Awaited<ReturnType<typeof searchRoomMessages>>, TError = ErrorType<unknown>>(roomId: number,
+    params: SearchRoomMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchRoomMessagesQueryKey(roomId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchRoomMessages>>> = ({ signal }) => searchRoomMessages(roomId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(roomId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchRoomMessages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchRoomMessagesQueryResult = NonNullable<Awaited<ReturnType<typeof searchRoomMessages>>>
+export type SearchRoomMessagesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Search messages across a room's history
+ */
+
+export function useSearchRoomMessages<TData = Awaited<ReturnType<typeof searchRoomMessages>>, TError = ErrorType<unknown>>(
+ roomId: number,
+    params: SearchRoomMessagesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchRoomMessages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchRoomMessagesQueryOptions(roomId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetLinkPreviewUrl = (params: GetLinkPreviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/link-preview?${stringifiedParams}` : `/api/link-preview`
+}
+
+/**
+ * @summary Fetch Open Graph link preview metadata for a URL
+ */
+export const getLinkPreview = async (params: GetLinkPreviewParams, options?: RequestInit): Promise<LinkPreview> => {
+
+  return customFetch<LinkPreview>(getGetLinkPreviewUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLinkPreviewQueryKey = (params?: GetLinkPreviewParams,) => {
+    return [
+    `/api/link-preview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLinkPreviewQueryOptions = <TData = Awaited<ReturnType<typeof getLinkPreview>>, TError = ErrorType<unknown>>(params: GetLinkPreviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLinkPreviewQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLinkPreview>>> = ({ signal }) => getLinkPreview(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLinkPreview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLinkPreviewQueryResult = NonNullable<Awaited<ReturnType<typeof getLinkPreview>>>
+export type GetLinkPreviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Fetch Open Graph link preview metadata for a URL
+ */
+
+export function useGetLinkPreview<TData = Awaited<ReturnType<typeof getLinkPreview>>, TError = ErrorType<unknown>>(
+ params: GetLinkPreviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLinkPreview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLinkPreviewQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getEditMessageUrl = (roomId: number,
     messageId: number,) => {

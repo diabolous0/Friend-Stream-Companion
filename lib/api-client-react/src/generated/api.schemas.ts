@@ -205,6 +205,14 @@ export interface Message {
   reactions: Reaction[];
 }
 
+export interface LinkPreview {
+  url: string;
+  title?: string | null;
+  description?: string | null;
+  image?: string | null;
+  siteName?: string | null;
+}
+
 export interface MessageInput {
   /** @minLength 1 */
   content: string;
@@ -305,6 +313,26 @@ channelId?: number;
  */
 before?: number;
 limit?: number;
+};
+
+export type SearchRoomMessagesParams = {
+/**
+ * Search query (matched against message content)
+ * @minLength 2
+ */
+q: string;
+/**
+ * Restrict results to a specific channel
+ */
+channelId?: number;
+limit?: number;
+};
+
+export type GetLinkPreviewParams = {
+/**
+ * The http(s) URL to unfurl
+ */
+url: string;
 };
 
 export type SearchGiphyParams = {

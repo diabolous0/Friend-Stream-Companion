@@ -5,6 +5,7 @@ import {
   useGetRoomMembers, getGetRoomMembersQueryKey,
   useGetRoomPresence, getGetRoomPresenceQueryKey,
   useGetRoomMessages, getGetRoomMessagesQueryKey,
+  useSearchRoomMessages, getSearchRoomMessagesQueryKey,
   getRoomMessages,
   useSendMessage, useToggleReaction,
   useUpdateRoom, useLeaveRoom,
@@ -47,6 +48,7 @@ import { SettingsModal } from "@/components/settings-modal";
 import { ChatPopout } from "@/components/chat-popout";
 import { GiphyPicker } from "@/components/giphy-picker";
 import { MentionInput, type MentionInputHandle } from "@/components/mention-input";
+import { LinkPreview, firstPreviewableLink } from "@/components/link-preview";
 import {
   MessageContent, containsMention,
   isGifReaction, gifReactionUrl, encodePoll, encodeEmote, POLL_EMOJIS,
@@ -1181,6 +1183,21 @@ export default function Room() {
     ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
+  // Debounced server-side search across the full room history.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  const searchEnabled = showSearch && debouncedSearch.length >= 2 && !!roomId;
+  const { data: searchResults, isFetching: searchFetching } = useSearchRoomMessages(
+    roomId, { q: debouncedSearch, limit: 40 },
+    { query: { enabled: searchEnabled, queryKey: getSearchRoomMessagesQueryKey(roomId, { q: debouncedSearch, limit: 40 }) } }
+  );
+  // Surface only history matches not already visible in the current loaded view.
+  const loadedIds = useMemo(() => new Set(messages.map(m => m.id)), [messages]);
+  const historyResults = (searchResults ?? []).filter((m: any) => !loadedIds.has(m.id));
+
   const typingNames = Object.entries(typingUsers)
     .filter(([uid]) => Number(uid) !== me?.id)
     .map(([, n]) => n);
@@ -1793,6 +1810,34 @@ export default function Room() {
                       <X className="w-3 h-3" />
                     </button>
                   )}
+                  {debouncedSearch.length >= 2 && (
+                    <div className="mt-1 rounded-xl border border-border/40 bg-card/95 backdrop-blur-sm overflow-hidden">
+                      <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted-foreground/50 border-b border-border/30">
+                        {searchFetching ? "Searching history…" : historyResults.length > 0 ? `${historyResults.length} more in history` : "No other matches in history"}
+                      </div>
+                      {historyResults.length > 0 && (
+                        <div className="max-h-56 overflow-y-auto">
+                          {historyResults.map((r: any) => {
+                            const ch = channels?.find((c: any) => c.id === r.channelId);
+                            return (
+                              <button key={r.id}
+                                onClick={() => { if (r.channelId && r.channelId !== activeChannelId) handleSwitchChannel(r.channelId); setShowSearch(false); setSearchQuery(""); }}
+                                className="w-full text-left px-2.5 py-1.5 hover:bg-muted/40 transition-colors border-b border-border/20 last:border-0">
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 mb-0.5">
+                                  {ch && <span className="text-primary/70">#{ch.name}</span>}
+                                  <span className="font-semibold text-foreground/70">{displayNameOf(r) || r.username}</span>
+                                  <span className="ml-auto shrink-0">{new Date(r.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}</span>
+                                </div>
+                                <div className="text-[11px] text-foreground/80 line-clamp-2">
+                                  <MessageContent content={r.content} searchQuery={debouncedSearch} myUsername={me?.username} />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1884,6 +1929,7 @@ export default function Room() {
                               <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} embedImages={activeChannel?.type === "media"} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
                             </span>
+                            {(() => { const lp = firstPreviewableLink(msg.content); return lp ? <LinkPreview url={lp} /> : null; })()}
                           </div>
                         )}
                         {/* Message actions */}
