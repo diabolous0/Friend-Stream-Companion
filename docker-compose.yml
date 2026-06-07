@@ -8,8 +8,15 @@
 #
 # Then open http://<your-server-ip>:8080.
 #
+# Optional add-ons (Docker "profiles", opt-in):
+#   --profile turn   also start a bundled coturn TURN relay so screen sharing
+#                    works for friends behind strict home routers/firewalls.
+#                    Example: docker compose --profile turn up -d --build
+#
 # To run against Postgres instead of SQLite, uncomment the `db` service and the
 # Postgres environment block on the `screencrew` service below.
+#
+# Settings come from a `.env` file in this directory (see .env.example).
 
 services:
   screencrew:
@@ -35,9 +42,58 @@ services:
       # --- Postgres (uncomment to use the db service below) ---
       # DB_DRIVER: postgres
       # DATABASE_URL: postgres://screencrew:screencrew@db:5432/screencrew
+      # --- TURN relay (advertised to clients) ---
+      # Left empty by default → STUN only. Filled in automatically when you set
+      # these in .env (and start the `turn` profile below).
+      TURN_URL: ${TURN_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
     # depends_on:
     #   db:
     #     condition: service_healthy
+
+  # Bundled TURN relay (opt-in). Start it with: docker compose --profile turn up -d
+  #
+  # A TURN server relays WebRTC media when two peers cannot connect directly
+  # (common with strict home routers / "symmetric" NAT). Without it, screen
+  # sharing can silently fail for some friends.
+  #
+  # Required .env values (see .env.example):
+  #   TURN_PUBLIC_HOST   public IP or hostname friends use to reach this machine
+  #   TURN_USERNAME      a username (also advertised to clients)
+  #   TURN_CREDENTIAL    a long random password (also advertised to clients)
+  #   TURN_URL           usually turn:<TURN_PUBLIC_HOST>:3478
+  #
+  # On Linux, `network_mode: host` is the most reliable (TURN uses a wide UDP
+  # relay-port range). On Docker Desktop (macOS/Windows), host mode is not
+  # supported — comment it out and use the explicit `ports` block instead.
+  coturn:
+    image: coturn/coturn:latest
+    profiles: ["turn"]
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --lt-cred-mech
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --realm=screencrew
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      # These MUST be set in .env (Compose fails fast if any is missing) so the
+      # relay never starts with guessable credentials or a wrong public IP.
+      - --user=${TURN_USERNAME:?set TURN_USERNAME in .env}:${TURN_CREDENTIAL:?set TURN_CREDENTIAL in .env}
+      - --external-ip=${TURN_PUBLIC_HOST:?set TURN_PUBLIC_HOST in .env}
+    # On Docker Desktop (macOS/Windows): remove `network_mode: host` above and
+    # uncomment the port mappings below.
+    # ports:
+    #   - "3478:3478/tcp"
+    #   - "3478:3478/udp"
+    #   - "49160-49200:49160-49200/udp"
 
   # Uncomment to run a bundled Postgres instead of SQLite.
   # db:

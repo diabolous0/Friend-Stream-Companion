@@ -63,8 +63,8 @@ A compact, dark-themed friend-group screen-sharing web app with Winamp/LAN-party
 - Central config resolver (`api-server/src/lib/config.ts`): defaults → JSON config file → env vars (later wins). If `DATABASE_URL` is set without `DB_DRIVER`, Postgres is assumed (keeps Replit working)
 - Account controls: `registration` mode (open/invite/closed), `maxUsers` cap, admin bootstrap via `adminPassword`, invite-key minting/revoking (`/admin` page)
 - Ephemeral vs permanent rooms: ephemeral rooms get a TTL (`roomTtlHours`), extended on activity; an interval cleanup job cascade-deletes expired ones. Server default via `ephemeralRooms`; users can opt a room in at creation
-- Configurable WebRTC ICE: public `GET /server-info` (name + registration only) and authenticated `GET /ice-servers` (STUN/TURN, may carry credentials — never exposed publicly)
-- Single-container Docker image + `docker-compose.yml` serve API and SPA from one origin (`SCREENCREW_STATIC_DIR`). See `SELF_HOSTING.md`
+- Configurable WebRTC ICE: public `GET /server-info` (name + registration only) and authenticated `GET /ice-servers` (STUN/TURN, may carry credentials — never exposed publicly). TURN can be wired via config file or env (`TURN_URL`/`TURN_USERNAME`/`TURN_CREDENTIAL`); env appends TURN only when `TURN_URL` is set, default stays STUN-only
+- Single-container Docker image + `docker-compose.yml` serve API and SPA from one origin (`SCREENCREW_STATIC_DIR`). Compose also ships an opt-in bundled coturn TURN relay (Docker `turn` profile, fail-fast credentials). Beginner-friendly "Host it on your PC" walkthrough + `.env.example` in `SELF_HOSTING.md`
 - Optional native desktop tray shell in `artifacts/screencrew-desktop/` (Tauri; scaffold-only, excluded from the pnpm workspace, built off-Replit)
 
 ## User preferences

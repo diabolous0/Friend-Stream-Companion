@@ -178,7 +178,19 @@ function resolve(): ResolvedConfig {
     dataDir: env.STORAGE_DATA_DIR ?? file.storage?.dataDir ?? DEFAULTS.storageDataDir,
   };
 
-  const iceServers = file.iceServers ?? DEFAULTS.iceServers;
+  // ICE servers: start from the config file (or the STUN-only default), then
+  // append a TURN server if one is provided via env (TURN_URL). This lets the
+  // Docker Compose `turn` profile wire up a bundled coturn relay without anyone
+  // having to hand-edit a config file.
+  const iceServers = [...(file.iceServers ?? DEFAULTS.iceServers)];
+  const turnUrl = env.TURN_URL?.trim();
+  if (turnUrl) {
+    iceServers.push({
+      urls: turnUrl,
+      ...(env.TURN_USERNAME ? { username: env.TURN_USERNAME } : {}),
+      ...(env.TURN_CREDENTIAL ? { credential: env.TURN_CREDENTIAL } : {}),
+    });
+  }
 
   return {
     serverName,

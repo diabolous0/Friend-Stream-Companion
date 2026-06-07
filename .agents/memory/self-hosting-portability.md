@@ -17,6 +17,12 @@ Self-Hosted Permanent (SQLite + local disk, config-file-driven). Central resolve
 - **Why:** static TURN secrets exposed publicly enable third-party relay abuse / cost amplification.
 - **How to apply:** any future server metadata that includes secrets/credentials goes behind auth; keep
   only what an anonymous login page strictly needs in the public endpoint.
+- TURN can also be wired purely via env (`TURN_URL`/`TURN_USERNAME`/`TURN_CREDENTIAL`) — `config.ts`
+  appends a TURN entry to `iceServers` only when `TURN_URL` is non-empty, so the default stays STUN-only.
+- The bundled coturn service in `docker-compose.yml` is an opt-in Docker profile (`turn`). Its
+  credentials/external-ip use fail-fast `${VAR:?msg}` substitution — **never** ship default/guessable
+  TURN creds, or the profile creates an abusable relay. Note: any authenticated member can read TURN
+  creds via `/ice-servers` (browser needs them), so they are member-visible, not fully secret.
 
 ## Client ICE config: undefined vs empty array
 - In `use-webrtc.ts`, `iceServers === undefined` means "not loaded yet" → keep Google STUN fallback. An
