@@ -19,7 +19,10 @@ type WebSocketMessage =
   | { type: "soundboard_play"; userId: number; username: string; sound: string }
   | { type: "knock"; roomId: number; user: any }
   | { type: "knock_approved"; roomId: number; room: any }
-  | { type: "knock_resolved"; roomId: number; userId: number };
+  | { type: "knock_resolved"; roomId: number; userId: number }
+  | { type: "joined_channel"; channelId: number }
+  | { type: "channels_updated"; roomId: number }
+  | { type: "role_updated"; roomId: number; userId: number; role: string };
 
 interface UseWebSocketOptions {
   onPresenceUpdate?: (roomId: number, entries: any[]) => void;
@@ -41,6 +44,9 @@ interface UseWebSocketOptions {
   onKnock?: (roomId: number, user: any) => void;
   onKnockApproved?: (roomId: number, room: any) => void;
   onKnockResolved?: (roomId: number, userId: number) => void;
+  onJoinedChannel?: (channelId: number) => void;
+  onChannelsUpdated?: (roomId: number) => void;
+  onRoleUpdated?: (roomId: number, userId: number, role: string) => void;
 }
 
 export function useWebSocket(options: UseWebSocketOptions) {
@@ -87,6 +93,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case "knock":             o.onKnock?.(data.roomId, data.user); break;
           case "knock_approved":    o.onKnockApproved?.(data.roomId, data.room); break;
           case "knock_resolved":    o.onKnockResolved?.(data.roomId, data.userId); break;
+          case "joined_channel":    o.onJoinedChannel?.(data.channelId); break;
+          case "channels_updated":  o.onChannelsUpdated?.(data.roomId); break;
+          case "role_updated":      o.onRoleUpdated?.(data.roomId, data.userId, data.role); break;
         }
       } catch (e) {
         console.error("Failed to parse websocket message", e);

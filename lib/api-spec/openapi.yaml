@@ -307,6 +307,12 @@ paths:
           required: true
           schema:
             type: integer
+        - name: channelId
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter messages to a specific channel
         - name: before
           in: query
           required: false
@@ -538,6 +544,140 @@ paths:
         "404":
           description: Pending request not found
 
+  /rooms/{roomId}/channels:
+    get:
+      operationId: getChannels
+      tags: [channels]
+      summary: List channels in a room (private channels only for staff)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Channel"
+    post:
+      operationId: createChannel
+      tags: [channels]
+      summary: Create a channel (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChannelInput"
+      responses:
+        "201":
+          description: Created channel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "403":
+          description: Insufficient permissions
+
+  /rooms/{roomId}/channels/{channelId}:
+    patch:
+      operationId: updateChannel
+      tags: [channels]
+      summary: Update a channel (owner/mod only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateChannelInput"
+      responses:
+        "200":
+          description: Updated channel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Channel not found
+    delete:
+      operationId: deleteChannel
+      tags: [channels]
+      summary: Delete a channel (owner/mod only; cannot delete last channel)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Channel not found
+        "409":
+          description: Cannot delete the last channel
+
+  /rooms/{roomId}/members/{userId}/role:
+    patch:
+      operationId: updateMemberRole
+      tags: [rooms]
+      summary: Change a member's role (owner only)
+      parameters:
+        - name: roomId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRoleInput"
+      responses:
+        "204":
+          description: Role updated
+        "403":
+          description: Insufficient permissions
+        "404":
+          description: Member not found
+
   /giphy/search:
     get:
       operationId: searchGiphy
@@ -699,6 +839,10 @@ components:
           nullable: true
         avatarStyle:
           type: string
+          nullable: true
+        role:
+          type: string
+          enum: [owner, mod, member]
           nullable: true
         createdAt:
           type: string
@@ -865,6 +1009,9 @@ components:
           type: boolean
         inVoice:
           type: boolean
+        channelId:
+          type: integer
+          nullable: true
         status:
           type: string
           enum: [online, away, dnd]
@@ -894,6 +1041,9 @@ components:
           type: integer
         roomId:
           type: integer
+        channelId:
+          type: integer
+          nullable: true
         userId:
           type: integer
         username:
@@ -943,9 +1093,70 @@ components:
         content:
           type: string
           minLength: 1
+        channelId:
+          type: integer
+          nullable: true
         replyToId:
           type: integer
           nullable: true
+
+    Channel:
+      type: object
+      required: [id, roomId, name, type, position, isPrivate, createdAt]
+      properties:
+        id:
+          type: integer
+        roomId:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [text, voice, announcement, media]
+        position:
+          type: integer
+        isPrivate:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateChannelInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        type:
+          type: string
+          enum: [text, voice, announcement, media]
+        isPrivate:
+          type: boolean
+
+    UpdateChannelInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+        type:
+          type: string
+          enum: [text, voice, announcement, media]
+        isPrivate:
+          type: boolean
+        position:
+          type: integer
+
+    UpdateMemberRoleInput:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [owner, mod, member]
 
     EditMessageInput:
       type: object

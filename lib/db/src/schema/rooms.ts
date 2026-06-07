@@ -25,7 +25,11 @@ export const roomMembersTable = pgTable("room_members", {
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
   lastReadMessageId: integer("last_read_message_id"),
   status: text("status").notNull().default("active"),
+  role: text("role").notNull().default("member"),
 }, (t) => [unique().on(t.roomId, t.userId)]);
+
+export const ROOM_ROLES = ["owner", "mod", "member"] as const;
+export type RoomRole = (typeof ROOM_ROLES)[number];
 
 export const insertRoomSchema = createInsertSchema(roomsTable).omit({ id: true, createdAt: true });
 export type InsertRoom = z.infer<typeof insertRoomSchema>;

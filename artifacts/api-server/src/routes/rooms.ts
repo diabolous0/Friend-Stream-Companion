@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
-import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable } from "@workspace/db";
-import { eq, and, count, desc, max, inArray, lt } from "drizzle-orm";
+import { db, roomsTable, roomMembersTable, usersTable, messagesTable, messageReactionsTable, channelsTable } from "@workspace/db";
+import { eq, and, count, desc, max, inArray, notInArray, isNull, or, lt } from "drizzle-orm";
 import { requireAuth, type AuthenticatedRequest } from "../middlewares/auth";
 import { CreateRoomBody, JoinRoomBody, JoinRoomByCodeBody, UpdateRoomBody, SendMessageBody } from "@workspace/api-zod";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { getPresenceSnapshot, broadcastToRoom, notifyUser } from "../lib/signaling";
+import { getPresenceSnapshot, broadcastToRoom, broadcastChannel, notifyUser } from "../lib/signaling";
 
 const router: IRouter = Router();
 
@@ -43,6 +43,25 @@ async function getActiveMembership(roomId: number, userId: number) {
       eq(roomMembersTable.status, "active"),
     ));
   return membership ?? null;
+}
+
+function isStaffRole(role: string | null | undefined): boolean {
+  return role === "owner" || role === "mod";
+}
+
+// Non-staff cannot read/interact with messages in private channels.
+async function canAccessMessageChannel(channelId: number | null, isStaff: boolean): Promise<boolean> {
+  if (channelId == null || isStaff) return true;
+  const [ch] = await db
+    .select({ isPrivate: channelsTable.isPrivate })
+    .from(channelsTable)
+    .where(eq(channelsTable.id, channelId));
+  return !ch?.isPrivate;
+}
+
+function broadcastMessageEvent(roomId: number, channelId: number | null, message: object): void {
+  if (channelId != null) broadcastChannel(channelId, message);
+  else broadcastToRoom(roomId, message);
 }
 
 async function getRoomWithCount(roomId: number) {
@@ -152,7 +171,8 @@ router.post("/rooms", requireAuth, async (req, res): Promise<void> => {
     .values({ name: parsed.data.name, inviteCode, createdBy: authReq.userId!, isPrivate: parsed.data.isPrivate ?? false })
     .returning();
 
-  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active" });
+  await db.insert(roomMembersTable).values({ roomId: room.id, userId: authReq.userId!, status: "active", role: "owner" });
+  await db.insert(channelsTable).values({ roomId: room.id, name: "general", type: "text", position: 0 });
 
   res.status(201).json(publicRoom({ ...room, memberCount: 1 }));
 });
@@ -381,6 +401,7 @@ router.get("/rooms/:roomId/members", requireAuth, async (req, res): Promise<void
       steamUrl: usersTable.steamUrl,
       discordUrl: usersTable.discordUrl,
       createdAt: usersTable.createdAt,
+      role: roomMembersTable.role,
     })
     .from(roomMembersTable)
     .innerJoin(usersTable, eq(roomMembersTable.userId, usersTable.id))
@@ -428,6 +449,7 @@ router.get("/rooms/:roomId/presence", requireAuth, async (req, res): Promise<voi
       speaking: live?.speaking ?? false,
       streaming: live?.streaming ?? false,
       inVoice: live?.inVoice ?? false,
+      channelId: live?.channelId ?? null,
       status: live?.status ?? "online",
       statusMessage: live?.statusMessage ?? null,
       activity: live?.activity ?? null,
@@ -448,15 +470,38 @@ router.get("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<voi
 
   const beforeParam = req.query.before ? parseInt(req.query.before as string, 10) : undefined;
   const limitParam = req.query.limit ? Math.min(parseInt(req.query.limit as string, 10), 100) : 50;
+  const channelIdParam = req.query.channelId ? parseInt(req.query.channelId as string, 10) : undefined;
+  const isStaff = isStaffRole(membership.role);
 
-  const whereClause = beforeParam
-    ? and(eq(messagesTable.roomId, roomId), lt(messagesTable.id, beforeParam))
-    : eq(messagesTable.roomId, roomId);
+  const conditions = [eq(messagesTable.roomId, roomId)];
+  if (beforeParam) conditions.push(lt(messagesTable.id, beforeParam));
+  if (channelIdParam && !isNaN(channelIdParam)) {
+    const [ch] = await db
+      .select()
+      .from(channelsTable)
+      .where(and(eq(channelsTable.id, channelIdParam), eq(channelsTable.roomId, roomId)));
+    if (!ch) { res.status(404).json({ error: "Channel not found" }); return; }
+    if (ch.isPrivate && !isStaff) { res.status(403).json({ error: "No access to this channel" }); return; }
+    conditions.push(eq(messagesTable.channelId, channelIdParam));
+  } else if (!isStaff) {
+    // Exclude private-channel messages for non-staff when listing across channels.
+    const priv = await db
+      .select({ id: channelsTable.id })
+      .from(channelsTable)
+      .where(and(eq(channelsTable.roomId, roomId), eq(channelsTable.isPrivate, true)));
+    const ids = priv.map((c) => c.id);
+    if (ids.length) {
+      const cond = or(isNull(messagesTable.channelId), notInArray(messagesTable.channelId, ids));
+      if (cond) conditions.push(cond);
+    }
+  }
+  const whereClause = and(...conditions);
 
   const messages = await db
     .select({
       id: messagesTable.id,
       roomId: messagesTable.roomId,
+      channelId: messagesTable.channelId,
       userId: messagesTable.userId,
       username: usersTable.username,
       displayName: usersTable.displayName,
@@ -493,6 +538,7 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
   if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
 
   const ageMs = Date.now() - new Date(message.createdAt).getTime();
@@ -515,7 +561,7 @@ router.patch("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res)
   const [enriched] = await enrichMessages([updated]);
 
   const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
-  broadcastToRoom(roomId, { type: "message_updated", message: result });
+  broadcastMessageEvent(roomId, message.channelId, { type: "message_updated", message: result });
   res.json(result);
 });
 
@@ -533,10 +579,11 @@ router.delete("/rooms/:roomId/messages/:messageId", requireAuth, async (req, res
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
   if (message.userId !== authReq.userId!) { res.status(403).json({ error: "Not your message" }); return; }
 
   await db.delete(messagesTable).where(eq(messagesTable.id, messageId));
-  broadcastToRoom(roomId, { type: "message_deleted", messageId });
+  broadcastMessageEvent(roomId, message.channelId, { type: "message_deleted", messageId });
   res.status(204).end();
 });
 
@@ -554,19 +601,34 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
   const content = parsed.data.content.trim();
   if (!content) { res.status(400).json({ error: "Content is required" }); return; }
 
-  // Validate reply target belongs to the same room.
+  // Resolve and validate the target channel (if provided).
+  let channelId: number | null = null;
+  if (parsed.data.channelId != null) {
+    const [channel] = await db
+      .select()
+      .from(channelsTable)
+      .where(and(eq(channelsTable.id, parsed.data.channelId), eq(channelsTable.roomId, roomId)));
+    if (!channel) { res.status(404).json({ error: "Channel not found" }); return; }
+    const isStaff = membership.role === "owner" || membership.role === "mod";
+    if (channel.isPrivate && !isStaff) { res.status(403).json({ error: "No access to this channel" }); return; }
+    if (channel.type === "announcement" && !isStaff) { res.status(403).json({ error: "Only owner/mod can post in announcement channels" }); return; }
+    if (channel.type === "voice") { res.status(400).json({ error: "Cannot post text to a voice channel" }); return; }
+    channelId = channel.id;
+  }
+
+  // Validate reply target belongs to the same room AND the same channel.
   let replyToId: number | null = null;
   if (parsed.data.replyToId != null) {
     const [parent] = await db
-      .select({ id: messagesTable.id })
+      .select({ id: messagesTable.id, channelId: messagesTable.channelId })
       .from(messagesTable)
       .where(and(eq(messagesTable.id, parsed.data.replyToId), eq(messagesTable.roomId, roomId)));
-    if (parent) replyToId = parent.id;
+    if (parent && (parent.channelId ?? null) === channelId) replyToId = parent.id;
   }
 
   const [saved] = await db
     .insert(messagesTable)
-    .values({ roomId, userId: authReq.userId!, content, replyToId })
+    .values({ roomId, channelId, userId: authReq.userId!, content, replyToId })
     .returning();
 
   const [user] = await db
@@ -576,7 +638,11 @@ router.post("/rooms/:roomId/messages", requireAuth, async (req, res): Promise<vo
   const [enriched] = await enrichMessages([saved]);
   const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
 
-  broadcastToRoom(roomId, { type: "new_message", message: result });
+  if (channelId != null) {
+    broadcastChannel(channelId, { type: "new_message", message: result });
+  } else {
+    broadcastToRoom(roomId, { type: "new_message", message: result });
+  }
   res.status(201).json(result);
 });
 
@@ -599,6 +665,7 @@ router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (
     .from(messagesTable)
     .where(and(eq(messagesTable.id, messageId), eq(messagesTable.roomId, roomId)));
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+  if (!(await canAccessMessageChannel(message.channelId, isStaffRole(membership.role)))) { res.status(403).json({ error: "No access to this channel" }); return; }
 
   const [existing] = await db
     .select()
@@ -628,7 +695,7 @@ router.post("/rooms/:roomId/messages/:messageId/reactions", requireAuth, async (
 
   const reactions = groupReactions(reactionRows).get(messageId) ?? [];
 
-  broadcastToRoom(roomId, { type: "reaction_update", messageId, reactions });
+  broadcastMessageEvent(roomId, message.channelId, { type: "reaction_update", messageId, reactions });
 
   res.json(reactions);
 });
@@ -665,7 +732,7 @@ router.post("/rooms/:roomId/messages/:messageId/pin", requireAuth, async (req, r
   const [enriched] = await enrichMessages([updated]);
   const result = { ...enriched, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, nameColor: user.nameColor, avatarStyle: user.avatarStyle };
 
-  broadcastToRoom(roomId, { type: "message_updated", message: result });
+  broadcastMessageEvent(roomId, message.channelId, { type: "message_updated", message: result });
   res.json(result);
 });
 
@@ -676,6 +743,19 @@ router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> =
 
   const membership = await getActiveMembership(roomId, authReq.userId!);
   if (!membership) { res.status(403).json({ error: "Not a member" }); return; }
+
+  const pinConditions = [eq(messagesTable.roomId, roomId), eq(messagesTable.pinned, true)];
+  if (!isStaffRole(membership.role)) {
+    const priv = await db
+      .select({ id: channelsTable.id })
+      .from(channelsTable)
+      .where(and(eq(channelsTable.roomId, roomId), eq(channelsTable.isPrivate, true)));
+    const ids = priv.map((c) => c.id);
+    if (ids.length) {
+      const cond = or(isNull(messagesTable.channelId), notInArray(messagesTable.channelId, ids));
+      if (cond) pinConditions.push(cond);
+    }
+  }
 
   const messages = await db
     .select({
@@ -695,7 +775,7 @@ router.get("/rooms/:roomId/pins", requireAuth, async (req, res): Promise<void> =
     })
     .from(messagesTable)
     .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
-    .where(and(eq(messagesTable.roomId, roomId), eq(messagesTable.pinned, true)))
+    .where(and(...pinConditions))
     .orderBy(desc(messagesTable.id));
 
   const enriched = await enrichMessages(messages);

@@ -81,7 +81,9 @@ function hlText(text: string, q: string): React.ReactNode {
   return <>{parts}</>;
 }
 
-function renderToken(tok: Token, key: string | number, searchQuery: string, myUsername?: string): React.ReactNode {
+const IMG_URL_RE = /\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?[^\s]*)?$/i;
+
+function renderToken(tok: Token, key: string | number, searchQuery: string, myUsername?: string, embedImages?: boolean): React.ReactNode {
   switch (tok.t) {
     case "code_block":
       return (
@@ -90,12 +92,22 @@ function renderToken(tok: Token, key: string | number, searchQuery: string, myUs
         </pre>
       );
     case "bold":
-      return <strong key={key} className="font-semibold">{tok.children.map((c, i) => renderToken(c, i, searchQuery, myUsername))}</strong>;
+      return <strong key={key} className="font-semibold">{tok.children.map((c, i) => renderToken(c, i, searchQuery, myUsername, embedImages))}</strong>;
     case "italic":
-      return <em key={key} className="italic">{tok.children.map((c, i) => renderToken(c, i, searchQuery, myUsername))}</em>;
+      return <em key={key} className="italic">{tok.children.map((c, i) => renderToken(c, i, searchQuery, myUsername, embedImages))}</em>;
     case "code":
       return <code key={key} className="px-1 py-0.5 rounded bg-muted/50 border border-border/30 text-[11px] font-mono text-primary/90">{tok.text}</code>;
     case "link":
+      if (embedImages && IMG_URL_RE.test(tok.href)) {
+        return (
+          <span key={key} className="block my-1">
+            <a href={tok.href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>
+              <img src={tok.href} alt="shared"
+                className="max-w-full max-h-56 rounded-lg border border-border/30 object-contain cursor-pointer hover:opacity-90 transition-opacity" />
+            </a>
+          </span>
+        );
+      }
       return (
         <a key={key} href={tok.href} target="_blank" rel="noopener noreferrer"
           onClick={e => e.stopPropagation()}
@@ -212,15 +224,16 @@ interface MessageContentProps {
   searchQuery?: string;
   myUsername?: string;
   className?: string;
+  embedImages?: boolean;
 }
 
-export function MessageContent({ content, searchQuery = "", myUsername, className = "" }: MessageContentProps) {
+export function MessageContent({ content, searchQuery = "", myUsername, className = "", embedImages = false }: MessageContentProps) {
   const emote = parseEmote(content);
   if (emote) {
     return (
       <span className={`leading-relaxed break-words whitespace-pre-wrap italic text-primary/80 ${className}`}>
         ✦ <span className="font-semibold">{emote.username}</span>{" "}
-        {tokenise(emote.action, myUsername).map((tok, ti) => renderToken(tok, ti, searchQuery, myUsername))}
+        {tokenise(emote.action, myUsername).map((tok, ti) => renderToken(tok, ti, searchQuery, myUsername, embedImages))}
       </span>
     );
   }
@@ -279,7 +292,7 @@ export function MessageContent({ content, searchQuery = "", myUsername, classNam
         const tokens = tokenise(seg.value ?? "", myUsername);
         return (
           <React.Fragment key={si}>
-            {tokens.map((tok, ti) => renderToken(tok, ti, searchQuery, myUsername))}
+            {tokens.map((tok, ti) => renderToken(tok, ti, searchQuery, myUsername, embedImages))}
           </React.Fragment>
         );
       })}

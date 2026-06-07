@@ -13,6 +13,9 @@ import {
   useGetPinnedMessages, getGetPinnedMessagesQueryKey,
   useGetPendingMembers, getGetPendingMembersQueryKey,
   useTogglePin, useApproveMember,
+  useGetChannels, getGetChannelsQueryKey,
+  useCreateChannel, useUpdateChannel, useDeleteChannel,
+  useUpdateMemberRole,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/use-websocket";
@@ -33,6 +36,7 @@ import {
   Reply, Star, Megaphone, BarChart3, Hand,
   Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
   PictureInPicture2, LayoutGrid, Gauge, Eye,
+  Hash, Image as ImageIcon, Shield, ShieldCheck, Crown,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
@@ -213,9 +217,22 @@ export default function Room() {
   const { data: room } = useGetRoom(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomQueryKey(roomId) } });
   const { data: members } = useGetRoomMembers(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomMembersQueryKey(roomId) } });
   const { data: initialPresence } = useGetRoomPresence(roomId, { query: { enabled: !!roomId, queryKey: getGetRoomPresenceQueryKey(roomId) } });
-  const { data: initialMessages } = useGetRoomMessages(roomId, undefined, { query: { enabled: !!roomId, queryKey: getGetRoomMessagesQueryKey(roomId) } });
+  const { data: channels } = useGetChannels(roomId, { query: { enabled: !!roomId, queryKey: getGetChannelsQueryKey(roomId) } });
+
+  const [activeChannelId, setActiveChannelId] = useState<number | null>(null);
+  const activeChannelIdRef = useRef<number | null>(null);
+  useEffect(() => { activeChannelIdRef.current = activeChannelId; }, [activeChannelId]);
+
+  const { data: initialMessages } = useGetRoomMessages(
+    roomId,
+    activeChannelId ? { channelId: activeChannelId } : undefined,
+    { query: { enabled: !!roomId && !!activeChannelId, queryKey: getGetRoomMessagesQueryKey(roomId, activeChannelId ? { channelId: activeChannelId } : undefined) } },
+  );
 
   const isCreator = !!me && !!room && room.createdBy === me.id;
+  const myRole: string = (members?.find((m: any) => m.id === me?.id)?.role as string) ?? (isCreator ? "owner" : "member");
+  const isStaff = myRole === "owner" || myRole === "mod";
+  const activeChannel = channels?.find((c: any) => c.id === activeChannelId) ?? null;
 
   const { data: pinnedMessages } = useGetPinnedMessages(roomId, { query: { enabled: !!roomId, queryKey: getGetPinnedMessagesQueryKey(roomId) } });
   const { data: pendingMembers } = useGetPendingMembers(roomId, { query: { enabled: !!roomId && isCreator, queryKey: getGetPendingMembersQueryKey(roomId) } });
@@ -228,6 +245,10 @@ export default function Room() {
   const deleteMessageMutation = useDeleteMessage();
   const togglePinMutation = useTogglePin();
   const approveMemberMutation = useApproveMember();
+  const createChannelMutation = useCreateChannel();
+  const updateChannelMutation = useUpdateChannel();
+  const deleteChannelMutation = useDeleteChannel();
+  const updateMemberRoleMutation = useUpdateMemberRole();
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
@@ -239,6 +260,15 @@ export default function Room() {
   const [reads, setReads] = useState<Record<number, number>>({});
   const [isDragging, setIsDragging] = useState(false);
   const [localSpeaking, setLocalSpeaking] = useState(false);
+
+  // Channel / role management UI state
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelType, setNewChannelType] = useState<"text" | "voice" | "announcement" | "media">("text");
+  const [newChannelPrivate, setNewChannelPrivate] = useState(false);
+  const [editingChannelId, setEditingChannelId] = useState<number | null>(null);
+  const [editChannelName, setEditChannelName] = useState("");
+  const [showRoles, setShowRoles] = useState(false);
 
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -318,6 +348,23 @@ export default function Room() {
   useEffect(() => {
     if (initialMessages) { setMessages(initialMessages); setHasMore(initialMessages.length >= 50); }
   }, [initialMessages]);
+
+  // Default to the first text channel (or first channel) once channels load, and
+  // keep the selection valid if the active channel disappears.
+  useEffect(() => {
+    if (!channels || channels.length === 0) return;
+    const stillExists = activeChannelId != null && channels.some((c: any) => c.id === activeChannelId);
+    if (stillExists) return;
+    const firstText = channels.find((c: any) => c.type === "text") ?? channels[0];
+    setActiveChannelId(firstText.id);
+  }, [channels, activeChannelId]);
+
+  // Reset chat state when switching channels so we don't show stale messages.
+  useEffect(() => {
+    setMessages([]);
+    setHasMore(true);
+    setTypingUsers({});
+  }, [activeChannelId]);
 
   useEffect(() => {
     if (initialPresence) {
@@ -443,6 +490,7 @@ export default function Room() {
     },
     onNewMessage: (msg) => {
       if (msg.roomId !== roomId) return;
+      if (activeChannelIdRef.current != null && msg.channelId != null && msg.channelId !== activeChannelIdRef.current) return;
       setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, { ...msg, reactions: msg.reactions ?? [] }]);
       if (msg.userId !== me?.id) {
         const mentioned = me?.username ? containsMention(msg.content, me.username) : false;
@@ -500,6 +548,14 @@ export default function Room() {
       queryClient.invalidateQueries({ queryKey: getGetPendingMembersQueryKey(roomId) });
       queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
     },
+    onChannelsUpdated: (rid) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetChannelsQueryKey(roomId) });
+    },
+    onRoleUpdated: (rid) => {
+      if (rid !== roomId) return;
+      queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) });
+    },
   });
 
   useEffect(() => { sendRef.current = send; }, [send]);
@@ -528,6 +584,12 @@ export default function Room() {
     if (!isConnected || !roomId) return;
     send({ type: "status", status: settings.myStatus, statusMessage: settings.myStatusMessage });
   }, [isConnected, roomId, settings.myStatus, settings.myStatusMessage, send]);
+
+  // Tell the server which channel we're viewing so chat/typing/reads scope to it.
+  useEffect(() => {
+    if (!isConnected || !roomId || activeChannelId == null) return;
+    send({ type: "join_channel", channelId: activeChannelId });
+  }, [isConnected, roomId, activeChannelId, send]);
 
   const setMyStatus = useCallback((status: UserStatus, message: string) => {
     setSetting("myStatus", status);
@@ -559,7 +621,13 @@ export default function Room() {
       codec: settings.videoCodec,
       bitrate: settings.videoBitrate,
     });
-    if (members && me) members.forEach(m => { if (m.id !== me.id) sendOffer(m.id); });
+    // Offer the stream only to crew currently in the same channel.
+    if (members && me) members.forEach(m => {
+      if (m.id === me.id) return;
+      const p = presenceRef.current[m.id];
+      if (activeChannelIdRef.current != null && p?.channelId != null && p.channelId !== activeChannelIdRef.current) return;
+      sendOffer(m.id);
+    });
   };
 
   // Append a freshly-sent message immediately (dedup by id; the WS echo may also
@@ -570,12 +638,12 @@ export default function Room() {
 
   const postMessage = useCallback((content: string) => {
     const replyToId = replyingTo?.id;
-    sendMessageMutation.mutate(
-      { roomId, data: replyToId ? { content, replyToId } : { content } },
-      { onSuccess: appendOwnMessage },
-    );
+    const data: any = { content };
+    if (activeChannelId != null) data.channelId = activeChannelId;
+    if (replyToId) data.replyToId = replyToId;
+    sendMessageMutation.mutate({ roomId, data }, { onSuccess: appendOwnMessage });
     setReplyingTo(null);
-  }, [roomId, replyingTo, sendMessageMutation, appendOwnMessage]);
+  }, [roomId, replyingTo, sendMessageMutation, appendOwnMessage, activeChannelId]);
 
   // Expand client-side slash commands into a message content string, or null to skip sending
   const expandSlashCommand = useCallback((raw: string): string | null => {
@@ -630,7 +698,7 @@ export default function Room() {
       const token = isImage
         ? `[screencrew:image:${r.objectPath}]`
         : `[screencrew:file:${r.objectPath}:${r.name}]`;
-      sendMessageMutation.mutate({ roomId, data: { content: token } }, { onSuccess: appendOwnMessage });
+      sendMessageMutation.mutate({ roomId, data: activeChannelIdRef.current != null ? { content: token, channelId: activeChannelIdRef.current } : { content: token } }, { onSuccess: appendOwnMessage });
     },
   });
 
@@ -707,11 +775,11 @@ export default function Room() {
     if (!messages.length || loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const older = await getRoomMessages(roomId, { before: messages[0].id, limit: 50 });
+      const older = await getRoomMessages(roomId, { before: messages[0].id, limit: 50, ...(activeChannelId != null ? { channelId: activeChannelId } : {}) });
       if (!older || older.length < 50) setHasMore(false);
       if (older?.length) setMessages(prev => [...older, ...prev]);
     } finally { setLoadingMore(false); }
-  }, [messages, loadingMore, hasMore, roomId]);
+  }, [messages, loadingMore, hasMore, roomId, activeChannelId]);
 
   const handleEditMsg = (e: React.FormEvent) => {
     e.preventDefault();
@@ -731,7 +799,8 @@ export default function Room() {
     if (!stream) return;
     send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: true });
     Object.values(presenceRef.current)
-      .filter((p: any) => p.inVoice && p.userId !== me?.id)
+      .filter((p: any) => p.inVoice && p.userId !== me?.id
+        && (activeChannelIdRef.current == null || p.channelId == null || p.channelId === activeChannelIdRef.current))
       .forEach((p: any) => sendAudioOffer(p.userId));
   }, [joinVoice, audioConstraints, settings.micGain, send, me?.id, sendAudioOffer]);
 
@@ -739,6 +808,69 @@ export default function Room() {
     leaveVoice();
     send({ type: "presence", speaking: false, streaming: isSharingRef.current, inVoice: false });
   }, [leaveVoice, send]);
+
+  // ─── Channels ──────────────────────────────────────────────────────────────
+  const invalidateChannels = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getGetChannelsQueryKey(roomId) });
+  }, [queryClient, roomId]);
+
+  const handleSwitchChannel = useCallback((id: number) => {
+    if (id === activeChannelId) return;
+    setActiveChannelId(id);
+  }, [activeChannelId]);
+
+  const handleCreateChannel = useCallback(() => {
+    const name = newChannelName.trim();
+    if (!name) return;
+    createChannelMutation.mutate(
+      { roomId, data: { name, type: newChannelType, isPrivate: newChannelPrivate } },
+      { onSuccess: (ch: any) => {
+          invalidateChannels();
+          setShowCreateChannel(false);
+          setNewChannelName("");
+          setNewChannelType("text");
+          setNewChannelPrivate(false);
+          if (ch?.id) setActiveChannelId(ch.id);
+        } },
+    );
+  }, [roomId, newChannelName, newChannelType, newChannelPrivate, createChannelMutation, invalidateChannels]);
+
+  const handleRenameChannel = useCallback((id: number) => {
+    const name = editChannelName.trim();
+    if (!name) { setEditingChannelId(null); return; }
+    updateChannelMutation.mutate(
+      { roomId, channelId: id, data: { name } },
+      { onSuccess: () => { invalidateChannels(); setEditingChannelId(null); setEditChannelName(""); } },
+    );
+  }, [roomId, editChannelName, updateChannelMutation, invalidateChannels]);
+
+  const handleToggleChannelPrivate = useCallback((ch: any) => {
+    updateChannelMutation.mutate(
+      { roomId, channelId: ch.id, data: { isPrivate: !ch.isPrivate } },
+      { onSuccess: invalidateChannels },
+    );
+  }, [roomId, updateChannelMutation, invalidateChannels]);
+
+  const handleDeleteChannel = useCallback((id: number) => {
+    if ((channels?.length ?? 0) <= 1) return;
+    deleteChannelMutation.mutate(
+      { roomId, channelId: id },
+      { onSuccess: () => {
+          invalidateChannels();
+          if (activeChannelId === id) {
+            const next = channels?.find((c: any) => c.id !== id);
+            setActiveChannelId(next ? next.id : null);
+          }
+        } },
+    );
+  }, [roomId, channels, activeChannelId, deleteChannelMutation, invalidateChannels]);
+
+  const handleSetRole = useCallback((userId: number, role: "owner" | "mod" | "member") => {
+    updateMemberRoleMutation.mutate(
+      { roomId, userId, data: { role } },
+      { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetRoomMembersQueryKey(roomId) }) },
+    );
+  }, [roomId, updateMemberRoleMutation, queryClient]);
 
   const handleRename = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1149,6 +1281,135 @@ export default function Room() {
         )}
 
         <div className="flex flex-col flex-1 min-h-0">
+        {/* ── CHANNELS ── */}
+        <div className="px-4 shrink-0 pt-1" style={{ order: -1 }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Channels</span>
+            <div className="flex items-center gap-0.5">
+              {(myRole === "owner") && (
+                <button onClick={() => setShowRoles(s => !s)} title="Manage roles"
+                  className={`p-1 rounded-md transition-colors ${showRoles ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <Shield className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {isStaff && (
+                <button onClick={() => setShowCreateChannel(s => !s)} title="Create channel"
+                  className={`p-1 rounded-md transition-colors ${showCreateChannel ? "text-primary/80" : "text-muted-foreground/40 hover:text-muted-foreground"}`}>
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showCreateChannel && isStaff && (
+            <div className="mb-2.5 space-y-1.5 bg-muted/20 border border-border/30 rounded-lg p-2">
+              <Input value={newChannelName} onChange={e => setNewChannelName(e.target.value.slice(0, 40))}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateChannel(); }}
+                placeholder="channel-name" autoFocus
+                className="h-7 rounded-md bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs" />
+              <div className="flex items-center gap-1">
+                {(["text", "voice", "announcement", "media"] as const).map(t => {
+                  const Icon = t === "text" ? Hash : t === "voice" ? Volume2 : t === "announcement" ? Megaphone : ImageIcon;
+                  return (
+                    <button key={t} onClick={() => setNewChannelType(t)} title={t}
+                      className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[10px] transition-colors ${newChannelType === t ? "bg-primary/20 text-primary" : "bg-muted/20 text-muted-foreground/60 hover:text-foreground"}`}>
+                      <Icon className="w-3 h-3" />
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70 cursor-pointer">
+                <input type="checkbox" checked={newChannelPrivate} onChange={e => setNewChannelPrivate(e.target.checked)} className="accent-primary" />
+                <Lock className="w-3 h-3" /> Private (staff only)
+              </label>
+              <div className="flex items-center gap-1 justify-end">
+                <button onClick={() => { setShowCreateChannel(false); setNewChannelName(""); }}
+                  className="text-[10px] px-2 py-0.5 rounded-md text-muted-foreground/60 hover:text-foreground">Cancel</button>
+                <button onClick={handleCreateChannel} disabled={!newChannelName.trim() || createChannelMutation.isPending}
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-primary/20 hover:bg-primary/30 text-primary disabled:opacity-40">Create</button>
+              </div>
+            </div>
+          )}
+
+          {showRoles && myRole === "owner" && (
+            <div className="mb-2.5 space-y-1 bg-muted/20 border border-border/30 rounded-lg p-2">
+              <p className="text-[9px] font-semibold text-muted-foreground/50 uppercase tracking-widest mb-1">Roles</p>
+              {members?.map((m: any) => {
+                const r = (m.role as string) ?? (m.id === room?.createdBy ? "owner" : "member");
+                const isRoomOwner = m.id === room?.createdBy;
+                return (
+                  <div key={m.id} className="flex items-center gap-2">
+                    <span className="text-xs flex-1 truncate flex items-center gap-1">
+                      {r === "owner" ? <Crown className="w-3 h-3 text-amber-400 shrink-0" /> : r === "mod" ? <ShieldCheck className="w-3 h-3 text-primary/70 shrink-0" /> : null}
+                      {displayNameOf(m) || m.username}
+                    </span>
+                    {isRoomOwner ? (
+                      <span className="text-[9px] text-amber-400/70 uppercase">owner</span>
+                    ) : (
+                      <select value={r === "owner" ? "member" : r}
+                        onChange={e => handleSetRole(m.id, e.target.value as "mod" | "member")}
+                        className="text-[10px] bg-muted/30 border border-border/30 rounded-md px-1 py-0.5 text-foreground focus:outline-none">
+                        <option value="member">member</option>
+                        <option value="mod">mod</option>
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="space-y-0.5 mb-3">
+            {(channels ?? []).slice().sort((a: any, b: any) => (a.position - b.position) || (a.id - b.id)).map((ch: any) => {
+              const Icon = ch.type === "voice" ? Volume2 : ch.type === "announcement" ? Megaphone : ch.type === "media" ? ImageIcon : Hash;
+              const active = ch.id === activeChannelId;
+              const voiceCount = ch.type === "voice"
+                ? Object.values(presence).filter((p: any) => p?.online && p?.inVoice && p?.channelId === ch.id).length
+                : 0;
+              if (editingChannelId === ch.id) {
+                return (
+                  <div key={ch.id} className="flex items-center gap-1 px-1">
+                    <Icon className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                    <Input value={editChannelName} onChange={e => setEditChannelName(e.target.value.slice(0, 40))}
+                      onKeyDown={e => { if (e.key === "Enter") handleRenameChannel(ch.id); if (e.key === "Escape") setEditingChannelId(null); }}
+                      onBlur={() => handleRenameChannel(ch.id)} autoFocus
+                      className="h-6 rounded-md bg-muted/30 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-xs" />
+                  </div>
+                );
+              }
+              return (
+                <div key={ch.id}
+                  className={`group flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors ${active ? "bg-primary/15 text-primary" : "text-muted-foreground/70 hover:bg-muted/20 hover:text-foreground"}`}
+                  onClick={() => handleSwitchChannel(ch.id)}>
+                  <Icon className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-sm truncate flex-1">{ch.name}</span>
+                  {ch.isPrivate && <Lock className="w-3 h-3 shrink-0 text-muted-foreground/40" />}
+                  {voiceCount > 0 && <span className="text-[10px] text-violet-400/70 shrink-0">{voiceCount}</span>}
+                  {isStaff && (
+                    <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button onClick={(e) => { e.stopPropagation(); handleToggleChannelPrivate(ch); }}
+                        title={ch.isPrivate ? "Make public" : "Make private"}
+                        className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
+                        {ch.isPrivate ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingChannelId(ch.id); setEditChannelName(ch.name); }}
+                        title="Rename" className="p-0.5 rounded text-muted-foreground/50 hover:text-foreground">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      {(channels?.length ?? 0) > 1 && (
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteChannel(ch.id); }}
+                          title="Delete channel" className="p-0.5 rounded text-muted-foreground/50 hover:text-red-400">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* ── FRIENDS ── */}
         <div className="px-4 shrink-0" style={{ order: settings.panelOrder === "friends" ? 0 : 2 }}>
           <div className="flex items-center justify-between mb-2.5">
@@ -1440,8 +1701,13 @@ export default function Room() {
           <>
             <div className="px-4 pt-3 shrink-0">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest">
-                  Chat
+                <span className="text-[11px] font-semibold text-muted-foreground/60 uppercase tracking-widest flex items-center gap-1">
+                  {activeChannel ? (
+                    <>
+                      {activeChannel.type === "voice" ? <Volume2 className="w-3 h-3" /> : activeChannel.type === "announcement" ? <Megaphone className="w-3 h-3" /> : activeChannel.type === "media" ? <ImageIcon className="w-3 h-3" /> : <Hash className="w-3 h-3" />}
+                      <span className="normal-case tracking-normal text-foreground/80">{activeChannel.name}</span>
+                    </>
+                  ) : "Chat"}
                   {searchQuery && filteredMessages.length !== messages.length && (
                     <span className="ml-1.5 text-primary/60">{filteredMessages.length}/{messages.length}</span>
                   )}
@@ -1556,7 +1822,7 @@ export default function Room() {
                             ) : null}
                             <span className={`font-semibold shrink-0 ${nameClass(msg.userId, msg.nameColor)}`} style={nameStyle(msg.nameColor)}>{displayNameOf(msg) || msg.username}</span>
                             <span className={`${tSize} text-foreground/85`}>
-                              <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} />
+                              <MessageContent content={msg.content} searchQuery={searchQuery} myUsername={me.username} embedImages={activeChannel?.type === "media"} />
                               {msg.editedAt && <span className="text-[10px] text-muted-foreground/30 ml-1">(edited)</span>}
                             </span>
                           </div>
@@ -1675,6 +1941,12 @@ export default function Room() {
                 <GiphyPicker query={giphyQuery} onPick={handlePickGif} onClose={() => { setGiphyQuery(null); setMsgInput(""); }} />
               )}
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInputChange} />
+              {activeChannel?.type === "announcement" && !isStaff ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 bg-muted/20 border border-border/30 rounded-xl px-3 py-2.5">
+                  <Megaphone className="w-3.5 h-3.5 shrink-0" />
+                  Only owners and mods can post in announcement channels.
+                </div>
+              ) : (
               <div className="relative flex items-end gap-1.5">
                 <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!isConnected || isUploading}
                   title="Attach file" className="mb-0.5 p-2 rounded-xl text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 shrink-0">
@@ -1688,7 +1960,7 @@ export default function Room() {
                     onSubmit={handleSendMsg}
                     members={members ?? []}
                     disabled={!isConnected}
-                    placeholder="Message…  (@ to mention, drag/paste files)"
+                    placeholder={activeChannel ? `Message #${activeChannel.name}…` : "Message…  (@ to mention, drag/paste files)"}
                     onFilesPasted={handleFiles}
                     className="rounded-xl bg-muted/25 border border-transparent focus-visible:border-primary/25 focus-visible:outline-none text-sm px-3 py-2 pr-8 placeholder:text-muted-foreground/40 text-foreground" />
                   <button type="button" className="absolute right-2.5 bottom-2 text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors">
@@ -1696,6 +1968,7 @@ export default function Room() {
                   </button>
                 </div>
               </div>
+              )}
             </div>
           </>
         )}

@@ -22,6 +22,8 @@ import type {
 import type {
   AuthInput,
   AuthResponse,
+  Channel,
+  CreateChannelInput,
   EditMessageInput,
   GetRoomMessagesParams,
   GiphyGif,
@@ -37,6 +39,8 @@ import type {
   Room,
   RoomInput,
   SearchGiphyParams,
+  UpdateChannelInput,
+  UpdateMemberRoleInput,
   UpdateProfileInput,
   UpdateRoomInput,
   User
@@ -1763,6 +1767,375 @@ export const useApproveMember = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getApproveMemberMutationOptions(options));
+    }
+
+export const getGetChannelsUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/channels`
+}
+
+/**
+ * @summary List channels in a room (private channels only for staff)
+ */
+export const getChannels = async (roomId: number, options?: RequestInit): Promise<Channel[]> => {
+
+  return customFetch<Channel[]>(getGetChannelsUrl(roomId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetChannelsQueryKey = (roomId: number,) => {
+    return [
+    `/api/rooms/${roomId}/channels`
+    ] as const;
+    }
+
+
+export const getGetChannelsQueryOptions = <TData = Awaited<ReturnType<typeof getChannels>>, TError = ErrorType<unknown>>(roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChannels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetChannelsQueryKey(roomId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChannels>>> = ({ signal }) => getChannels(roomId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(roomId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChannels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetChannelsQueryResult = NonNullable<Awaited<ReturnType<typeof getChannels>>>
+export type GetChannelsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List channels in a room (private channels only for staff)
+ */
+
+export function useGetChannels<TData = Awaited<ReturnType<typeof getChannels>>, TError = ErrorType<unknown>>(
+ roomId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChannels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetChannelsQueryOptions(roomId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateChannelUrl = (roomId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/channels`
+}
+
+/**
+ * @summary Create a channel (owner/mod only)
+ */
+export const createChannel = async (roomId: number,
+    createChannelInput: CreateChannelInput, options?: RequestInit): Promise<Channel> => {
+
+  return customFetch<Channel>(getCreateChannelUrl(roomId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      createChannelInput,)
+  }
+);}
+
+
+
+
+export const getCreateChannelMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChannel>>, TError,{roomId: number;data: BodyType<CreateChannelInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createChannel>>, TError,{roomId: number;data: BodyType<CreateChannelInput>}, TContext> => {
+
+const mutationKey = ['createChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createChannel>>, {roomId: number;data: BodyType<CreateChannelInput>}> = (props) => {
+          const {roomId,data} = props ?? {};
+
+          return  createChannel(roomId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateChannelMutationResult = NonNullable<Awaited<ReturnType<typeof createChannel>>>
+    export type CreateChannelMutationBody = BodyType<CreateChannelInput>
+    export type CreateChannelMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a channel (owner/mod only)
+ */
+export const useCreateChannel = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createChannel>>, TError,{roomId: number;data: BodyType<CreateChannelInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createChannel>>,
+        TError,
+        {roomId: number;data: BodyType<CreateChannelInput>},
+        TContext
+      > => {
+      return useMutation(getCreateChannelMutationOptions(options));
+    }
+
+export const getUpdateChannelUrl = (roomId: number,
+    channelId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/channels/${channelId}`
+}
+
+/**
+ * @summary Update a channel (owner/mod only)
+ */
+export const updateChannel = async (roomId: number,
+    channelId: number,
+    updateChannelInput: UpdateChannelInput, options?: RequestInit): Promise<Channel> => {
+
+  return customFetch<Channel>(getUpdateChannelUrl(roomId,channelId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateChannelInput,)
+  }
+);}
+
+
+
+
+export const getUpdateChannelMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChannel>>, TError,{roomId: number;channelId: number;data: BodyType<UpdateChannelInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateChannel>>, TError,{roomId: number;channelId: number;data: BodyType<UpdateChannelInput>}, TContext> => {
+
+const mutationKey = ['updateChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateChannel>>, {roomId: number;channelId: number;data: BodyType<UpdateChannelInput>}> = (props) => {
+          const {roomId,channelId,data} = props ?? {};
+
+          return  updateChannel(roomId,channelId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateChannelMutationResult = NonNullable<Awaited<ReturnType<typeof updateChannel>>>
+    export type UpdateChannelMutationBody = BodyType<UpdateChannelInput>
+    export type UpdateChannelMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a channel (owner/mod only)
+ */
+export const useUpdateChannel = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateChannel>>, TError,{roomId: number;channelId: number;data: BodyType<UpdateChannelInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateChannel>>,
+        TError,
+        {roomId: number;channelId: number;data: BodyType<UpdateChannelInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateChannelMutationOptions(options));
+    }
+
+export const getDeleteChannelUrl = (roomId: number,
+    channelId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/channels/${channelId}`
+}
+
+/**
+ * @summary Delete a channel (owner/mod only; cannot delete last channel)
+ */
+export const deleteChannel = async (roomId: number,
+    channelId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteChannelUrl(roomId,channelId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteChannelMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChannel>>, TError,{roomId: number;channelId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteChannel>>, TError,{roomId: number;channelId: number}, TContext> => {
+
+const mutationKey = ['deleteChannel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteChannel>>, {roomId: number;channelId: number}> = (props) => {
+          const {roomId,channelId} = props ?? {};
+
+          return  deleteChannel(roomId,channelId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteChannelMutationResult = NonNullable<Awaited<ReturnType<typeof deleteChannel>>>
+
+    export type DeleteChannelMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a channel (owner/mod only; cannot delete last channel)
+ */
+export const useDeleteChannel = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteChannel>>, TError,{roomId: number;channelId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteChannel>>,
+        TError,
+        {roomId: number;channelId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteChannelMutationOptions(options));
+    }
+
+export const getUpdateMemberRoleUrl = (roomId: number,
+    userId: number,) => {
+
+
+
+
+  return `/api/rooms/${roomId}/members/${userId}/role`
+}
+
+/**
+ * @summary Change a member's role (owner only)
+ */
+export const updateMemberRole = async (roomId: number,
+    userId: number,
+    updateMemberRoleInput: UpdateMemberRoleInput, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getUpdateMemberRoleUrl(roomId,userId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      updateMemberRoleInput,)
+  }
+);}
+
+
+
+
+export const getUpdateMemberRoleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMemberRole>>, TError,{roomId: number;userId: number;data: BodyType<UpdateMemberRoleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMemberRole>>, TError,{roomId: number;userId: number;data: BodyType<UpdateMemberRoleInput>}, TContext> => {
+
+const mutationKey = ['updateMemberRole'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMemberRole>>, {roomId: number;userId: number;data: BodyType<UpdateMemberRoleInput>}> = (props) => {
+          const {roomId,userId,data} = props ?? {};
+
+          return  updateMemberRole(roomId,userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMemberRoleMutationResult = NonNullable<Awaited<ReturnType<typeof updateMemberRole>>>
+    export type UpdateMemberRoleMutationBody = BodyType<UpdateMemberRoleInput>
+    export type UpdateMemberRoleMutationError = ErrorType<void>
+
+    /**
+ * @summary Change a member's role (owner only)
+ */
+export const useUpdateMemberRole = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMemberRole>>, TError,{roomId: number;userId: number;data: BodyType<UpdateMemberRoleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateMemberRole>>,
+        TError,
+        {roomId: number;userId: number;data: BodyType<UpdateMemberRoleInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateMemberRoleMutationOptions(options));
     }
 
 export const getSearchGiphyUrl = (params?: SearchGiphyParams,) => {

@@ -297,6 +297,7 @@ export const GetRoomMembersResponseItem = zod.object({
   "discordUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "role": zod.enum(['owner', 'mod', 'member']).nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetRoomMembersResponse = zod.array(GetRoomMembersResponseItem)
@@ -320,6 +321,7 @@ export const GetRoomPresenceResponseItem = zod.object({
   "speaking": zod.boolean(),
   "streaming": zod.boolean(),
   "inVoice": zod.boolean(),
+  "channelId": zod.number().nullish(),
   "status": zod.enum(['online', 'away', 'dnd']).nullish(),
   "statusMessage": zod.string().nullish()
 })
@@ -336,6 +338,7 @@ export const GetRoomMessagesParams = zod.object({
 export const getRoomMessagesQueryLimitDefault = 50;
 
 export const GetRoomMessagesQueryParams = zod.object({
+  "channelId": zod.coerce.number().optional().describe('Filter messages to a specific channel'),
   "before": zod.coerce.number().optional().describe('Fetch messages with ID less than this value (cursor pagination)'),
   "limit": zod.coerce.number().default(getRoomMessagesQueryLimitDefault)
 })
@@ -343,6 +346,7 @@ export const GetRoomMessagesQueryParams = zod.object({
 export const GetRoomMessagesResponseItem = zod.object({
   "id": zod.number(),
   "roomId": zod.number(),
+  "channelId": zod.number().nullish(),
   "userId": zod.number(),
   "username": zod.string(),
   "displayName": zod.string().nullish(),
@@ -377,6 +381,7 @@ export const SendMessageParams = zod.object({
 
 export const SendMessageBody = zod.object({
   "content": zod.string().min(1),
+  "channelId": zod.number().nullish(),
   "replyToId": zod.number().nullish()
 })
 
@@ -399,6 +404,7 @@ export const EditMessageBody = zod.object({
 export const EditMessageResponse = zod.object({
   "id": zod.number(),
   "roomId": zod.number(),
+  "channelId": zod.number().nullish(),
   "userId": zod.number(),
   "username": zod.string(),
   "displayName": zod.string().nullish(),
@@ -460,6 +466,7 @@ export const TogglePinParams = zod.object({
 export const TogglePinResponse = zod.object({
   "id": zod.number(),
   "roomId": zod.number(),
+  "channelId": zod.number().nullish(),
   "userId": zod.number(),
   "username": zod.string(),
   "displayName": zod.string().nullish(),
@@ -491,6 +498,7 @@ export const GetPinnedMessagesParams = zod.object({
 export const GetPinnedMessagesResponseItem = zod.object({
   "id": zod.number(),
   "roomId": zod.number(),
+  "channelId": zod.number().nullish(),
   "userId": zod.number(),
   "username": zod.string(),
   "displayName": zod.string().nullish(),
@@ -529,6 +537,7 @@ export const GetPendingMembersResponseItem = zod.object({
   "discordUrl": zod.string().nullish(),
   "nameColor": zod.string().nullish(),
   "avatarStyle": zod.string().nullish(),
+  "role": zod.enum(['owner', 'mod', 'member']).nullish(),
   "createdAt": zod.coerce.date()
 })
 export const GetPendingMembersResponse = zod.array(GetPendingMembersResponseItem)
@@ -540,6 +549,95 @@ export const GetPendingMembersResponse = zod.array(GetPendingMembersResponseItem
 export const ApproveMemberParams = zod.object({
   "roomId": zod.coerce.number(),
   "userId": zod.coerce.number()
+})
+
+
+/**
+ * @summary List channels in a room (private channels only for staff)
+ */
+export const GetChannelsParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const GetChannelsResponseItem = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "name": zod.string(),
+  "type": zod.enum(['text', 'voice', 'announcement', 'media']),
+  "position": zod.number(),
+  "isPrivate": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+export const GetChannelsResponse = zod.array(GetChannelsResponseItem)
+
+
+/**
+ * @summary Create a channel (owner/mod only)
+ */
+export const CreateChannelParams = zod.object({
+  "roomId": zod.coerce.number()
+})
+
+export const createChannelBodyNameMax = 40;
+
+
+
+export const CreateChannelBody = zod.object({
+  "name": zod.string().min(1).max(createChannelBodyNameMax),
+  "type": zod.enum(['text', 'voice', 'announcement', 'media']).optional(),
+  "isPrivate": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Update a channel (owner/mod only)
+ */
+export const UpdateChannelParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "channelId": zod.coerce.number()
+})
+
+export const updateChannelBodyNameMax = 40;
+
+
+
+export const UpdateChannelBody = zod.object({
+  "name": zod.string().min(1).max(updateChannelBodyNameMax).optional(),
+  "type": zod.enum(['text', 'voice', 'announcement', 'media']).optional(),
+  "isPrivate": zod.boolean().optional(),
+  "position": zod.number().optional()
+})
+
+export const UpdateChannelResponse = zod.object({
+  "id": zod.number(),
+  "roomId": zod.number(),
+  "name": zod.string(),
+  "type": zod.enum(['text', 'voice', 'announcement', 'media']),
+  "position": zod.number(),
+  "isPrivate": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a channel (owner/mod only; cannot delete last channel)
+ */
+export const DeleteChannelParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "channelId": zod.coerce.number()
+})
+
+
+/**
+ * @summary Change a member's role (owner only)
+ */
+export const UpdateMemberRoleParams = zod.object({
+  "roomId": zod.coerce.number(),
+  "userId": zod.coerce.number()
+})
+
+export const UpdateMemberRoleBody = zod.object({
+  "role": zod.enum(['owner', 'mod', 'member'])
 })
 
 

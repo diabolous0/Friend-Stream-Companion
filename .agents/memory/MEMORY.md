@@ -1,2 +1,3 @@
 - [Room skin theming](room-skin-theming.md) — apply creator-set room skins to the window container element, NOT documentElement, so they don't fight the global personal-theme apply().
+- [Channel scoping & access control](channels-scoping.md) — new rooms must seed owner+default channel; HTTP & WS message paths must stay in lockstep on channel scoping & private-channel isolation.
 - [Room join gating](room-join-gating.md) — verify room password BEFORE the private-knock branch (else bypass); re-assert WS `watching` state after join/reconnect or viewer counts go stale.

@@ -7,6 +7,7 @@ import { roomsTable } from "./rooms";
 export const messagesTable = pgTable("messages", {
   id: serial("id").primaryKey(),
   roomId: integer("room_id").notNull().references(() => roomsTable.id),
+  channelId: integer("channel_id"),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),

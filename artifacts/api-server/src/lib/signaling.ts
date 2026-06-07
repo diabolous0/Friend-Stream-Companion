@@ -3,7 +3,7 @@ import { type IncomingMessage } from "node:http";
 import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
-import { db, messagesTable, usersTable, roomMembersTable } from "@workspace/db";
+import { db, messagesTable, usersTable, roomMembersTable, channelsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 type UserStatus = "online" | "away" | "dnd";
@@ -17,6 +17,7 @@ interface ClientState {
   nameColor: string | null;
   avatarStyle: string | null;
   roomId: number | null;
+  channelId: number | null;
   speaking: boolean;
   streaming: boolean;
   inVoice: boolean;
@@ -33,9 +34,22 @@ function getRoomClients(roomId: number): ClientState[] {
   return Array.from(clients.values()).filter((c) => c.roomId === roomId);
 }
 
+function getChannelClients(channelId: number): ClientState[] {
+  return Array.from(clients.values()).filter((c) => c.channelId === channelId);
+}
+
 function broadcast(roomId: number, message: object, exclude?: WebSocket): void {
   const payload = JSON.stringify(message);
   for (const client of getRoomClients(roomId)) {
+    if (client.ws !== exclude && client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(payload);
+    }
+  }
+}
+
+export function broadcastChannel(channelId: number, message: object, exclude?: WebSocket): void {
+  const payload = JSON.stringify(message);
+  for (const client of getChannelClients(channelId)) {
     if (client.ws !== exclude && client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(payload);
     }
@@ -54,6 +68,7 @@ function broadcastPresence(roomId: number): void {
     speaking: c.speaking,
     streaming: c.streaming,
     inVoice: c.inVoice,
+    channelId: c.channelId,
     status: c.status,
     statusMessage: c.statusMessage,
     activity: c.activity,
@@ -69,7 +84,7 @@ function broadcastPresence(roomId: number): void {
 
 function relayTo(state: ClientState, toUserId: number, message: object): void {
   const target = Array.from(clients.values()).find(
-    (c) => c.userId === toUserId && c.roomId === state.roomId
+    (c) => c.userId === toUserId && c.channelId != null && c.channelId === state.channelId
   );
   if (target && target.ws.readyState === WebSocket.OPEN) {
     target.ws.send(JSON.stringify(message));
@@ -116,6 +131,7 @@ export function setupSignaling(server: Server): void {
             nameColor: user.nameColor,
             avatarStyle: user.avatarStyle,
             roomId: null,
+            channelId: null,
             speaking: false,
             streaming: false,
             inVoice: false,
@@ -163,10 +179,47 @@ export function setupSignaling(server: Server): void {
           break;
         }
 
+        case "join_channel": {
+          if (!state) { ws.send(JSON.stringify({ type: "error", error: "Not authenticated" })); return; }
+          const channelId = Number(msg.channelId);
+          if (!Number.isInteger(channelId)) return;
+
+          const [channel] = await db.select().from(channelsTable).where(eq(channelsTable.id, channelId));
+          if (!channel) { ws.send(JSON.stringify({ type: "error", error: "Channel not found" })); return; }
+
+          const [membership] = await db
+            .select()
+            .from(roomMembersTable)
+            .where(and(
+              eq(roomMembersTable.roomId, channel.roomId),
+              eq(roomMembersTable.userId, state.userId),
+              eq(roomMembersTable.status, "active"),
+            ));
+          if (!membership) { ws.send(JSON.stringify({ type: "error", error: "Not a member of this room" })); return; }
+
+          const isStaff = membership.role === "owner" || membership.role === "mod";
+          if (channel.isPrivate && !isStaff) {
+            ws.send(JSON.stringify({ type: "error", error: "Channel is private" }));
+            return;
+          }
+
+          // Leaving the previous channel resets the per-channel voice/stream state.
+          state.roomId = channel.roomId;
+          state.channelId = channelId;
+          state.speaking = false;
+          state.streaming = false;
+          state.inVoice = false;
+          state.watching = [];
+          ws.send(JSON.stringify({ type: "joined_channel", channelId }));
+          broadcastPresence(channel.roomId);
+          break;
+        }
+
         case "leave_room": {
           if (!state || !state.roomId) return;
           const prevRoom = state.roomId;
           state.roomId = null;
+          state.channelId = null;
           state.speaking = false;
           state.streaming = false;
           state.inVoice = false;
@@ -228,17 +281,18 @@ export function setupSignaling(server: Server): void {
         }
 
         case "typing": {
-          if (!state || !state.roomId) return;
+          if (!state || !state.roomId || !state.channelId) return;
+          const channelId = state.channelId;
           const isTyping = Boolean(msg.isTyping);
-          const key = `${state.roomId}:${state.userId}`;
+          const key = `${channelId}:${state.userId}`;
           const existingTimer = typingTimers.get(key);
           if (existingTimer) clearTimeout(existingTimer);
           typingTimers.delete(key);
-          broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping }, ws);
+          broadcastChannel(channelId, { type: "typing_update", userId: state.userId, username: state.username, isTyping }, ws);
           if (isTyping) {
             const timer = setTimeout(() => {
               typingTimers.delete(key);
-              broadcast(state.roomId!, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
+              broadcastChannel(channelId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
             }, 5000);
             typingTimers.set(key, timer);
           }
@@ -246,7 +300,8 @@ export function setupSignaling(server: Server): void {
         }
 
         case "read": {
-          if (!state || !state.roomId) return;
+          if (!state || !state.roomId || !state.channelId) return;
+          const channelId = state.channelId;
           const messageId = Number(msg.messageId);
           if (!Number.isInteger(messageId) || messageId <= 0) return;
           try {
@@ -261,7 +316,7 @@ export function setupSignaling(server: Server): void {
               .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)))
               .returning({ lastReadMessageId: roomMembersTable.lastReadMessageId });
             if (!updated.length) return;
-            broadcast(state.roomId, { type: "read_update", userId: state.userId, lastReadMessageId: updated[0].lastReadMessageId });
+            broadcastChannel(channelId, { type: "read_update", userId: state.userId, lastReadMessageId: updated[0].lastReadMessageId });
           } catch (err) {
             logger.error({ err }, "failed to handle read receipt");
           }
@@ -269,14 +324,30 @@ export function setupSignaling(server: Server): void {
         }
 
         case "chat_message": {
-          if (!state || !state.roomId) return;
+          if (!state || !state.roomId || !state.channelId) return;
+          const channelId = state.channelId;
           const content = (msg.content as string)?.trim();
           if (!content) return;
 
-          const key = `${state.roomId}:${state.userId}`;
+          // Announcement channels: only owner/mod may post.
+          const [channel] = await db.select().from(channelsTable).where(eq(channelsTable.id, channelId));
+          if (!channel || channel.roomId !== state.roomId) return;
+          if (channel.type === "announcement") {
+            const [membership] = await db
+              .select({ role: roomMembersTable.role })
+              .from(roomMembersTable)
+              .where(and(eq(roomMembersTable.roomId, state.roomId), eq(roomMembersTable.userId, state.userId)));
+            const isStaff = membership?.role === "owner" || membership?.role === "mod";
+            if (!isStaff) {
+              ws.send(JSON.stringify({ type: "error", error: "Only staff can post in announcement channels" }));
+              return;
+            }
+          }
+
+          const key = `${channelId}:${state.userId}`;
           const t = typingTimers.get(key);
           if (t) { clearTimeout(t); typingTimers.delete(key); }
-          broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false }, ws);
+          broadcastChannel(channelId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false }, ws);
 
           const replyToId = Number.isInteger(msg.replyToId) ? (msg.replyToId as number) : null;
           let replyToContent: string | null = null;
@@ -286,7 +357,7 @@ export function setupSignaling(server: Server): void {
               .select({ content: messagesTable.content, username: usersTable.username })
               .from(messagesTable)
               .innerJoin(usersTable, eq(messagesTable.userId, usersTable.id))
-              .where(and(eq(messagesTable.id, replyToId), eq(messagesTable.roomId, state.roomId)));
+              .where(and(eq(messagesTable.id, replyToId), eq(messagesTable.channelId, channelId)));
             if (parent) {
               replyToContent = parent.content;
               replyToUsername = parent.username;
@@ -295,14 +366,15 @@ export function setupSignaling(server: Server): void {
 
           const [saved] = await db
             .insert(messagesTable)
-            .values({ roomId: state.roomId, userId: state.userId, content, replyToId: replyToContent ? replyToId : null })
+            .values({ roomId: state.roomId, channelId, userId: state.userId, content, replyToId: replyToContent ? replyToId : null })
             .returning();
 
-          broadcast(state.roomId, {
+          broadcastChannel(channelId, {
             type: "new_message",
             message: {
               id: saved.id,
               roomId: saved.roomId,
+              channelId: saved.channelId,
               userId: saved.userId,
               username: state.username,
               displayName: state.displayName,
@@ -366,10 +438,12 @@ export function setupSignaling(server: Server): void {
     ws.on("close", () => {
       const state = clients.get(ws);
       if (state?.roomId) {
-        const key = `${state.roomId}:${state.userId}`;
-        const t = typingTimers.get(key);
-        if (t) { clearTimeout(t); typingTimers.delete(key); }
-        broadcast(state.roomId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
+        if (state.channelId) {
+          const key = `${state.channelId}:${state.userId}`;
+          const t = typingTimers.get(key);
+          if (t) { clearTimeout(t); typingTimers.delete(key); }
+          broadcastChannel(state.channelId, { type: "typing_update", userId: state.userId, username: state.username, isTyping: false });
+        }
         state.streaming = false;
         state.speaking = false;
         state.inVoice = false;
@@ -416,6 +490,7 @@ export function getPresenceSnapshot(roomId: number) {
     speaking: c.speaking,
     streaming: c.streaming,
     inVoice: c.inVoice,
+    channelId: c.channelId,
     status: c.status,
     statusMessage: c.statusMessage,
     activity: c.activity,

@@ -55,6 +55,15 @@ export interface PublicUser {
   createdAt: string;
 }
 
+export type MemberUserRole = typeof MemberUserRole[keyof typeof MemberUserRole] | null;
+
+
+export const MemberUserRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
 export interface MemberUser {
   id: number;
   username: string;
@@ -64,6 +73,7 @@ export interface MemberUser {
   discordUrl?: string | null;
   nameColor?: string | null;
   avatarStyle?: string | null;
+  role?: MemberUserRole;
   createdAt: string;
 }
 
@@ -154,6 +164,7 @@ export interface PresenceEntry {
   speaking: boolean;
   streaming: boolean;
   inVoice: boolean;
+  channelId?: number | null;
   status?: PresenceEntryStatus;
   statusMessage?: string | null;
 }
@@ -167,6 +178,7 @@ export interface Reaction {
 export interface Message {
   id: number;
   roomId: number;
+  channelId?: number | null;
   userId: number;
   username: string;
   displayName?: string | null;
@@ -186,7 +198,82 @@ export interface Message {
 export interface MessageInput {
   /** @minLength 1 */
   content: string;
+  channelId?: number | null;
   replyToId?: number | null;
+}
+
+export type ChannelType = typeof ChannelType[keyof typeof ChannelType];
+
+
+export const ChannelType = {
+  text: 'text',
+  voice: 'voice',
+  announcement: 'announcement',
+  media: 'media',
+} as const;
+
+export interface Channel {
+  id: number;
+  roomId: number;
+  name: string;
+  type: ChannelType;
+  position: number;
+  isPrivate: boolean;
+  createdAt: string;
+}
+
+export type CreateChannelInputType = typeof CreateChannelInputType[keyof typeof CreateChannelInputType];
+
+
+export const CreateChannelInputType = {
+  text: 'text',
+  voice: 'voice',
+  announcement: 'announcement',
+  media: 'media',
+} as const;
+
+export interface CreateChannelInput {
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  name: string;
+  type?: CreateChannelInputType;
+  isPrivate?: boolean;
+}
+
+export type UpdateChannelInputType = typeof UpdateChannelInputType[keyof typeof UpdateChannelInputType];
+
+
+export const UpdateChannelInputType = {
+  text: 'text',
+  voice: 'voice',
+  announcement: 'announcement',
+  media: 'media',
+} as const;
+
+export interface UpdateChannelInput {
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  name?: string;
+  type?: UpdateChannelInputType;
+  isPrivate?: boolean;
+  position?: number;
+}
+
+export type UpdateMemberRoleInputRole = typeof UpdateMemberRoleInputRole[keyof typeof UpdateMemberRoleInputRole];
+
+
+export const UpdateMemberRoleInputRole = {
+  owner: 'owner',
+  mod: 'mod',
+  member: 'member',
+} as const;
+
+export interface UpdateMemberRoleInput {
+  role: UpdateMemberRoleInputRole;
 }
 
 export interface EditMessageInput {
@@ -199,6 +286,10 @@ export interface ReactionInput {
 }
 
 export type GetRoomMessagesParams = {
+/**
+ * Filter messages to a specific channel
+ */
+channelId?: number;
 /**
  * Fetch messages with ID less than this value (cursor pagination)
  */
