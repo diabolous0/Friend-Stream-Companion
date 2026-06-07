@@ -63,8 +63,18 @@ export function useWebSocket(options: UseWebSocketOptions) {
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // Reconnect bookkeeping: exponential backoff with a cap, plus a flag so we don't
+  // reconnect after the component intentionally unmounts.
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptsRef = useRef(0);
+  const closedRef = useRef(false);
+
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (closedRef.current) return;
+    // Don't open a second socket if one is already open or mid-handshake.
+    const rs = wsRef.current?.readyState;
+    if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
 
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProtocol}//${window.location.host}/api/ws`;
@@ -72,6 +82,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      attemptsRef.current = 0;
       setIsConnected(true);
       const token = localStorage.getItem("screencrew_token");
       if (token) ws.send(JSON.stringify({ type: "auth", token }));
@@ -117,13 +128,35 @@ export function useWebSocket(options: UseWebSocketOptions) {
 
     ws.onclose = () => {
       setIsConnected(false);
-      setTimeout(connect, 3000);
+      if (closedRef.current) return;
+      // Exponential backoff with jitter, capped at 15s, so a downed server doesn't
+      // get hammered but reconnection is still quick after a brief blip.
+      const delay = Math.min(15000, 500 * 2 ** attemptsRef.current) + Math.random() * 500;
+      attemptsRef.current += 1;
+      reconnectTimerRef.current = setTimeout(connect, delay);
     };
   }, []);
 
   useEffect(() => {
+    closedRef.current = false;
     connect();
-    return () => { wsRef.current?.close(); };
+
+    // Reconnect immediately when the network returns or the tab becomes visible
+    // again, instead of waiting out the backoff timer.
+    const wake = () => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) { attemptsRef.current = 0; connect(); }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") wake(); };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      closedRef.current = true;
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", onVisible);
+      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+      wsRef.current?.close();
+    };
   }, [connect]);
 
   const send = useCallback((message: any) => {

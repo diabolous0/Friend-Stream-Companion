@@ -86,13 +86,16 @@ export function applyCodecPreference(pc: RTCPeerConnection, codec: VideoCodec) {
   }
 }
 
+// Applies the optional max-bitrate cap AND a CPU-friendly degradation strategy.
+// "maintain-framerate" tells the encoder to drop resolution (not frame rate) under
+// CPU/network pressure — the right tradeoff for sharing fast-moving gameplay.
 export async function applyVideoBitrate(pc: RTCPeerConnection, kbps: number) {
-  if (!kbps) return;
   for (const sender of pc.getSenders()) {
     if (sender.track?.kind === "video") {
       const params = sender.getParameters();
       if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-      params.encodings[0].maxBitrate = kbps * 1000;
+      if (kbps) params.encodings[0].maxBitrate = kbps * 1000;
+      (params as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = "maintain-framerate";
       try { await sender.setParameters(params); } catch { /* ignore unsupported */ }
     }
   }

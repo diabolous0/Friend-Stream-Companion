@@ -806,6 +806,14 @@ export function SettingsModal({
 
             <Divider />
 
+            <Section title="Performance">
+              <Row label="Reduce motion" description="Disable non-essential animations to lower CPU">
+                <Toggle checked={settings.reduceMotion} onToggle={() => set("reduceMotion", !settings.reduceMotion)} />
+              </Row>
+            </Section>
+
+            <Divider />
+
             <Section title="Layout">
               <Row label="Top panel" description="Which section sits on top">
                 <div className="flex gap-1">

@@ -66,6 +66,10 @@ export function useWebRTC(
       videoCfgRef.current = { codec: config?.codec ?? "auto", bitrate: config?.bitrate ?? 0 };
       const constraints = config?.displayConstraints ?? { video: true, audio: true };
       const stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      // Hint the encoder this is high-motion content (gameplay) so it favours a
+      // smooth frame rate over per-frame sharpness.
+      const vt = stream.getVideoTracks()[0];
+      if (vt) { try { vt.contentHint = "motion"; } catch { /* unsupported */ } }
       localStreamRef.current = stream;
       setLocalStream(stream);
       setIsSharing(true);
@@ -122,6 +126,8 @@ export function useWebRTC(
         if (e.candidate) wsSendRef.current({ type: "audio_ice", to: userId, candidate: e.candidate });
       };
       pc.ontrack = (e) => {
+        // Minimise the jitter-buffer delay for voice so conversation stays snappy.
+        try { (e.receiver as RTCRtpReceiver & { playoutDelayHint?: number }).playoutDelayHint = 0; } catch { /* unsupported */ }
         if (e.streams[0]) setRemoteAudioStreams(prev => ({ ...prev, [userId]: e.streams[0] }));
       };
       pc.oniceconnectionstatechange = () => {

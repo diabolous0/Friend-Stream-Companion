@@ -174,6 +174,9 @@ export interface AppSettings {
   // Voice visualizer
   spectrumViz: boolean;      // bouncing-bar equalizer on speaking avatars/streams
 
+  // Performance
+  reduceMotion: boolean;     // disable non-essential UI animations/transitions (lower CPU)
+
   // Layout
   panelOrder: "friends" | "chat";   // which section sits on top
   friendsCollapsed: boolean;
@@ -243,6 +246,7 @@ const DEFAULT: AppSettings = {
   compactMessages: false,
   chatFont: "space-mono",
   spectrumViz: true,
+  reduceMotion: false,
   panelOrder: "friends",
   friendsCollapsed: false,
   chatCollapsed: false,
@@ -373,6 +377,12 @@ function apply(s: AppSettings) {
 
   const chatFont = FONT_OPTIONS.find((f) => f.id === s.chatFont)?.stack ?? FONT_OPTIONS[0].stack;
   el.style.setProperty("--chat-font", chatFont);
+
+  // Reduce-motion: hard-disable non-essential animations/transitions to save CPU.
+  // Also honour the OS-level prefers-reduced-motion setting.
+  const prefersReduced = typeof window !== "undefined" && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.classList.toggle("reduce-motion", s.reduceMotion || prefersReduced);
 
   if (s.uiTheme === "custom") {
     const font = FONT_OPTIONS.find((f) => f.id === s.fontFamily)?.stack ?? FONT_OPTIONS[0].stack;
