@@ -96,6 +96,7 @@ export interface Room {
   createdBy?: number;
   lastMessageAt?: string | null;
   themeColor?: string | null;
+  themeSkin?: string | null;
   bannerUrl?: string | null;
   notes?: string | null;
   isPrivate?: boolean | null;
@@ -113,6 +114,7 @@ export interface UpdateRoomInput {
   /** @minLength 1 */
   name?: string;
   themeColor?: string | null;
+  themeSkin?: string | null;
   bannerUrl?: string | null;
   notes?: string | null;
   isPrivate?: boolean;

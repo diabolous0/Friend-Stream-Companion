@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import {
   useGetRoom, getGetRoomQueryKey,
@@ -32,9 +32,10 @@ import {
   Paperclip, Loader2,
   Reply, Star, Megaphone, BarChart3, Hand,
   Lock, Globe, Clock, RefreshCw, StickyNote, Palette,
+  PictureInPicture2,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { useSettings } from "@/lib/settings";
+import { useSettings, applySkinVars, clearSkinVars, SKIN_PRESETS, FONT_OPTIONS } from "@/lib/settings";
 import { buildAudioConstraints, buildDisplayConstraints } from "@/lib/media";
 import { ThemeToggle } from "@/lib/theme";
 import { SettingsModal } from "@/components/settings-modal";
@@ -178,11 +179,14 @@ function useDraggable(initial: { x: number; y: number }) {
   return { pos, setPos, onPointerDown, onPointerMove, onPointerUp };
 }
 
-function StreamVideo({ stream, muted }: { stream: MediaStream; muted: boolean }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  return <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-contain bg-black" />;
-}
+const StreamVideo = forwardRef<HTMLVideoElement, { stream: MediaStream; muted: boolean }>(
+  function StreamVideo({ stream, muted }, fwd) {
+    const ref = useRef<HTMLVideoElement>(null);
+    useImperativeHandle(fwd, () => ref.current!, []);
+    useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
+    return <video ref={ref} autoPlay playsInline muted={muted} className="w-full h-full object-contain bg-black" />;
+  },
+);
 
 function AudioPlayer({ stream, volume = 100, muted = false }: { stream: MediaStream; volume?: number; muted?: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
@@ -260,6 +264,10 @@ export default function Room() {
   const [viewingStreamOf, setViewingStreamOf] = useState<number | null>(null);
   const [streamMuted, setStreamMuted] = useState(false);
   const [streamPinned, setStreamPinned] = useState(false);
+  const streamVideoRef = useRef<HTMLVideoElement>(null);
+
+  const [bindingClip, setBindingClip] = useState<string | null>(null);
+  const windowRef = useRef<HTMLDivElement>(null);
 
   // Phase E feature state
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
@@ -852,6 +860,77 @@ export default function Room() {
     return () => { el.style.setProperty("--room-accent", prev); };
   }, [room?.themeColor]);
 
+  // ─── Apply room skin (creator-set, scoped to the window so it never fights
+  //     the user's global personal theme) ─────────────────────────────────────
+  useEffect(() => {
+    const el = windowRef.current;
+    if (!el) return;
+    const skin = room?.themeSkin ? SKIN_PRESETS.find(s => s.id === room.themeSkin) : null;
+    if (!skin) {
+      clearSkinVars(el);
+      el.style.removeProperty("--radius");
+      el.style.removeProperty("--app-font-sans");
+      el.style.removeProperty("--app-font-mono");
+      return;
+    }
+    applySkinVars(el, skin.colors);
+    el.style.setProperty("--radius", skin.windowStyle === "squared" ? "0px" : "0.5rem");
+    const font = FONT_OPTIONS.find(f => f.id === skin.font)?.stack ?? FONT_OPTIONS[0].stack;
+    el.style.setProperty("--app-font-sans", font);
+    el.style.setProperty("--app-font-mono", font);
+    return () => {
+      clearSkinVars(el);
+      el.style.removeProperty("--radius");
+      el.style.removeProperty("--app-font-sans");
+      el.style.removeProperty("--app-font-mono");
+    };
+  }, [room?.themeSkin]);
+
+  // ─── Soundboard hotkeys: play bound clip on keypress ──────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (bindingClip || e.repeat) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const key = e.key.toLowerCase();
+      const hit = Object.entries(settings.soundboardHotkeys).find(([, k]) => k === key);
+      if (hit) { e.preventDefault(); playSoundboard(hit[0]); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [settings.soundboardHotkeys, playSoundboard, bindingClip]);
+
+  // ─── Soundboard hotkey binding capture ────────────────────────────────────
+  useEffect(() => {
+    if (!bindingClip) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") { setBindingClip(null); return; }
+      const key = e.key.toLowerCase();
+      if (key === " " || key.length === 1) {
+        const next = { ...settings.soundboardHotkeys };
+        for (const id of Object.keys(next)) if (next[id] === key) delete next[id];
+        next[bindingClip] = key;
+        setSetting("soundboardHotkeys", next);
+      }
+      setBindingClip(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [bindingClip, settings.soundboardHotkeys, setSetting]);
+
+  // ─── Picture-in-picture for the active stream ─────────────────────────────
+  const handlePip = useCallback(async () => {
+    const v = streamVideoRef.current;
+    if (!v) return;
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await v.requestPictureInPicture();
+    } catch { /* user denied or unsupported */ }
+  }, []);
+
   // ─── Soundboard flash auto-clear ─────────────────────────────────────────
   useEffect(() => {
     if (!soundboardFlash) return;
@@ -967,7 +1046,7 @@ export default function Room() {
       </div>
 
       {/* ── Main Panel ── */}
-      <div className={`relative flex flex-col bg-card border shadow-2xl overflow-hidden transition-[opacity,transform] ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
+      <div ref={windowRef} className={`relative flex flex-col bg-card border shadow-2xl overflow-hidden transition-[opacity,transform] ${classic ? "rounded-sm border-primary/20" : "rounded-2xl border-border/50"} ${overlayMode ? "opacity-0 pointer-events-none scale-95" : "opacity-100 scale-100"}`}
         onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
         style={{
           width: settings.windowSize.w, height: settings.windowSize.h,
@@ -1112,12 +1191,33 @@ export default function Room() {
           {/* Soundboard panel */}
           {showSoundboard && (
             <div className="mb-2.5 grid grid-cols-4 gap-1">
-              {SOUNDBOARD_CLIPS.map(clip => (
-                <button key={clip.id} onClick={() => playSoundboard(clip.id)}
-                  className="text-[10px] rounded-lg bg-muted/30 hover:bg-primary/15 border border-border/30 hover:border-primary/30 py-1.5 transition-colors text-foreground/80">
-                  {clip.label}
-                </button>
-              ))}
+              {SOUNDBOARD_CLIPS.map(clip => {
+                const bound = settings.soundboardHotkeys[clip.id];
+                const binding = bindingClip === clip.id;
+                return (
+                  <div key={clip.id} className="relative flex flex-col">
+                    <button onClick={() => playSoundboard(clip.id)}
+                      className="text-[10px] rounded-t-lg bg-muted/30 hover:bg-primary/15 border border-b-0 border-border/30 hover:border-primary/30 py-1.5 transition-colors text-foreground/80">
+                      {clip.label}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (binding) { setBindingClip(null); return; }
+                        if (bound) {
+                          const next = { ...settings.soundboardHotkeys };
+                          delete next[clip.id];
+                          setSetting("soundboardHotkeys", next);
+                        } else {
+                          setBindingClip(clip.id);
+                        }
+                      }}
+                      title={bound ? `Hotkey: ${bound} — click to clear` : "Click, then press a key to bind"}
+                      className={`text-[9px] rounded-b-lg border py-0.5 transition-colors font-mono ${binding ? "bg-primary/25 border-primary/50 text-primary animate-pulse" : bound ? "bg-primary/10 border-primary/30 text-primary/90" : "bg-muted/20 border-border/30 text-muted-foreground/50 hover:text-foreground"}`}>
+                      {binding ? "press…" : bound ? `⌨ ${bound}` : "⌨ bind"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -1569,6 +1669,12 @@ export default function Room() {
               <button onClick={() => setStreamPinned(p => !p)} className={`p-1.5 rounded-lg transition-colors ${streamPinned ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground"}`}>
                 {streamPinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
               </button>
+              {typeof document !== "undefined" && document.pictureInPictureEnabled && (
+                <button onClick={handlePip} title="Picture-in-picture" disabled={!activeStream}
+                  className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground transition-colors disabled:opacity-30">
+                  <PictureInPicture2 className="w-3.5 h-3.5" />
+                </button>
+              )}
               <button onClick={() => setStreamMuted(m => !m)} className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-foreground transition-colors">
                 {streamMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
@@ -1578,7 +1684,7 @@ export default function Room() {
             </div>
           </div>
           <div className={`relative aspect-video transition-shadow ${presence[viewingStreamOf]?.speaking ? "ring-2 ring-green-400/70 ring-inset" : ""}`}>
-            {activeStream ? <StreamVideo stream={activeStream} muted={streamMuted} /> : (
+            {activeStream ? <StreamVideo ref={streamVideoRef} stream={activeStream} muted={streamMuted} /> : (
               <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/30 gap-2">
                 <MonitorUp className="w-10 h-10 opacity-30" />
                 <span className="text-sm">Waiting for signal…</span>
@@ -1684,6 +1790,27 @@ export default function Room() {
                         <X className="w-3.5 h-3.5" />
                       </button>
                     )}
+                  </div>
+                </div>
+
+                {/* Room skin (creator sets a full theme everyone in the room sees) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Palette className="w-3.5 h-3.5 text-muted-foreground/50" /> Room Skin
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button onClick={() => handleUpdateRoom({ themeSkin: null })}
+                      className={`text-[10px] rounded-lg border py-1.5 transition-colors ${!room.themeSkin ? "bg-primary/20 border-primary/50 text-primary" : "bg-muted/20 border-border/30 text-muted-foreground/70 hover:text-foreground"}`}>
+                      None
+                    </button>
+                    {SKIN_PRESETS.map(skin => (
+                      <button key={skin.id} onClick={() => handleUpdateRoom({ themeSkin: skin.id })}
+                        className={`flex items-center gap-1.5 text-[10px] rounded-lg border py-1.5 px-2 transition-colors ${room.themeSkin === skin.id ? "border-primary/50 ring-1 ring-primary/40" : "border-border/30 hover:border-primary/30"}`}
+                        style={{ backgroundColor: skin.colors.card, color: skin.colors.foreground }}>
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: skin.colors.primary }} />
+                        <span className="truncate">{skin.label}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
 

@@ -266,9 +266,15 @@ router.patch("/rooms/:roomId", requireAuth, async (req, res): Promise<void> => {
     updates.name = name;
   }
   // Room theme/banner/notes editing is creator-only.
-  if (data.themeColor !== undefined || data.bannerUrl !== undefined || data.notes !== undefined) {
+  if (data.themeColor !== undefined || data.themeSkin !== undefined || data.bannerUrl !== undefined || data.notes !== undefined) {
     if (!isCreator) { res.status(403).json({ error: "Only the room creator can change room settings" }); return; }
     if (data.themeColor !== undefined) updates.themeColor = data.themeColor;
+    if (data.themeSkin !== undefined) {
+      if (data.themeSkin !== null && !/^[a-z]{1,32}$/.test(data.themeSkin)) {
+        res.status(400).json({ error: "Invalid room skin" }); return;
+      }
+      updates.themeSkin = data.themeSkin;
+    }
     if (data.bannerUrl !== undefined) updates.bannerUrl = data.bannerUrl;
     if (data.notes !== undefined) updates.notes = data.notes;
   }

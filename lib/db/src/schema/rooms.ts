@@ -10,6 +10,7 @@ export const roomsTable = pgTable("rooms", {
   createdBy: integer("created_by").notNull().references(() => usersTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   themeColor: text("theme_color"),
+  themeSkin: text("theme_skin"),
   bannerUrl: text("banner_url"),
   notes: text("notes"),
   isPrivate: boolean("is_private").notNull().default(false),

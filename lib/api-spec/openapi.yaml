@@ -756,6 +756,9 @@ components:
         themeColor:
           type: string
           nullable: true
+        themeSkin:
+          type: string
+          nullable: true
         bannerUrl:
           type: string
           nullable: true
@@ -790,6 +793,9 @@ components:
           type: string
           minLength: 1
         themeColor:
+          type: string
+          nullable: true
+        themeSkin:
           type: string
           nullable: true
         bannerUrl:

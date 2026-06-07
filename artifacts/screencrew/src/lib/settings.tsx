@@ -203,6 +203,9 @@ export interface AppSettings {
 
   // Keyboard shortcuts
   settingsHotkey: string;             // open settings, e.g. "Comma" (with Mod)
+
+  // Soundboard
+  soundboardHotkeys: Record<string, string>; // clipId -> single-key binding (KeyboardEvent.key, lowercased)
 }
 
 const DEFAULT: AppSettings = {
@@ -252,6 +255,7 @@ const DEFAULT: AppSettings = {
   afkMinutes: 10,
   watchedUsers: [],
   settingsHotkey: "Comma",
+  soundboardHotkeys: {},
 };
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
@@ -305,8 +309,9 @@ const CUSTOM_VARS = [
   "--border", "--input", "--primary", "--primary-foreground", "--ring",
 ];
 
-function applyCustomTheme(el: HTMLElement, s: AppSettings) {
-  const c = s.customColors;
+// Apply a full color palette to an element's CSS vars. Used both for the
+// global custom theme and for room-level skins scoped to a container element.
+export function applySkinVars(el: HTMLElement, c: CustomColors) {
   const setVar = (name: string, hex: string) => {
     const v = hexToHsl(hex);
     if (v) el.style.setProperty(name, v);
@@ -329,6 +334,14 @@ function applyCustomTheme(el: HTMLElement, s: AppSettings) {
   setVar("--ring", c.primary);
   const pl = hexToHslParts(c.primary);
   el.style.setProperty("--primary-foreground", pl && pl.l > 60 ? "0 0% 0%" : "0 0% 100%");
+}
+
+export function clearSkinVars(el: HTMLElement) {
+  for (const v of CUSTOM_VARS) el.style.removeProperty(v);
+}
+
+function applyCustomTheme(el: HTMLElement, s: AppSettings) {
+  applySkinVars(el, s.customColors);
 }
 
 function apply(s: AppSettings) {
