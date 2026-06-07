@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "vHMjCo5hDmdwx28YSjx8v"
+uri = "file://ROADMAP.md"
+type = "text"
+title = "ScreenCrew Self-Hosted Roadmap"
