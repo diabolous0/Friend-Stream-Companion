@@ -1,10 +1,10 @@
 {
-  "serverName": "My ScreenCrew Server",
+  "serverName": "My LynxDock",
   "port": 8080,
   "sessionSecret": "CHANGE-ME-to-a-long-random-string",
   "adminPassword": "CHANGE-ME-admin-password",
   "maxUsers": 100,
-  "registration": "open",
+  "registration": "invite",
   "database": {
     "driver": "sqlite",
     "path": "./data/screencrew.db"

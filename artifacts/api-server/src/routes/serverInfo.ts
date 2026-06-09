@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { notLike, sql } from "drizzle-orm";
 import { config } from "../lib/config";
 import { getServerSettings } from "../lib/serverSettings";
 import { requireAuth } from "../middlewares/auth";
@@ -15,7 +15,8 @@ router.get("/server-info", async (_req, res): Promise<void> => {
   const settings = await getServerSettings();
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
-    .from(usersTable);
+    .from(usersTable)
+    .where(notLike(usersTable.username, "__guest_%"));
   res.json({
     serverName: settings.serverName,
     description: settings.description,

@@ -1,8 +1,14 @@
 import { Router, type IRouter } from "express";
 import { db, usersTable, serverInvitesTable } from "@workspace/db";
-import { eq, sql, and, or, isNull, lt, gt } from "drizzle-orm";
-import { signToken, hashPassword } from "../middlewares/auth";
+import { eq, sql, and, or, isNull, lt, gt, notLike } from "drizzle-orm";
+import {
+  signToken,
+  hashPassword,
+  passwordHashNeedsUpgrade,
+  verifyPassword,
+} from "../middlewares/auth";
 import { getServerSettings } from "../lib/serverSettings";
+import { config } from "../lib/config";
 import { RegisterBody, LoginBody } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -27,11 +33,6 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const settings = await getServerSettings();
 
-  if (settings.registration === "closed") {
-    res.status(403).json({ error: "Registration is closed on this server" });
-    return;
-  }
-
   const [existing] = await db.select().from(usersTable).where(eq(usersTable.username, username));
   if (existing) {
     res.status(400).json({ error: "Username already taken" });
@@ -40,13 +41,19 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)` })
-    .from(usersTable);
+    .from(usersTable)
+    .where(notLike(usersTable.username, "__guest_%"));
+  const isOwnerBootstrap = Number(count) === 0 && Boolean(config.adminPassword);
+  if (settings.registration === "closed" && !isOwnerBootstrap) {
+    res.status(403).json({ error: "Registration is closed on this server" });
+    return;
+  }
   if (Number(count) >= settings.maxUsers) {
     res.status(403).json({ error: "This server is full" });
     return;
   }
 
-  if (settings.registration === "invite") {
+  if (settings.registration === "invite" && !isOwnerBootstrap) {
     if (!inviteKey) {
       res.status(403).json({ error: "An invite key is required to register" });
       return;
@@ -99,10 +106,16 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  const passwordHash = hashPassword(password);
-  if (user.passwordHash !== passwordHash) {
+  if (!verifyPassword(password, user.passwordHash)) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
+  }
+
+  if (passwordHashNeedsUpgrade(user.passwordHash)) {
+    await db
+      .update(usersTable)
+      .set({ passwordHash: hashPassword(password) })
+      .where(eq(usersTable.id, user.id));
   }
 
   const token = signToken(user.id);

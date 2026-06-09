@@ -12,11 +12,13 @@ import blocksRouter from "./blocks";
 import botsRouter from "./bots";
 import serverInvitesRouter from "./serverInvites";
 import serverInfoRouter from "./serverInfo";
+import quickCallsRouter from "./quickCalls";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(serverInfoRouter);
+router.use(quickCallsRouter);
 router.use(authRouter);
 router.use(serverInvitesRouter);
 router.use(usersRouter);

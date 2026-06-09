@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { Zap, Plus, X } from "lucide-react";
 import { useTheme } from "@/lib/theme";
+import { useSettings } from "@/lib/settings";
 import {
   getSavedServers,
   getActiveServerId,
@@ -24,6 +25,7 @@ export function ServerRail() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { theme } = useTheme();
+  const { settings } = useSettings();
   const classic = theme === "classic";
 
   const [servers, setServers] = useState<SavedServer[]>(() => getSavedServers());
@@ -31,16 +33,21 @@ export function ServerRail() {
 
   const round = classic ? "rounded-sm" : "rounded-2xl";
   const roundIdle = classic ? "rounded-sm" : "rounded-3xl";
+  const size = {
+    compact: { rail: "w-14", button: "w-9 h-9", icon: "w-4 h-4", text: "text-xs", gap: "gap-1.5", pad: "py-2" },
+    default: { rail: "w-16", button: "w-11 h-11", icon: "w-5 h-5", text: "text-sm", gap: "gap-2", pad: "py-3" },
+    large: { rail: "w-20", button: "w-12 h-12", icon: "w-6 h-6", text: "text-base", gap: "gap-2.5", pad: "py-3" },
+  }[settings.serverRailSize];
 
   const switchTo = (id: string) => {
     if (id === activeId) {
-      setLocation(getActiveToken() ? "/rooms" : "/");
+      setLocation(getActiveToken() ? "/rooms" : "/login");
       return;
     }
     setActiveServerId(id);
     setActiveId(id);
     queryClient.clear();
-    setLocation(getActiveToken() ? "/rooms" : "/");
+    setLocation(getActiveToken() ? "/rooms" : "/login");
   };
 
   const remove = (e: React.MouseEvent, id: string) => {
@@ -51,13 +58,13 @@ export function ServerRail() {
     setActiveId(getActiveServerId());
     if (id === activeId) {
       queryClient.clear();
-      setLocation(getActiveToken() ? "/rooms" : "/");
+      setLocation(getActiveToken() ? "/rooms" : "/login");
     }
   };
 
   return (
     <nav
-      className={`flex flex-col items-center gap-2 w-16 shrink-0 h-full bg-card/60 border-r border-border/50 py-3 overflow-y-auto ${
+      className={`flex flex-col items-center ${size.gap} ${size.rail} shrink-0 h-full bg-card/60 border-r border-border/50 ${size.pad} overflow-y-auto ${
         classic ? "" : ""
       }`}
     >
@@ -69,7 +76,7 @@ export function ServerRail() {
             <button
               onClick={() => switchTo(s.id)}
               title={s.label}
-              className={`relative flex items-center justify-center w-11 h-11 text-sm font-bold transition-all ${
+              className={`relative flex items-center justify-center ${size.button} ${size.text} font-bold transition-all ${
                 active ? round : roundIdle
               } ${
                 active
@@ -80,7 +87,7 @@ export function ServerRail() {
               {active && (
                 <span className="absolute -left-3 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-primary" />
               )}
-              {isQuick ? <Zap className="w-5 h-5" /> : railInitials(s.label)}
+              {isQuick ? <Zap className={size.icon} /> : railInitials(s.label)}
             </button>
             {!isQuick && (
               <button
@@ -98,9 +105,9 @@ export function ServerRail() {
       <button
         onClick={() => setLocation("/connect")}
         title="Add server"
-        className={`flex items-center justify-center w-11 h-11 ${roundIdle} bg-muted/30 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors mt-1`}
+        className={`flex items-center justify-center ${size.button} ${roundIdle} bg-muted/30 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors mt-1`}
       >
-        <Plus className="w-5 h-5" />
+        <Plus className={size.icon} />
       </button>
     </nav>
   );

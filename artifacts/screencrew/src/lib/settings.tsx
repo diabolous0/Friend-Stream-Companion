@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type UITheme = "lynx" | "classic" | "custom";
-export type ColorMode = "dark" | "light";
+export type ColorMode = "dark" | "light" | "system";
 export type WindowControls = "windows" | "mac";
 export type AccentPreset = "cyan" | "blue" | "purple" | "green" | "orange" | "pink" | "red";
 export type FontSize = "sm" | "md" | "lg";
@@ -14,6 +14,12 @@ export type VideoCodec = "auto" | "VP9" | "VP8" | "H264" | "AV1";
 export type WindowStyle = "smooth" | "squared";
 export type UserStatus = "online" | "away" | "dnd";
 export type NotifyLevel = "all" | "mentions" | "none";
+export type LayoutDensity = "comfortable" | "cozy" | "compact";
+export type ServerRailSize = "compact" | "default" | "large";
+export type NavColumnSize = "compact" | "default" | "wide";
+export type TimestampStyle = "time" | "dateTime" | "relative";
+export type MediaPreviewSize = "hidden" | "compact" | "comfortable";
+export type CallControlStyle = "compact" | "comfortable";
 
 export const FONT_OPTIONS: { id: string; label: string; stack: string }[] = [
   { id: "space-mono", label: "Space Mono",  stack: "'Space Mono', monospace" },
@@ -165,7 +171,12 @@ export interface AppSettings {
   // Chat
   fontSize: FontSize;
   showTimestamps: boolean;
+  timestampStyle: TimestampStyle;
+  showChatAvatars: boolean;
+  showChatUsernames: boolean;
   compactMessages: boolean;
+  groupMessages: boolean;
+  mediaPreviewSize: MediaPreviewSize;
   chatFont: string;          // FONT_OPTIONS id for chat messages
   chatPopout: boolean;
   chatPopoutPos: { x: number; y: number };
@@ -175,9 +186,18 @@ export interface AppSettings {
   spectrumViz: boolean;      // bouncing-bar equalizer on speaking avatars/streams
 
   // Performance
+  lowResourceMode: boolean;  // reduce optional visual work and background refreshes
   reduceMotion: boolean;     // disable non-essential UI animations/transitions (lower CPU)
 
+  // Accessibility & comfort
+  highContrast: boolean;
+  largeClickTargets: boolean;
+  strongFocus: boolean;
+
   // Layout
+  layoutDensity: LayoutDensity;
+  serverRailSize: ServerRailSize;
+  navColumnSize: NavColumnSize;
   panelOrder: "friends" | "chat";   // which section sits on top
   friendsCollapsed: boolean;
   chatCollapsed: boolean;
@@ -185,6 +205,7 @@ export interface AppSettings {
   streamWindowW: number;             // resizable floating stream-window width (px)
 
   // Audio
+  callControlStyle: CallControlStyle;
   soundEnabled: boolean;
   micDeviceId: string;          // "" = system default
   echoCancellation: boolean;
@@ -243,15 +264,28 @@ const DEFAULT: AppSettings = {
   myStatusMessage: "",
   fontSize: "md",
   showTimestamps: true,
+  timestampStyle: "time",
+  showChatAvatars: true,
+  showChatUsernames: true,
   compactMessages: false,
+  groupMessages: true,
+  mediaPreviewSize: "comfortable",
   chatFont: "space-mono",
   spectrumViz: true,
+  lowResourceMode: false,
   reduceMotion: false,
+  highContrast: false,
+  largeClickTargets: false,
+  strongFocus: true,
+  layoutDensity: "cozy",
+  serverRailSize: "default",
+  navColumnSize: "default",
   panelOrder: "friends",
   friendsCollapsed: false,
   chatCollapsed: false,
   windowSize: { w: 320, h: 580 },
   streamWindowW: 440,
+  callControlStyle: "comfortable",
   soundEnabled: true,
   micDeviceId: "",
   echoCancellation: true,
@@ -371,9 +405,13 @@ function applyCustomTheme(el: HTMLElement, s: AppSettings) {
 
 function apply(s: AppSettings) {
   const el = document.documentElement;
-  el.classList.toggle("dark", s.colorMode === "dark");
+  const systemPrefersDark = typeof window !== "undefined" && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const useDarkMode = s.colorMode === "dark" || (s.colorMode === "system" && systemPrefersDark);
+  el.classList.toggle("dark", useDarkMode);
   el.dataset.ui = s.uiTheme;
   el.dataset.windowControls = s.windowControls;
+  el.dataset.layoutDensity = s.layoutDensity;
 
   const chatFont = FONT_OPTIONS.find((f) => f.id === s.chatFont)?.stack ?? FONT_OPTIONS[0].stack;
   el.style.setProperty("--chat-font", chatFont);
@@ -382,7 +420,11 @@ function apply(s: AppSettings) {
   // Also honour the OS-level prefers-reduced-motion setting.
   const prefersReduced = typeof window !== "undefined" && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  el.classList.toggle("reduce-motion", s.reduceMotion || prefersReduced);
+  el.classList.toggle("reduce-motion", s.lowResourceMode || s.reduceMotion || prefersReduced);
+  el.classList.toggle("low-resource", s.lowResourceMode);
+  el.classList.toggle("high-contrast", s.highContrast);
+  el.classList.toggle("large-click-targets", s.largeClickTargets);
+  el.classList.toggle("strong-focus", s.strongFocus);
 
   if (s.uiTheme === "custom") {
     const font = FONT_OPTIONS.find((f) => f.id === s.fontFamily)?.stack ?? FONT_OPTIONS[0].stack;
@@ -429,6 +471,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     apply(settings);
     save(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    if (settings.colorMode !== "system" || typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => apply(settings);
+    media.addEventListener?.("change", handleChange);
+    return () => media.removeEventListener?.("change", handleChange);
   }, [settings]);
 
   const set = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {

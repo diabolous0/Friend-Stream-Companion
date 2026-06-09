@@ -14,27 +14,41 @@ export default function Login() {
   const { toast } = useToast();
   const { theme } = useTheme();
   const classic = theme === "classic";
+  const params = new URLSearchParams(window.location.search);
+  const firstOwner = params.get("first") === "1";
+  const initialInviteKey = params.get("invite") ?? "";
 
-  const [tab, setTab] = useState<"login" | "register">("login");
+  const [tab, setTab] = useState<"login" | "register">(() => firstOwner || initialInviteKey ? "register" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [inviteKey, setInviteKey] = useState(
-    () => new URLSearchParams(window.location.search).get("invite") ?? ""
+    () => initialInviteKey
   );
 
   const loginMutation = useLogin();
   const registerMutation = useRegister();
 
-  // Carry a shareable invite link's ?join=CODE through to the rooms page so it
-  // can prefill the join form after authentication.
-  const joinSuffix = (() => {
-    const code = new URLSearchParams(window.location.search).get("join");
-    return code ? `?join=${encodeURIComponent(code)}` : "";
+  // Carry entry intent through authentication. Invite codes prefill the join
+  // form today; Step 3 will use quick-call intent to create a temporary call.
+  const destinationSuffix = (() => {
+    const source = new URLSearchParams(window.location.search);
+    const destination = new URLSearchParams();
+    const code = source.get("join");
+    const intent = source.get("intent");
+    if (code) destination.set("join", code);
+    if (intent) destination.set("intent", intent);
+    const query = destination.toString();
+    return query ? `?${query}` : "";
   })();
 
   const handleSuccess = (token: string) => {
     setActiveToken(token);
-    setLocation(`/rooms${joinSuffix}`);
+    setLocation(`/rooms${destinationSuffix}`);
+  };
+
+  const handleRegisterSuccess = (token: string) => {
+    setActiveToken(token);
+    setLocation(firstOwner ? "/admin?first=1" : `/rooms${destinationSuffix}`);
   };
 
   const onSubmit = (e: React.FormEvent) => {
@@ -46,14 +60,14 @@ export default function Login() {
       });
     } else {
       registerMutation.mutate({ data: { username, password, inviteKey: inviteKey || undefined } }, {
-        onSuccess: (data) => handleSuccess(data.token),
+        onSuccess: (data) => handleRegisterSuccess(data.token),
         onError: (err) => toast({ title: classic ? "REG FAILED" : "Registration failed", description: err.message, variant: "destructive" }),
       });
     }
   };
 
   const { data: me, isLoading } = useGetMe({ query: { retry: false, queryKey: getGetMeQueryKey() } });
-  if (me) { setLocation(`/rooms${joinSuffix}`); return null; }
+  if (me) { setLocation(firstOwner ? "/admin?first=1" : `/rooms${destinationSuffix}`); return null; }
 
   if (isLoading) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -112,6 +126,13 @@ export default function Login() {
 
         {/* Form */}
         <form onSubmit={onSubmit} className="px-6 pb-5 space-y-3">
+          {firstOwner && tab === "register" && (
+            <div className={`border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-muted-foreground ${classic ? "rounded-sm font-mono" : "rounded-xl"}`}>
+              {classic
+                ? "CREATE THE FIRST ACCOUNT, THEN CLAIM ADMIN WITH THE PASSWORD FROM YOUR .ENV FILE."
+                : "Create the first account, then claim admin with the password from your .env file."}
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className={`text-xs font-medium text-muted-foreground ${classic ? "font-mono uppercase tracking-wider text-primary/70" : ""}`}>
               {classic ? "Username" : "Username"}
@@ -161,7 +182,7 @@ export default function Login() {
         <div className="flex items-center justify-center gap-3 px-6 pb-5">
           <button
             type="button"
-            onClick={() => setLocation("/connect")}
+            onClick={() => setLocation("/")}
             className={`text-[10px] text-muted-foreground/50 hover:text-primary transition-colors ${classic ? "font-mono uppercase tracking-wider" : ""}`}
           >
             {classic ? `NODE: ${getServerLabel()}` : `Server: ${getServerLabel()}`}

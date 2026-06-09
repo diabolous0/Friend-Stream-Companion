@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getWebSocketUrl, getActiveToken } from "@/lib/server-connection";
+import type { ConnectionState } from "@/lib/connection-status";
 
 type WebSocketMessage =
   | { type: "presence_update"; roomId: number; entries: any[] }
@@ -62,6 +63,7 @@ interface UseWebSocketOptions {
 
 export function useWebSocket(options: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -79,6 +81,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
 
+    setConnectionState(attemptsRef.current > 0 ? "reconnecting" : "connecting");
     const wsUrl = getWebSocketUrl();
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -86,6 +89,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onopen = () => {
       attemptsRef.current = 0;
       setIsConnected(true);
+      setConnectionState("connected");
       const token = getActiveToken();
       if (token) ws.send(JSON.stringify({ type: "auth", token }));
     };
@@ -132,6 +136,7 @@ export function useWebSocket(options: UseWebSocketOptions) {
     ws.onclose = () => {
       setIsConnected(false);
       if (closedRef.current) return;
+      setConnectionState(navigator.onLine ? "reconnecting" : "offline");
       // Exponential backoff with jitter, capped at 15s, so a downed server doesn't
       // get hammered but reconnection is still quick after a brief blip.
       const delay = Math.min(15000, 500 * 2 ** attemptsRef.current) + Math.random() * 500;
@@ -147,15 +152,22 @@ export function useWebSocket(options: UseWebSocketOptions) {
     // Reconnect immediately when the network returns or the tab becomes visible
     // again, instead of waiting out the backoff timer.
     const wake = () => {
+      setConnectionState("reconnecting");
       if (wsRef.current?.readyState !== WebSocket.OPEN) { attemptsRef.current = 0; connect(); }
     };
     const onVisible = () => { if (document.visibilityState === "visible") wake(); };
+    const onOffline = () => {
+      setIsConnected(false);
+      setConnectionState("offline");
+    };
     window.addEventListener("online", wake);
+    window.addEventListener("offline", onOffline);
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       closedRef.current = true;
       window.removeEventListener("online", wake);
+      window.removeEventListener("offline", onOffline);
       document.removeEventListener("visibilitychange", onVisible);
       if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
       wsRef.current?.close();
@@ -168,5 +180,5 @@ export function useWebSocket(options: UseWebSocketOptions) {
     }
   }, []);
 
-  return { isConnected, send };
+  return { isConnected, connectionState, send };
 }

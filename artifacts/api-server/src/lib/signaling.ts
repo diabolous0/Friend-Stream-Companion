@@ -3,7 +3,7 @@ import { type IncomingMessage } from "node:http";
 import { type Server } from "node:http";
 import { verifyToken } from "../middlewares/auth";
 import { logger } from "./logger";
-import { db, messagesTable, usersTable, roomMembersTable, channelsTable, roleAtLeast, IS_SQLITE } from "@workspace/db";
+import { db, messagesTable, usersTable, roomMembersTable, roomsTable, channelsTable, roleAtLeast, IS_SQLITE } from "@workspace/db";
 import { eq, and, sql, inArray } from "drizzle-orm";
 
 type UserStatus = "online" | "away" | "dnd";
@@ -26,10 +26,19 @@ interface ClientState {
   activity: string | null;
   watching: number[];
   askToWatch: boolean;
+  guestRoomId: number | null;
 }
 
 const clients = new Map<WebSocket, ClientState>();
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const liveSockets = new WeakSet<WebSocket>();
+
+const MAX_PAYLOAD_BYTES = 256 * 1024;
+const AUTH_TIMEOUT_MS = 10_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const RATE_LIMIT_WINDOW_MS = 10_000;
+const MAX_MESSAGES_PER_WINDOW = 240;
+const EMPTY_EPHEMERAL_GRACE_MS = 10 * 60 * 1000;
 
 function getRoomClients(roomId: number): ClientState[] {
   return Array.from(clients.values()).filter((c) => c.roomId === roomId);
@@ -37,6 +46,14 @@ function getRoomClients(roomId: number): ClientState[] {
 
 function getChannelClients(channelId: number): ClientState[] {
   return Array.from(clients.values()).filter((c) => c.channelId === channelId);
+}
+
+async function scheduleEmptyEphemeralRoomCleanup(roomId: number): Promise<void> {
+  if (getRoomClients(roomId).length > 0) return;
+  await db
+    .update(roomsTable)
+    .set({ expiresAt: new Date(Date.now() + EMPTY_EPHEMERAL_GRACE_MS) })
+    .where(and(eq(roomsTable.id, roomId), eq(roomsTable.ephemeral, true)));
 }
 
 function broadcast(roomId: number, message: object, exclude?: WebSocket): void {
@@ -198,22 +215,65 @@ export async function revalidateMemberChannelAccess(roomId: number, userId: numb
 }
 
 export function setupSignaling(server: Server): void {
-  const wss = new WebSocketServer({ server, path: "/api/ws" });
+  const wss = new WebSocketServer({
+    server,
+    path: "/api/ws",
+    maxPayload: MAX_PAYLOAD_BYTES,
+  });
+
+  // Remove half-open clients that disappear without completing a WebSocket
+  // close handshake. This keeps long-running self-hosted servers lightweight.
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!liveSockets.has(ws)) {
+        ws.terminate();
+        continue;
+      }
+      liveSockets.delete(ws);
+      ws.ping();
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+  server.once("close", () => clearInterval(heartbeat));
 
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     logger.info("WebSocket connection established");
+    liveSockets.add(ws);
+
+    let rateWindowStartedAt = Date.now();
+    let messagesInWindow = 0;
+    const authTimeout = setTimeout(() => {
+      if (!clients.has(ws)) {
+        ws.close(1008, "Authentication timeout");
+      }
+    }, AUTH_TIMEOUT_MS);
+    authTimeout.unref();
+
+    ws.on("pong", () => liveSockets.add(ws));
 
     ws.on("message", async (rawData) => {
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(rawData.toString());
-      } catch {
+      const now = Date.now();
+      if (now - rateWindowStartedAt >= RATE_LIMIT_WINDOW_MS) {
+        rateWindowStartedAt = now;
+        messagesInWindow = 0;
+      }
+      messagesInWindow += 1;
+      if (messagesInWindow > MAX_MESSAGES_PER_WINDOW) {
+        ws.close(1008, "Message rate limit exceeded");
         return;
       }
 
-      const state = clients.get(ws);
+      try {
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(rawData.toString());
+        } catch {
+          return;
+        }
 
-      switch (msg.type) {
+        const state = clients.get(ws);
+
+        switch (msg.type) {
         case "auth": {
           const token = msg.token as string;
           const payload = verifyToken(token);
@@ -246,7 +306,9 @@ export function setupSignaling(server: Server): void {
             activity: null,
             watching: [],
             askToWatch: false,
+            guestRoomId: payload.guestRoomId ?? null,
           });
+          clearTimeout(authTimeout);
           ws.send(JSON.stringify({ type: "auth_ok", userId: user.id, username: user.username }));
           logger.info({ userId: user.id }, "WebSocket authenticated");
           break;
@@ -255,6 +317,10 @@ export function setupSignaling(server: Server): void {
         case "join_room": {
           if (!state) { ws.send(JSON.stringify({ type: "error", error: "Not authenticated" })); return; }
           const roomId = msg.roomId as number;
+          if (state.guestRoomId !== null && state.guestRoomId !== roomId) {
+            ws.send(JSON.stringify({ type: "error", error: "Guest access is limited to this Quick Call" }));
+            return;
+          }
 
           const [membership] = await db
             .select()
@@ -293,6 +359,10 @@ export function setupSignaling(server: Server): void {
 
           const [channel] = await db.select().from(channelsTable).where(eq(channelsTable.id, channelId));
           if (!channel) { ws.send(JSON.stringify({ type: "error", error: "Channel not found" })); return; }
+          if (state.guestRoomId !== null && state.guestRoomId !== channel.roomId) {
+            ws.send(JSON.stringify({ type: "error", error: "Guest access is limited to this Quick Call" }));
+            return;
+          }
 
           const [membership] = await db
             .select()
@@ -564,13 +634,23 @@ export function setupSignaling(server: Server): void {
           break;
         }
 
-        default:
-          break;
+          default:
+            break;
+        }
+      } catch (err) {
+        // Database or signaling failures must not become unhandled promise
+        // rejections that can destabilize a long-running self-hosted server.
+        logger.error({ err }, "Failed to handle WebSocket message");
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "error", error: "Unable to process message" }));
+        }
       }
     });
 
     ws.on("close", () => {
+      clearTimeout(authTimeout);
       const state = clients.get(ws);
+      const previousRoomId = state?.roomId ?? null;
       if (state?.roomId) {
         if (state.channelId) {
           const key = `${state.channelId}:${state.userId}`;
@@ -584,6 +664,11 @@ export function setupSignaling(server: Server): void {
         broadcastPresence(state.roomId);
       }
       clients.delete(ws);
+      if (previousRoomId !== null) {
+        scheduleEmptyEphemeralRoomCleanup(previousRoomId).catch((err) =>
+          logger.error({ err, roomId: previousRoomId }, "Failed to schedule empty ephemeral room cleanup"),
+        );
+      }
       logger.info("WebSocket disconnected");
     });
 

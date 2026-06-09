@@ -17,6 +17,7 @@ running in the background (always-on "LAN-party" client).
   because the desktop webview runs on a secure origin).
 - System-tray icon with **Show**, **Hide**, **Switch Server…**, and **Quit**.
 - Closing the window hides it to the tray instead of quitting.
+- Launching LynxDock again restores and focuses the existing window.
 - Optional: preset a server with the `LYNXDOCK_URL` env var to skip the picker.
 
 ## Download (for users)

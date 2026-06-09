@@ -209,6 +209,12 @@ function resolve(): ResolvedConfig {
 
 export const config: ResolvedConfig = resolve();
 
+if (process.env.NODE_ENV === "production" && config.sessionSecret.length < 32) {
+  throw new Error(
+    "SESSION_SECRET must be set to a random value of at least 32 characters in production",
+  );
+}
+
 /**
  * Inject database settings into process.env so the standalone `@workspace/db`
  * package can pick them up at import time. Only fills values that are not

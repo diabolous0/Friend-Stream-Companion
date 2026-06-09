@@ -15,15 +15,41 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Mutex;
+use std::{
+    fs::{create_dir_all, OpenOptions},
+    io::Write,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, Url, WebviewUrl, WebviewWindowBuilder,
+    Manager, Url,
 };
 
 /// Remembers the bundled picker ("home") URL so "Switch Server…" can return to it.
 struct HomeUrl(Mutex<Option<Url>>);
+
+fn write_startup_log(app: &tauri::AppHandle, message: &str) {
+    let Ok(log_dir) = app.path().app_log_dir() else {
+        return;
+    };
+    if create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("startup.log"))
+    else {
+        return;
+    };
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let _ = writeln!(file, "{timestamp} {message}");
+}
 
 /// An optional preset server. Set `LYNXDOCK_URL` at build time (baked in) or at
 /// launch time to skip the picker and connect straight to that server.
@@ -42,18 +68,27 @@ fn preset_url() -> Option<String> {
 
 fn main() {
     tauri::Builder::default()
+        // Register this first so another launch restores the existing app.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            write_startup_log(app, "second launch requested; restoring main window");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(HomeUrl(Mutex::new(None)))
         .setup(|app| {
-            // Start on the bundled server picker.
-            let window = WebviewWindowBuilder::new(
-                app,
-                "main",
-                WebviewUrl::App("index.html".into()),
-            )
-            .title("LynxDock")
-            .inner_size(1100.0, 760.0)
-            .min_inner_size(480.0, 600.0)
-            .build()?;
+            write_startup_log(app.handle(), "starting LynxDock");
+
+            // Tauri creates the configured main window before setup. Keeping
+            // creation in tauri.conf.json avoids a tray-only startup state.
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| {
+                    std::io::Error::other("Tauri did not create the main LynxDock window")
+                })?;
+            write_startup_log(app.handle(), "main window created");
 
             // Remember the picker URL for "Switch Server…".
             if let Ok(home) = window.url() {
@@ -66,6 +101,10 @@ fn main() {
                     let _ = window.navigate(parsed);
                 }
             }
+
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
 
             // System-tray menu: Show / Hide / Switch Server / Quit.
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
@@ -82,6 +121,7 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
@@ -97,6 +137,7 @@ fn main() {
                             if let Some(home) = home {
                                 let _ = w.navigate(home);
                             }
+                            let _ = w.unminimize();
                             let _ = w.show();
                             let _ = w.set_focus();
                         }

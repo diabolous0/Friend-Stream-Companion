@@ -7,6 +7,7 @@ import {
   channelsTable,
   roomBansTable,
   botsTable,
+  usersTable,
 } from "@workspace/db";
 import { and, eq, lt, inArray, isNotNull } from "drizzle-orm";
 import { logger } from "./logger";
@@ -17,6 +18,14 @@ import { logger } from "./logger";
  * enforces foreign keys (Postgres always; SQLite only when pragma is on).
  */
 export async function deleteRoomCascade(roomId: number): Promise<void> {
+  const guestRows = await db
+    .select({ userId: roomMembersTable.userId, username: usersTable.username })
+    .from(roomMembersTable)
+    .innerJoin(usersTable, eq(usersTable.id, roomMembersTable.userId))
+    .where(eq(roomMembersTable.roomId, roomId));
+  const guestUserIds = guestRows
+    .filter((row) => row.username.startsWith("__guest_"))
+    .map((row) => row.userId);
   const msgRows = await db
     .select({ id: messagesTable.id })
     .from(messagesTable)
@@ -34,6 +43,9 @@ export async function deleteRoomCascade(roomId: number): Promise<void> {
   await db.delete(channelsTable).where(eq(channelsTable.roomId, roomId));
   await db.delete(roomMembersTable).where(eq(roomMembersTable.roomId, roomId));
   await db.delete(roomsTable).where(eq(roomsTable.id, roomId));
+  if (guestUserIds.length > 0) {
+    await db.delete(usersTable).where(inArray(usersTable.id, guestUserIds));
+  }
 }
 
 /** Find and remove ephemeral rooms whose expiry has passed. */

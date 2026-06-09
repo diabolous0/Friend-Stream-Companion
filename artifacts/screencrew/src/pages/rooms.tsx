@@ -15,6 +15,7 @@ import { MonitorUp, LogOut, Plus, Hash, Copy, Check, Users, Lock, Clock, Volume2
 import { PixelAvatar } from "@/components/pixel-avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme, ThemeToggle } from "@/lib/theme";
+import { useSettings } from "@/lib/settings";
 import { clearActiveToken } from "@/lib/server-connection";
 import { useFavoriteRoomIds, toggleFavoriteRoom } from "@/lib/favorites";
 import { ServerInfoHover } from "@/components/server-info-hover";
@@ -44,8 +45,11 @@ export default function Rooms() {
   const queryClient = useQueryClient();
   const { data: me } = useGetMe();
   const { data: serverInfo } = useGetServerInfo();
+  const { settings } = useSettings();
+  const roomRefreshMs = settings.lowResourceMode ? 120_000 : 30_000;
+  const secondaryRefreshMs = settings.lowResourceMode ? 5 * 60_000 : 60_000;
   const { data: rooms, isLoading } = useListRooms({
-    query: { queryKey: getListRoomsQueryKey(), refetchInterval: 10000 },
+    query: { queryKey: getListRoomsQueryKey(), refetchInterval: roomRefreshMs },
   });
   const { theme } = useTheme();
   const classic = theme === "classic";
@@ -54,19 +58,19 @@ export default function Rooms() {
   const joinRoom = useJoinRoomByCode();
   const joinPresetRoom = useJoinPresetRoom();
   const { data: presetRooms } = useListPresetRooms({
-    query: { queryKey: getListPresetRoomsQueryKey(), refetchInterval: 15000 },
+    query: { queryKey: getListPresetRoomsQueryKey(), refetchInterval: secondaryRefreshMs },
   });
 
-  const { data: friends } = useListFriends({ query: { queryKey: getListFriendsQueryKey(), refetchInterval: 15000 } });
-  const { data: friendRequests } = useListFriendRequests({ query: { queryKey: getListFriendRequestsQueryKey(), refetchInterval: 15000 } });
-  const { data: blocks } = useListBlocks({ query: { queryKey: getListBlocksQueryKey(), refetchInterval: 30000 } });
+  const [showFriends, setShowFriends] = useState(false);
+  const { data: friends } = useListFriends({ query: { enabled: showFriends, queryKey: getListFriendsQueryKey() } });
+  const { data: friendRequests } = useListFriendRequests({ query: { queryKey: getListFriendRequestsQueryKey(), refetchInterval: secondaryRefreshMs } });
+  const { data: blocks } = useListBlocks({ query: { enabled: showFriends, queryKey: getListBlocksQueryKey() } });
   const sendFriendRequest = useSendFriendRequest();
   const acceptFriendRequest = useAcceptFriendRequest();
   const declineFriendRequest = useDeclineFriendRequest();
   const removeFriend = useRemoveFriend();
   const unblockUser = useUnblockUser();
 
-  const [showFriends, setShowFriends] = useState(false);
   const [friendUsername, setFriendUsername] = useState("");
 
   const invalidateFriends = useCallback(() => {
@@ -110,7 +114,7 @@ export default function Rooms() {
 
   const copyInviteLink = useCallback((e: React.MouseEvent, code: string) => {
     e.preventDefault(); e.stopPropagation();
-    const link = `${window.location.origin}${import.meta.env.BASE_URL}?join=${encodeURIComponent(code)}`;
+    const link = `${window.location.origin}${import.meta.env.BASE_URL}login?join=${encodeURIComponent(code)}`;
     navigator.clipboard.writeText(link).then(() => {
       setCopiedCode(`link:${code}`); setTimeout(() => setCopiedCode(null), 2000);
       toast({ title: "Invite link copied", description: "Share it with your crew to let them join." });
@@ -526,19 +530,18 @@ export default function Rooms() {
                           <span className={classic ? "font-mono" : ""}>Drop in</span>
                         </button>
                       )}
-                      <button onClick={(e) => copyInviteCode(e, room.inviteCode)}
-                        className={`flex items-center gap-1 text-xs text-muted-foreground/40 hover:text-muted-foreground px-2 py-1 hover:bg-muted/40 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}
-                        title="Copy invite code">
-                        <Hash className="w-3 h-3" />
-                        <span className="font-mono">{room.inviteCode}</span>
-                        {copiedCode === room.inviteCode ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                      <button onClick={(e) => copyInviteLink(e, room.inviteCode)}
-                        className={`flex items-center gap-1 text-xs text-muted-foreground/40 hover:text-muted-foreground px-2 py-1 hover:bg-muted/40 transition-colors shrink-0 ${r("rounded-lg", "rounded-sm")}`}
-                        title="Copy invite link">
-                        {copiedCode === `link:${room.inviteCode}` ? <Check className="w-3 h-3 text-green-400" /> : <LinkIcon className="w-3 h-3" />}
-                        <span className={classic ? "font-mono" : ""}>Link</span>
-                      </button>
+                      <div className="flex shrink-0 items-center opacity-60 transition-opacity group-hover:opacity-100">
+                        <button onClick={(e) => copyInviteCode(e, room.inviteCode)}
+                          className={`flex h-8 w-8 items-center justify-center text-muted-foreground/50 hover:bg-muted/40 hover:text-muted-foreground ${r("rounded-lg", "rounded-sm")}`}
+                          title={`Copy invite code ${room.inviteCode}`}>
+                          {copiedCode === room.inviteCode ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Hash className="w-3.5 h-3.5" />}
+                        </button>
+                        <button onClick={(e) => copyInviteLink(e, room.inviteCode)}
+                          className={`flex h-8 w-8 items-center justify-center text-muted-foreground/50 hover:bg-muted/40 hover:text-muted-foreground ${r("rounded-lg", "rounded-sm")}`}
+                          title="Copy invite link">
+                          {copiedCode === `link:${room.inviteCode}` ? <Check className="w-3.5 h-3.5 text-green-400" /> : <LinkIcon className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                   </Link>
                 );

@@ -29,6 +29,7 @@ export default function Admin() {
   const { theme } = useTheme();
   const classic = theme === "classic";
   const qc = useQueryClient();
+  const firstOwner = new URLSearchParams(window.location.search).get("first") === "1";
 
   const { data: me, isLoading: meLoading } = useGetMe({
     query: { retry: false, queryKey: getGetMeQueryKey() },
@@ -148,7 +149,7 @@ export default function Admin() {
   };
 
   const copyInvite = (key: string) => {
-    const link = `${window.location.origin}${import.meta.env.BASE_URL}?invite=${encodeURIComponent(key)}`;
+    const link = `${window.location.origin}${import.meta.env.BASE_URL}login?invite=${encodeURIComponent(key)}`;
     navigator.clipboard?.writeText(link);
     toast({ title: classic ? "LINK COPIED" : "Invite link copied" });
   };
@@ -176,6 +177,13 @@ export default function Admin() {
 
         {!isAdmin ? (
           <form onSubmit={onClaim} className={`${card} p-6 space-y-3`}>
+            {firstOwner && (
+              <div className={`border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-muted-foreground ${classic ? "rounded-sm font-mono" : "rounded-xl"}`}>
+                {classic
+                  ? "FINAL STEP: ENTER THE ADMIN PASSWORD FROM YOUR .ENV FILE."
+                  : "Final step: enter the admin password from your .env file to unlock server controls."}
+              </div>
+            )}
             <p className={`text-sm text-muted-foreground ${classic ? "font-mono" : ""}`}>
               {classic
                 ? "ENTER THE SERVER ADMIN PASSWORD TO UNLOCK CONTROLS."
@@ -221,6 +229,11 @@ export default function Admin() {
                   {classic ? "INVITE KEYS" : "Invite keys"}
                 </h2>
               </div>
+              <p className={`text-xs text-muted-foreground ${classic ? "font-mono" : ""}`}>
+                {classic
+                  ? "CREATE A KEY, COPY ITS LINK, AND SEND IT TO A FRIEND. IT OPENS REGISTRATION WITH THE KEY FILLED IN."
+                  : "Create a key, copy its link, and send it to a friend. It opens registration with the invite key filled in."}
+              </p>
 
               <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">

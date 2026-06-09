@@ -1,18 +1,34 @@
 import { type Request, type Response, type NextFunction } from "express";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { config } from "../lib/config";
 
 const SECRET = config.sessionSecret;
+const TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const GUEST_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export function signToken(userId: number): string {
-  const payload = Buffer.from(JSON.stringify({ userId, iat: Date.now() })).toString("base64url");
+interface TokenPayload {
+  userId: number;
+  iat: number;
+  guestRoomId?: number;
+}
+
+function signPayload(data: TokenPayload): string {
+  const payload = Buffer.from(JSON.stringify(data)).toString("base64url");
   const sig = createHmac("sha256", SECRET).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifyToken(token: string): { userId: number } | null {
+export function signToken(userId: number): string {
+  return signPayload({ userId, iat: Date.now() });
+}
+
+export function signGuestToken(userId: number, guestRoomId: number): string {
+  return signPayload({ userId, guestRoomId, iat: Date.now() });
+}
+
+export function verifyToken(token: string): { userId: number; guestRoomId?: number } | null {
   try {
     const [payload, sig] = token.split(".");
     if (!payload || !sig) return null;
@@ -21,20 +37,68 @@ export function verifyToken(token: string): { userId: number } | null {
     const expBuf = Buffer.from(expected, "base64url");
     if (sigBuf.length !== expBuf.length) return null;
     if (!timingSafeEqual(sigBuf, expBuf)) return null;
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Partial<TokenPayload>;
+    if (typeof parsed.userId !== "number" || !Number.isInteger(parsed.userId) || typeof parsed.iat !== "number") {
+      return null;
+    }
+    if (parsed.guestRoomId !== undefined && !Number.isInteger(parsed.guestRoomId)) return null;
+    const age = Date.now() - parsed.iat;
+    const maxAge = parsed.guestRoomId === undefined ? TOKEN_MAX_AGE_MS : GUEST_TOKEN_MAX_AGE_MS;
+    if (age < 0 || age > maxAge) return null;
+    return { userId: parsed.userId, guestRoomId: parsed.guestRoomId };
   } catch {
     return null;
   }
 }
 
 export function hashPassword(password: string): string {
-  return createHmac("sha256", SECRET).update(password).digest("hex");
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  if (stored.startsWith("scrypt:")) {
+    const [, salt, hash] = stored.split(":");
+    if (!salt || !hash) return false;
+    const actual = scryptSync(password, salt, 64);
+    const expected = Buffer.from(hash, "hex");
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
+  // Legacy accounts used an HMAC password hash. Accept it only long enough for
+  // the login route to transparently replace it with a scrypt hash.
+  const actual = Buffer.from(createHmac("sha256", SECRET).update(password).digest("hex"), "hex");
+  const expected = Buffer.from(stored, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function passwordHashNeedsUpgrade(stored: string): boolean {
+  return !stored.startsWith("scrypt:");
 }
 
 export interface AuthenticatedRequest extends Request {
   userId?: number;
   username?: string;
   isAdmin?: boolean;
+  guestRoomId?: number;
+}
+
+function guestRequestAllowed(req: Request, roomId: number): boolean {
+  const path = req.originalUrl.split("?")[0];
+  if (req.method === "GET" && (path === "/api/users/me" || path === "/api/ice-servers")) {
+    return true;
+  }
+  const roomPath = `/api/rooms/${roomId}`;
+  if (req.method === "GET") {
+    return path === roomPath || path.startsWith(`${roomPath}/`);
+  }
+  if (req.method === "POST" && (path === `${roomPath}/messages` || path === `${roomPath}/leave`)) {
+    return true;
+  }
+  return /^\/api\/rooms\/\d+\/messages\/\d+(?:\/reactions|\/pin)?$/.test(path)
+    && ["POST", "PATCH", "DELETE"].includes(req.method)
+    && path.startsWith(`${roomPath}/messages/`);
 }
 
 export async function requireAuth(
@@ -60,9 +124,15 @@ export async function requireAuth(
     return;
   }
 
+  if (payload.guestRoomId !== undefined && !guestRequestAllowed(req, payload.guestRoomId)) {
+    res.status(403).json({ error: "Guest access is limited to this Quick Call" });
+    return;
+  }
+
   req.userId = user.id;
   req.username = user.username;
   req.isAdmin = user.isAdmin;
+  req.guestRoomId = payload.guestRoomId;
   next();
 }
 

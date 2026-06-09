@@ -14,8 +14,10 @@ import {
   ChevronRight,
   Star,
   Server as ServerIcon,
+  List,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
+import { useSettings } from "@/lib/settings";
 import { useFavoriteRoomIds } from "@/lib/favorites";
 import { getServerLabel } from "@/lib/server-connection";
 import { ServerInfoHover } from "@/components/server-info-hover";
@@ -38,12 +40,16 @@ function FavoriteRoomItem({
   activeRoomId,
   activeChannelId,
   classic,
+  itemPadding,
+  channelPadding,
   onNavigate,
 }: {
   room: { id: number; name: string };
   activeRoomId: number | null;
   activeChannelId: number | null;
   classic: boolean;
+  itemPadding: string;
+  channelPadding: string;
   onNavigate: (path: string) => void;
 }) {
   const isActiveRoom = room.id === activeRoomId;
@@ -63,7 +69,7 @@ function FavoriteRoomItem({
     <div>
       <button
         onClick={() => setExpanded((s) => !s)}
-        className={`group flex items-center gap-1.5 w-full px-2 py-1.5 text-left ${rounded} transition-colors ${
+        className={`group flex items-center gap-1.5 w-full px-2 ${itemPadding} text-left ${rounded} transition-colors ${
           isActiveRoom
             ? "bg-primary/15 text-primary"
             : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
@@ -85,7 +91,7 @@ function FavoriteRoomItem({
                 <button
                   key={ch.id}
                   onClick={() => onNavigate(`/room/${room.id}?channel=${ch.id}`)}
-                  className={`flex items-center gap-1.5 px-2 py-1 ${rounded} transition-colors ${
+                  className={`flex items-center gap-1.5 px-2 ${channelPadding} ${rounded} transition-colors ${
                     isActiveChannel
                       ? "bg-primary/15 text-primary"
                       : "text-muted-foreground/70 hover:bg-muted/30 hover:text-foreground"
@@ -111,7 +117,18 @@ export function NavColumn() {
   const [, setLocation] = useLocation();
   const [matchRoom, roomParams] = useRoute("/room/:roomId");
   const { theme } = useTheme();
+  const { settings } = useSettings();
   const classic = theme === "classic";
+  const columnWidth = {
+    compact: "w-52",
+    default: "w-60",
+    wide: "w-72",
+  }[settings.navColumnSize];
+  const density = {
+    comfortable: { item: "py-2", channel: "py-1.5", section: "pt-4 pb-2" },
+    cozy: { item: "py-1.5", channel: "py-1", section: "pt-3 pb-1.5" },
+    compact: { item: "py-1", channel: "py-0.5", section: "pt-2 pb-1" },
+  }[settings.layoutDensity];
 
   const activeRoomId =
     matchRoom && roomParams?.roomId ? parseInt(roomParams.roomId, 10) : null;
@@ -129,7 +146,7 @@ export function NavColumn() {
   const serverName = serverInfo?.serverName || getServerLabel();
 
   return (
-    <aside className="flex flex-col w-60 shrink-0 h-full bg-card/30 border-r border-border/50">
+    <aside className={`flex flex-col ${columnWidth} shrink-0 h-full bg-card/30 border-r border-border/50`}>
       <div
         className={`flex items-center gap-2 px-3 h-12 shrink-0 border-b border-border/50 ${
           classic ? "font-mono uppercase tracking-widest text-primary" : ""
@@ -141,7 +158,7 @@ export function NavColumn() {
         </ServerInfoHover>
       </div>
 
-      <div className="flex items-center gap-1.5 px-3 pt-3 pb-1.5">
+      <div className={`flex items-center gap-1.5 px-3 ${density.section}`}>
         <Star className="w-3.5 h-3.5 text-primary/70" />
         <span
           className={`text-[11px] font-semibold uppercase tracking-widest ${
@@ -161,13 +178,22 @@ export function NavColumn() {
               activeRoomId={activeRoomId}
               activeChannelId={activeChannelId}
               classic={classic}
+              itemPadding={density.item}
+              channelPadding={density.channel}
               onNavigate={setLocation}
             />
           ))
         ) : (
-          <p className="px-2 py-3 text-xs text-muted-foreground/50 leading-relaxed">
-            Star a room to pin it here for quick access.
-          </p>
+          <div className="mx-1 mt-1 rounded-lg border border-dashed border-border/50 bg-muted/15 px-3 py-3 text-xs text-muted-foreground/60">
+            <Star className="mb-2 h-4 w-4 text-primary/60" />
+            <p className="leading-relaxed">Star rooms to pin them here.</p>
+            <button
+              onClick={() => setLocation("/rooms")}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+            >
+              <List className="h-3.5 w-3.5" /> Browse rooms
+            </button>
+          </div>
         )}
       </div>
 

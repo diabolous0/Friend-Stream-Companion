@@ -17,12 +17,14 @@ export interface SavedServer {
   id: string;
   label: string;
   url: string | null; // null === Quick Session (same origin)
+  lastUsedAt?: number;
 }
 
 const SERVERS_KEY = "screencrew_servers";
 const ACTIVE_KEY = "screencrew_active_server";
 const LEGACY_URL_KEY = "screencrew_server_url";
 const LEGACY_TOKEN_KEY = "screencrew_token";
+const QUICK_CALL_TOKEN_KEY = "lynxdock_quick_call_token";
 
 export const QUICK_SESSION_ID = "quick";
 
@@ -126,16 +128,30 @@ export function getSavedServers(): SavedServer[] {
   return [QUICK_SESSION, ...readStoredServers()];
 }
 
-export function addSavedServer(input: string): SavedServer {
+export function addSavedServer(input: string, label?: string): SavedServer {
   migrateIfNeeded();
   const url = normalizeServerUrl(input);
   const id = url;
   const existing = readStoredServers();
   const found = existing.find((s) => s.id === id);
-  if (found) return found;
-  const server: SavedServer = { id, label: labelForUrl(url), url };
+  const cleanLabel = label?.trim();
+  if (found) {
+    const server = cleanLabel ? { ...found, label: cleanLabel, lastUsedAt: Date.now() } : found;
+    if (cleanLabel) {
+      safeSet(SERVERS_KEY, JSON.stringify(existing.map((s) => s.id === id ? server : s)));
+    }
+    return server;
+  }
+  const server: SavedServer = { id, label: cleanLabel || labelForUrl(url), url, lastUsedAt: Date.now() };
   safeSet(SERVERS_KEY, JSON.stringify([...existing, server]));
   return server;
+}
+
+export function getRecentServers(limit = 4): SavedServer[] {
+  migrateIfNeeded();
+  return readStoredServers()
+    .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+    .slice(0, limit);
 }
 
 export function removeSavedServer(id: string): void {
@@ -163,6 +179,13 @@ export function getActiveServer(): SavedServer {
 export const SERVER_CHANGED_EVENT = "screencrew:server-changed";
 
 export function setActiveServerId(id: string): void {
+  if (id !== QUICK_SESSION_ID) {
+    const existing = readStoredServers();
+    const next = existing.map((server) =>
+      server.id === id ? { ...server, lastUsedAt: Date.now() } : server,
+    );
+    safeSet(SERVERS_KEY, JSON.stringify(next));
+  }
   safeSet(ACTIVE_KEY, id);
   applyServerConnection();
   if (typeof window !== "undefined") {
@@ -178,6 +201,12 @@ function tokenKey(serverId: string): string {
 }
 
 export function getActiveToken(): string | null {
+  try {
+    const quickCallToken = sessionStorage.getItem(QUICK_CALL_TOKEN_KEY);
+    if (quickCallToken) return quickCallToken;
+  } catch {
+    /* ignore */
+  }
   return safeGet(tokenKey(getActiveServerId()));
 }
 
@@ -189,14 +218,30 @@ export function clearActiveToken(): void {
   safeRemove(tokenKey(getActiveServerId()));
 }
 
+export function setQuickCallToken(token: string): void {
+  try {
+    sessionStorage.setItem(QUICK_CALL_TOKEN_KEY, token);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearQuickCallToken(): void {
+  try {
+    sessionStorage.removeItem(QUICK_CALL_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 // ─── Back-compat URL helpers (now driven by the active server) ───────────────
 export function getStoredServerUrl(): string | null {
   return getActiveServer().url;
 }
 
 // Kept for the connect-server page: save + activate a self-hosted server.
-export function setStoredServerUrl(input: string): string {
-  const server = addSavedServer(input);
+export function setStoredServerUrl(input: string, label?: string): string {
+  const server = addSavedServer(input, label);
   setActiveServerId(server.id);
   return server.url ?? "";
 }

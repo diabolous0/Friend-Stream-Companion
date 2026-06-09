@@ -131,3 +131,68 @@
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
+
+/* Low Resource Mode also avoids compositor-heavy blur effects. */
+.low-resource .backdrop-blur-sm,
+.low-resource .backdrop-blur,
+.low-resource .backdrop-blur-md,
+.low-resource .backdrop-blur-lg,
+.low-resource .backdrop-blur-xl {
+  backdrop-filter: none !important;
+}
+
+.low-resource .shadow,
+.low-resource .shadow-sm,
+.low-resource .shadow-md,
+.low-resource .shadow-lg,
+.low-resource .shadow-xl,
+.low-resource .shadow-2xl {
+  box-shadow: none !important;
+}
+
+.low-resource .animate-pulse,
+.low-resource .animate-ping,
+.low-resource .animate-bounce {
+  animation: none !important;
+}
+
+.low-resource img,
+.low-resource video {
+  filter: none !important;
+}
+
+/* Accessibility comfort controls toggled from Settings. */
+.high-contrast {
+  --foreground: 0 0% 100%;
+  --muted-foreground: 220 12% 78%;
+  --border: 220 12% 38%;
+  --input: 220 12% 38%;
+}
+
+.high-contrast:not(.dark) {
+  --foreground: 240 10% 3%;
+  --muted-foreground: 240 8% 28%;
+  --border: 240 8% 55%;
+  --input: 240 8% 55%;
+}
+
+.high-contrast button,
+.high-contrast input,
+.high-contrast textarea,
+.high-contrast select {
+  border-color: hsl(var(--border)) !important;
+}
+
+.large-click-targets button,
+.large-click-targets [role="button"],
+.large-click-targets input,
+.large-click-targets select,
+.large-click-targets textarea {
+  min-height: 2.5rem;
+}
+
+.strong-focus :is(button, [href], input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px hsl(var(--ring) / 0.18);
+}

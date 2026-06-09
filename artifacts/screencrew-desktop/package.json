@@ -1,6 +1,6 @@
 {
   "name": "lynxdock-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "LynxDock desktop shell (Tauri). Connects to a LynxDock server in a native window with a built-in server picker and a system-tray launcher.",
   "scripts": {

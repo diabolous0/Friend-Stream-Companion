@@ -1,15 +1,18 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Play, Trash2, Volume2, ServerCog } from "lucide-react";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Settings, Copy, Check, Upload, RotateCcw, ExternalLink, Gamepad2, LogOut, Mic, Mail, User, Camera, Loader2, MessageCircle, Moon, Sun, Monitor, Play, Trash2, Volume2, ServerCog, Search, Palette, LayoutPanelLeft, Gauge, Accessibility } from "lucide-react";
 import {
   useSettings, ACCENT_COLORS, FONT_OPTIONS, CUSTOM_COLOR_FIELDS, DEFAULT_CUSTOM_COLORS,
   BUILTIN_SOUNDS, SOUND_EVENTS, SOUND_THEMES, SKIN_PRESETS,
   type AccentPreset, type FontSize, type VideoQuality, type VideoCodec, type ColorMode,
   type WindowControls, type WindowStyle, type CustomColors, type SoundEvent,
+  type LayoutDensity, type ServerRailSize, type NavColumnSize,
+  type TimestampStyle, type MediaPreviewSize,
+  type CallControlStyle,
 } from "@/lib/settings";
 import { useSounds } from "@/hooks/use-sounds";
 import { VIDEO_QUALITY_LABELS, VIDEO_BITRATE_OPTIONS } from "@/lib/media";
@@ -25,12 +28,12 @@ import { useToast } from "@/hooks/use-toast";
 // ─── Hotkey helpers ────────────────────────────────────────────────────────────
 
 const KEY_LABELS: Record<string, string> = {
-  Ctrl: "⌃", Alt: "⌥", Shift: "⇧",
+  Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift",
   Insert: "Ins", Delete: "Del", Backquote: "`", Escape: "Esc",
-  Space: "Space", Enter: "↵", Backslash: "\\",
+  Space: "Space", Enter: "Enter", Backslash: "\\",
   BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'",
   Comma: ",", Period: ".", Slash: "/", Minus: "-", Equal: "=",
-  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
 };
 
 export function formatHotkeyDisplay(hotkey: string): string {
@@ -80,7 +83,7 @@ function HotkeyCapture({ value, onChange }: { value: string; onChange: (k: strin
             ? "border-primary/50 bg-primary/5 text-primary/50 animate-pulse"
             : "border-border/40 bg-muted/20 text-foreground"
         }`}>
-        {capturing ? "↓ Press any key…" : formatHotkeyDisplay(value)}
+        {capturing ? "Press any key..." : formatHotkeyDisplay(value)}
       </div>
       <button onClick={capturing ? () => setCapturing(false) : start}
         className={`h-9 px-3 rounded-xl text-xs font-medium border transition-colors ${
@@ -231,6 +234,58 @@ function ColorPicker({ label, value, onChange }: { label: string; value: string;
   );
 }
 
+function AppearancePreview() {
+  const { settings } = useSettings();
+  const custom = settings.uiTheme === "custom";
+  const colors = settings.customColors;
+  const font = FONT_OPTIONS.find((f) => f.id === (custom ? settings.fontFamily : settings.chatFont))?.stack;
+  const radius = custom && settings.windowStyle === "squared" ? "0.125rem" : "0.75rem";
+  const previewStyle = custom ? {
+    backgroundColor: colors.background,
+    color: colors.foreground,
+    borderColor: colors.border,
+    fontFamily: font,
+    borderRadius: radius,
+  } : { fontFamily: font, borderRadius: radius };
+  const panelStyle = custom ? {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius,
+  } : { borderRadius: radius };
+  const accentStyle = custom ? { color: colors.primary } : undefined;
+  const accentBgStyle = custom ? { backgroundColor: colors.primary } : undefined;
+
+  return (
+    <div className="overflow-hidden border border-border/40 bg-background/60 p-3" style={previewStyle}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary" style={custom ? { color: colors.primary, backgroundColor: `${colors.primary}22` } : undefined}>
+            <MessageCircle className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">LynxDock</p>
+            <p className="truncate text-[11px] text-muted-foreground">General room</p>
+          </div>
+        </div>
+        <span className="h-2.5 w-2.5 rounded-full bg-primary" style={accentBgStyle} />
+      </div>
+      <div className="mt-3 space-y-2 border p-3" style={panelStyle}>
+        <div className="flex items-center gap-2">
+          <div className="h-7 w-7 rounded-full bg-primary/20" style={custom ? { backgroundColor: `${colors.primary}33` } : undefined} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold" style={accentStyle}>You</p>
+            <p className="truncate text-xs text-muted-foreground">This is how chat will feel.</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-2">
+          <span className="text-xs">Call connected</span>
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary" style={custom ? { color: colors.primary, backgroundColor: `${colors.primary}22` } : undefined}>Live</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomLookSection() {
   const { settings, set } = useSettings();
   const c = settings.customColors;
@@ -299,6 +354,26 @@ function SoundSelect({ value, onChange, allowDefault }: {
         <Play className="w-3.5 h-3.5" />
       </button>
     </div>
+  );
+}
+
+function PresetButton({
+  title,
+  description,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-xl border border-border/40 bg-muted/15 px-3 py-3 text-left transition-colors hover:border-primary/35 hover:bg-primary/5"
+    >
+      <span className="block text-sm font-semibold text-foreground">{title}</span>
+      <span className="mt-1 block text-xs leading-5 text-muted-foreground/65">{description}</span>
+    </button>
   );
 }
 
@@ -381,7 +456,7 @@ function SoundsSection() {
         )}
         <button onClick={() => fileRef.current?.click()} disabled={isUploading}
           className="w-full flex items-center justify-center gap-2 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/15 transition-colors disabled:opacity-50">
-          {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</> : <><Upload className="w-4 h-4" /> Upload Sound</>}
+          {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading...</> : <><Upload className="w-4 h-4" /> Upload Sound</>}
         </button>
       </Section>
     </>
@@ -543,7 +618,7 @@ function ProfileTab() {
               className={inputCls + " pl-9"} />
           </div>
         </Field>
-        <Field label="Email" description="Private — only visible to you">
+        <Field label="Email" description="Private - only visible to you">
           <div className="relative">
             <Mail className="w-3.5 h-3.5 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input value={form.email} type="email"
@@ -672,9 +747,9 @@ function ServerTab() {
           <select value={form.registration}
             onChange={e => setForm(f => ({ ...f, registration: e.target.value as typeof f.registration }))}
             className={inputCls}>
-            <option value="open">Open — anyone can join</option>
-            <option value="invite">Invite only — needs an invite key</option>
-            <option value="closed">Closed — no new accounts</option>
+            <option value="open">Open - anyone can join</option>
+            <option value="invite">Invite only - needs an invite key</option>
+            <option value="closed">Closed - no new accounts</option>
           </select>
         </Field>
         <Field label="Max members" description={config ? `${config.userCount} registered so far` : undefined}>
@@ -721,6 +796,8 @@ export function SettingsModal({
   const [renameValue, setRenameValue] = useState(roomName ?? "");
   const [importValue, setImportValue] = useState("");
   const [codeCopied, setCodeCopied] = useState(false);
+  const [activeCategory, setActiveCategory] = useState("profile");
+  const [settingsSearch, setSettingsSearch] = useState("");
 
   const handleExport = () => {
     const code = exportCode();
@@ -752,47 +829,117 @@ export function SettingsModal({
     { key: "lg", label: "L" },
   ];
 
+  const categories = useMemo(() => [
+    { key: "profile", label: "Profile", description: "Name, avatar, links", Icon: User, keywords: "you profile account avatar display name email steam discord" },
+    ...(isAdmin ? [{ key: "server", label: "Server", description: "Community controls", Icon: ServerCog, keywords: "server community registration invites admin config" }] : []),
+    { key: "appearance", label: "Appearance", description: "Themes, colors, text", Icon: Palette, keywords: "look theme skin color accent font opacity blur text" },
+    { key: "layout", label: "Layout", description: "Panels and sizing", Icon: LayoutPanelLeft, keywords: "layout panels crew chat collapse window size order" },
+    { key: "chat", label: "Chat", description: "Messages and room", Icon: MessageCircle, keywords: "chat message timestamps compact room rename leave" },
+    { key: "audio", label: "Calls and Audio", description: "Mic, voice, sharing", Icon: Mic, keywords: "audio media microphone voice video screen share bitrate codec afk" },
+    { key: "overlay", label: "HUD", description: "Overlay and hotkeys", Icon: Gamepad2, keywords: "overlay hud hotkey gaming pill shortcut" },
+    { key: "accessibility", label: "Accessibility", description: "Comfort and clarity", Icon: Accessibility, keywords: "accessibility comfort contrast focus click targets readable font motion" },
+    { key: "performance", label: "Performance", description: "Low resource mode", Icon: Gauge, keywords: "performance low resource reduce motion visualizer cpu battery" },
+    { key: "export", label: "Import / Export", description: "Share or reset setup", Icon: Upload, keywords: "export import reset settings code share defaults" },
+  ], [isAdmin]);
+  const filteredCategories = categories.filter((category) => {
+    const query = settingsSearch.trim().toLowerCase();
+    if (!query) return true;
+    return `${category.label} ${category.description} ${category.keywords}`.toLowerCase().includes(query);
+  });
+
+  useEffect(() => {
+    if (!categories.some((category) => category.key === activeCategory)) {
+      setActiveCategory("profile");
+    }
+  }, [activeCategory, categories]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card border-border/50 rounded-2xl max-w-sm p-0 overflow-hidden shadow-2xl max-h-[90vh]">
-        <DialogHeader className="px-6 pt-5 pb-4 border-b border-border/20 shrink-0">
-          <DialogTitle className="text-sm font-semibold flex items-center gap-2">
-            <Settings className="w-4 h-4 text-primary" /> Settings
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent className="bg-card border-border/50 rounded-2xl w-[min(920px,calc(100vw-24px))] max-w-none p-0 overflow-hidden shadow-2xl max-h-[88vh]">
+        <Tabs value={activeCategory} onValueChange={setActiveCategory} className="flex min-h-[640px] max-h-[88vh] overflow-hidden">
+          <aside className="flex w-64 shrink-0 flex-col border-r border-border/40 bg-muted/15">
+            <DialogHeader className="px-4 pt-5 pb-4 border-b border-border/20 shrink-0">
+              <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+                <Settings className="w-4 h-4 text-primary" /> Settings
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground/60 leading-5">
+                Tune LynxDock to match how you work, chat, and call.
+              </p>
+            </DialogHeader>
 
-        <Tabs defaultValue="profile" className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className={`mx-6 mt-4 mb-0 shrink-0 bg-muted/30 rounded-xl h-9 grid ${isAdmin ? "grid-cols-7" : "grid-cols-6"}`}>
-            {[
-              { key: "profile", label: "You" },
-              ...(isAdmin ? [{ key: "server", label: "Server" }] : []),
-              { key: "appearance", label: "Look" },
-              { key: "chat", label: "Chat" },
-              { key: "audio", label: "Media" },
-              { key: "overlay", label: "HUD" },
-              { key: "export", label: "Share" },
-            ].map(t => (
-              <TabsTrigger key={t.key} value={t.key}
-                className="rounded-lg text-xs font-medium data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground/60">
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+            <div className="px-3 py-3 border-b border-border/20">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+                <Input
+                  value={settingsSearch}
+                  onChange={(event) => setSettingsSearch(event.target.value)}
+                  placeholder="Search settings"
+                  className="h-9 rounded-xl border-border/30 bg-background/50 pl-9 text-xs focus-visible:ring-0 focus-visible:border-primary/40"
+                />
+              </div>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto px-2 py-2">
+              {filteredCategories.length > 0 ? (
+                filteredCategories.map(({ key, label, description, Icon }) => {
+                  const active = activeCategory === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setActiveCategory(key)}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                        active
+                          ? "bg-primary/15 text-primary border border-primary/25"
+                          : "text-muted-foreground hover:bg-muted/35 hover:text-foreground border border-transparent"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{label}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground/60">{description}</span>
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-3 py-4 text-xs text-muted-foreground/60">No settings match that search.</p>
+              )}
+            </nav>
+
+            <div className="space-y-2 border-t border-border/20 p-3">
+              <button onClick={handleExport}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-primary/10 text-xs font-medium text-primary hover:bg-primary/15 transition-colors">
+                {codeCopied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy setup</>}
+              </button>
+              <button onClick={() => { reset(); toast({ title: "Settings reset to defaults" }); }}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-destructive/25 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors">
+                <RotateCcw className="w-3.5 h-3.5" /> Reset defaults
+              </button>
+            </div>
+          </aside>
+
+          <div className="min-w-0 flex-1 overflow-hidden">
 
           {/* ── Profile ── */}
-          <TabsContent value="profile" className="flex-1 overflow-y-auto px-6 py-5">
+          <TabsContent value="profile" className="m-0 h-full overflow-y-auto px-6 py-5">
             <ProfileTab />
           </TabsContent>
 
           {/* ── Server (admin) ── */}
           {isAdmin && (
-            <TabsContent value="server" className="flex-1 overflow-y-auto px-6 py-5">
+            <TabsContent value="server" className="m-0 h-full overflow-y-auto px-6 py-5">
               <ServerTab />
             </TabsContent>
           )}
 
           {/* ── Appearance ── */}
-          <TabsContent value="appearance" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <TabsContent value="appearance" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Preview">
+              <AppearancePreview />
+            </Section>
+
+            <Divider />
+
             <Section title="Skins">
               <p className="text-xs text-muted-foreground/50 -mt-1">One-tap full retro skins (sets a custom palette + font).</p>
               <div className="grid grid-cols-3 gap-2">
@@ -839,6 +986,7 @@ export function SettingsModal({
               <Row label="Color Mode" description="Light or dark interface">
                 <div className="flex gap-1">
                   {([
+                    { v: "system" as ColorMode, label: "System", Icon: Monitor },
                     { v: "dark" as ColorMode, label: "Dark", Icon: Moon },
                     { v: "light" as ColorMode, label: "Light", Icon: Sun },
                   ]).map(({ v, label, Icon }) => (
@@ -917,25 +1065,55 @@ export function SettingsModal({
               </div>
             </Section>
 
-            <Divider />
+            {settings.uiTheme === "custom" && <CustomLookSection />}
+          </TabsContent>
 
-            <Section title="Voice Visualizer">
-              <Row label="Spectrum bars" description="Equalizer on speaking crew & streams">
-                <Toggle checked={settings.spectrumViz} onToggle={() => set("spectrumViz", !settings.spectrumViz)} />
+          {/* ── Chat ── */}
+          <TabsContent value="layout" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Density">
+              <Row label="Interface density" description="Controls spacing across navigation and room panels">
+                <Segmented<LayoutDensity>
+                  value={settings.layoutDensity}
+                  options={[
+                    { value: "comfortable", label: "Comfortable" },
+                    { value: "cozy", label: "Cozy" },
+                    { value: "compact", label: "Compact" },
+                  ]}
+                  onChange={(value) => set("layoutDensity", value)}
+                />
               </Row>
             </Section>
 
             <Divider />
 
-            <Section title="Performance">
-              <Row label="Reduce motion" description="Disable non-essential animations to lower CPU">
-                <Toggle checked={settings.reduceMotion} onToggle={() => set("reduceMotion", !settings.reduceMotion)} />
+            <Section title="Navigation">
+              <Row label="Server rail" description="Size of the far-left server buttons">
+                <Segmented<ServerRailSize>
+                  value={settings.serverRailSize}
+                  options={[
+                    { value: "compact", label: "Compact" },
+                    { value: "default", label: "Default" },
+                    { value: "large", label: "Large" },
+                  ]}
+                  onChange={(value) => set("serverRailSize", value)}
+                />
+              </Row>
+              <Row label="Room column" description="Width of the favorites and room navigation column">
+                <Segmented<NavColumnSize>
+                  value={settings.navColumnSize}
+                  options={[
+                    { value: "compact", label: "Compact" },
+                    { value: "default", label: "Default" },
+                    { value: "wide", label: "Wide" },
+                  ]}
+                  onChange={(value) => set("navColumnSize", value)}
+                />
               </Row>
             </Section>
 
             <Divider />
 
-            <Section title="Layout">
+            <Section title="Room Panels">
               <Row label="Top panel" description="Which section sits on top">
                 <div className="flex gap-1">
                   {([
@@ -951,31 +1129,137 @@ export function SettingsModal({
                   ))}
                 </div>
               </Row>
-              <Row label="Collapse crew" description="Hide the crew list">
+              <Row label="Collapse crew" description="Hide the crew list by default">
                 <Toggle checked={settings.friendsCollapsed} onToggle={() => set("friendsCollapsed", !settings.friendsCollapsed)} />
               </Row>
-              <Row label="Collapse chat" description="Hide the chat panel">
+              <Row label="Collapse chat" description="Hide the chat panel by default">
                 <Toggle checked={settings.chatCollapsed} onToggle={() => set("chatCollapsed", !settings.chatCollapsed)} />
               </Row>
-              <Row label="Window size" description="Reset to default dimensions">
+            </Section>
+
+            <Divider />
+
+            <Section title="Window">
+              <Row label="Window size" description="Reset dock dimensions to the default">
                 <button onClick={() => set("windowSize", { w: 320, h: 580 })}
                   className="text-xs px-3 py-1.5 rounded-lg font-medium text-muted-foreground/50 border border-border/30 hover:text-muted-foreground transition-all">
                   Reset
                 </button>
               </Row>
             </Section>
-
-            {settings.uiTheme === "custom" && <CustomLookSection />}
           </TabsContent>
 
-          {/* ── Chat ── */}
-          <TabsContent value="chat" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <TabsContent value="performance" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Presets">
+              <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                Battery Saver turns on the lightest visual profile for older machines, laptops, and long calls.
+              </p>
+              <button
+                onClick={() => applyMany({
+                  lowResourceMode: true,
+                  reduceMotion: true,
+                  blurBackground: false,
+                  spectrumViz: false,
+                  compactMessages: true,
+                  layoutDensity: "compact",
+                  callControlStyle: "compact",
+                  mediaPreviewSize: "compact",
+                })}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
+              >
+                <Gauge className="h-4 w-4" /> Apply Battery Saver
+              </button>
+            </Section>
+
+            <Divider />
+
+            <Section title="Resource Use">
+              <Row label="Low Resource Mode" description="Quieter refreshes and fewer optional visual effects">
+                <Toggle checked={settings.lowResourceMode} onToggle={() => set("lowResourceMode", !settings.lowResourceMode)} />
+              </Row>
+              <Row label="Reduce motion" description="Disable non-essential animations to lower CPU">
+                <Toggle checked={settings.reduceMotion} onToggle={() => set("reduceMotion", !settings.reduceMotion)} />
+              </Row>
+            </Section>
+
+            <Divider />
+
+            <Section title="Voice Visualizer">
+              <Row label="Spectrum bars" description="Equalizer on speaking crew and streams">
+                <Toggle checked={settings.spectrumViz} onToggle={() => set("spectrumViz", !settings.spectrumViz)} />
+              </Row>
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="accessibility" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Comfort">
+              <Row label="High contrast" description="Strengthen text, borders, and controls">
+                <Toggle checked={settings.highContrast} onToggle={() => set("highContrast", !settings.highContrast)} />
+              </Row>
+              <Row label="Large click targets" description="Make buttons and fields easier to hit">
+                <Toggle checked={settings.largeClickTargets} onToggle={() => set("largeClickTargets", !settings.largeClickTargets)} />
+              </Row>
+              <Row label="Strong focus outlines" description="Show clearer keyboard focus rings">
+                <Toggle checked={settings.strongFocus} onToggle={() => set("strongFocus", !settings.strongFocus)} />
+              </Row>
+              <Row label="Reduce motion" description="Disable non-essential animations">
+                <Toggle checked={settings.reduceMotion} onToggle={() => set("reduceMotion", !settings.reduceMotion)} />
+              </Row>
+            </Section>
+
+            <Divider />
+
+            <Section title="Readable Preset">
+              <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                Apply a calmer text setup with system font, larger text, high contrast, and stronger focus.
+              </p>
+              <button
+                onClick={() => applyMany({
+                  fontFamily: "system",
+                  chatFont: "system",
+                  fontScale: 110,
+                  fontSize: "lg",
+                  highContrast: true,
+                  largeClickTargets: true,
+                  strongFocus: true,
+                  reduceMotion: true,
+                })}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
+              >
+                <Accessibility className="h-4 w-4" /> Apply readable preset
+              </button>
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="chat" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
             <Section title="Display">
               <Row label="Timestamps" description="Show time on each message">
                 <Toggle checked={settings.showTimestamps} onToggle={() => set("showTimestamps", !settings.showTimestamps)} />
               </Row>
+              {settings.showTimestamps && (
+                <Field label="Timestamp style" description="How message times are displayed">
+                  <Segmented<TimestampStyle>
+                    value={settings.timestampStyle}
+                    options={[
+                      { value: "time", label: "Time" },
+                      { value: "dateTime", label: "Date + time" },
+                      { value: "relative", label: "Relative" },
+                    ]}
+                    onChange={(value) => set("timestampStyle", value)}
+                  />
+                </Field>
+              )}
+              <Row label="Avatars" description="Show small user icons beside messages">
+                <Toggle checked={settings.showChatAvatars} onToggle={() => set("showChatAvatars", !settings.showChatAvatars)} />
+              </Row>
+              <Row label="Usernames" description="Show sender names in the message row">
+                <Toggle checked={settings.showChatUsernames} onToggle={() => set("showChatUsernames", !settings.showChatUsernames)} />
+              </Row>
               <Row label="Compact" description="Tighter message spacing">
                 <Toggle checked={settings.compactMessages} onToggle={() => set("compactMessages", !settings.compactMessages)} />
+              </Row>
+              <Row label="Group messages" description="Hide repeated names on back-to-back messages">
+                <Toggle checked={settings.groupMessages} onToggle={() => set("groupMessages", !settings.groupMessages)} />
               </Row>
               <Row label="Font" description="Typeface for chat messages">
                 <select value={settings.chatFont} onChange={e => set("chatFont", e.target.value)}
@@ -988,13 +1272,29 @@ export function SettingsModal({
 
             <Divider />
 
+            <Section title="Media">
+              <Field label="Preview size" description="How much room link and media previews can use">
+                <Segmented<MediaPreviewSize>
+                  value={settings.mediaPreviewSize}
+                  options={[
+                    { value: "hidden", label: "Hidden" },
+                    { value: "compact", label: "Compact" },
+                    { value: "comfortable", label: "Comfortable" },
+                  ]}
+                  onChange={(value) => set("mediaPreviewSize", value)}
+                />
+              </Field>
+            </Section>
+
+            <Divider />
+
             <Section title="Pop-out">
               <Row label="Float chat" description="Detach chat into a separate window">
                 <Toggle checked={settings.chatPopout} onToggle={() => set("chatPopout", !settings.chatPopout)} />
               </Row>
               {settings.chatPopout && (
                 <p className="text-xs text-primary/70 flex items-center gap-1">
-                  <ExternalLink className="w-3 h-3" /> Chat is floating — drag it anywhere
+                  <ExternalLink className="w-3 h-3" /> Chat is floating; drag it anywhere
                 </p>
               )}
             </Section>
@@ -1009,7 +1309,7 @@ export function SettingsModal({
                       className="h-9 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm flex-1" />
                     <Button type="submit" size="sm" className="h-9 rounded-xl text-xs px-4"
                       disabled={isRenaming || !renameValue.trim() || renameValue === roomName}>
-                      {isRenaming ? "…" : "Save"}
+                      {isRenaming ? "..." : "Save"}
                     </Button>
                   </form>
                 </Section>
@@ -1032,7 +1332,7 @@ export function SettingsModal({
                         <Button variant="outline" size="sm" className="flex-1 rounded-xl text-xs" onClick={onLeaveCancel}>Cancel</Button>
                         <Button size="sm" className="flex-1 rounded-xl text-xs bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                           onClick={onLeaveConfirm} disabled={isLeaving}>
-                          {isLeaving ? "…" : "Confirm Leave"}
+                          {isLeaving ? "..." : "Confirm Leave"}
                         </Button>
                       </div>
                     </div>
@@ -1043,10 +1343,10 @@ export function SettingsModal({
           </TabsContent>
 
           {/* ── Overlay ── */}
-          <TabsContent value="overlay" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <TabsContent value="overlay" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
             <Section title="In-Game Overlay">
               <p className="text-xs text-muted-foreground/60 leading-relaxed">
-                Press your hotkey anytime to collapse the panel into a minimal HUD. Drag the HUD anywhere on screen — it shows crew status and unread messages without blocking your view.
+                Press your hotkey anytime to collapse the panel into a minimal HUD. Drag the HUD anywhere on screen; it shows crew status and unread messages without blocking your view.
               </p>
               <div className="flex items-center gap-3 px-3 py-2 bg-muted/20 border border-border/30 rounded-xl">
                 <Gamepad2 className="w-4 h-4 text-primary/60 shrink-0" />
@@ -1065,7 +1365,7 @@ export function SettingsModal({
                 onChange={v => set("overlayHotkey", v)}
               />
               <p className="text-[10px] text-muted-foreground/40">
-                Tip: avoid keys your game uses. <span className="font-mono">Insert</span>, <span className="font-mono">F9</span>–<span className="font-mono">F12</span> are usually safe.
+                Tip: avoid keys your game uses. <span className="font-mono">Insert</span>, <span className="font-mono">F9</span>-<span className="font-mono">F12</span> are usually safe.
               </p>
             </Section>
 
@@ -1098,7 +1398,22 @@ export function SettingsModal({
           </TabsContent>
 
           {/* ── Media ── */}
-          <TabsContent value="audio" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <TabsContent value="audio" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Call Controls">
+              <Field label="Control style" description="How voice and screen-share buttons appear in rooms">
+                <Segmented<CallControlStyle>
+                  value={settings.callControlStyle}
+                  options={[
+                    { value: "comfortable", label: "Comfortable" },
+                    { value: "compact", label: "Compact" },
+                  ]}
+                  onChange={(value) => set("callControlStyle", value)}
+                />
+              </Field>
+            </Section>
+
+            <Divider />
+
             <Section title="Sounds">
               <Row label="Sound effects" description="Join, message, reaction sounds">
                 <Toggle checked={settings.soundEnabled} onToggle={() => set("soundEnabled", !settings.soundEnabled)} />
@@ -1226,27 +1541,90 @@ export function SettingsModal({
           </TabsContent>
 
           {/* ── Export / Import ── */}
-          <TabsContent value="export" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-            <Section title="Share your settings">
+          <TabsContent value="export" className="m-0 h-full overflow-y-auto px-6 py-5 space-y-5">
+            <Section title="Profiles">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <PresetButton
+                  title="Minimal"
+                  description="Quiet layout, compact chat, fewer previews."
+                  onClick={() => applyMany({
+                    layoutDensity: "compact",
+                    serverRailSize: "compact",
+                    navColumnSize: "compact",
+                    compactMessages: true,
+                    groupMessages: true,
+                    mediaPreviewSize: "hidden",
+                    callControlStyle: "compact",
+                    blurBackground: false,
+                  })}
+                />
+                <PresetButton
+                  title="Gamer"
+                  description="Fast calls, compact controls, HUD-friendly chat."
+                  onClick={() => applyMany({
+                    layoutDensity: "compact",
+                    panelOrder: "friends",
+                    compactMessages: true,
+                    showChatAvatars: false,
+                    mediaPreviewSize: "compact",
+                    callControlStyle: "compact",
+                    overlayShowStream: true,
+                    voiceMode: "ptt",
+                  })}
+                />
+                <PresetButton
+                  title="Readable"
+                  description="Larger text, stronger contrast, bigger targets."
+                  onClick={() => applyMany({
+                    fontFamily: "system",
+                    chatFont: "system",
+                    fontScale: 110,
+                    fontSize: "lg",
+                    highContrast: true,
+                    largeClickTargets: true,
+                    strongFocus: true,
+                    reduceMotion: true,
+                  })}
+                />
+                <PresetButton
+                  title="Battery Saver"
+                  description="Lightest visuals for laptops and long calls."
+                  onClick={() => applyMany({
+                    lowResourceMode: true,
+                    reduceMotion: true,
+                    blurBackground: false,
+                    spectrumViz: false,
+                    compactMessages: true,
+                    layoutDensity: "compact",
+                    callControlStyle: "compact",
+                    mediaPreviewSize: "compact",
+                  })}
+                />
+              </div>
+            </Section>
+
+            <Divider />
+
+            <Section title="Share your setup">
               <p className="text-xs text-muted-foreground/60">
-                Copy your settings code and share it with friends. They can paste it to match your exact look.
+                Copy a portable setup code. Friends can paste it here to match your look, layout, chat, call, and comfort settings.
               </p>
               <button onClick={handleExport}
                 className="w-full flex items-center justify-center gap-2 h-9 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/15 transition-colors">
-                {codeCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Settings Code</>}
+                {codeCopied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy setup code</>}
               </button>
             </Section>
 
             <Divider />
 
-            <Section title="Import settings">
+            <Section title="Import setup">
               <div className="space-y-2">
                 <Input value={importValue} onChange={e => setImportValue(e.target.value)}
-                  placeholder="Paste settings code here…"
+                  placeholder="Paste setup code here..."
                   className="h-9 rounded-xl bg-muted/25 border-transparent focus-visible:border-primary/30 focus-visible:ring-0 text-sm font-mono text-xs" />
                 <Button onClick={handleImport} disabled={!importValue.trim()}
                   className="w-full h-9 rounded-xl text-sm gap-2">
-                  <Upload className="w-4 h-4" /> Apply Settings
+                  <Upload className="w-4 h-4" /> Apply setup
                 </Button>
               </div>
             </Section>
@@ -1254,12 +1632,37 @@ export function SettingsModal({
             <Divider />
 
             <Section title="Reset">
+              <button onClick={() => {
+                applyMany({
+                  uiTheme: "lynx",
+                  colorMode: "dark",
+                  accentPreset: "cyan",
+                  panelOpacity: 100,
+                  blurBackground: false,
+                  fontFamily: "space-mono",
+                  fontScale: 100,
+                  windowStyle: "smooth",
+                  layoutDensity: "cozy",
+                  serverRailSize: "default",
+                  navColumnSize: "default",
+                  fontSize: "md",
+                  chatFont: "space-mono",
+                  compactMessages: false,
+                  mediaPreviewSize: "comfortable",
+                  callControlStyle: "comfortable",
+                });
+                toast({ title: "Look and layout reset" });
+              }}
+                className="mb-2 w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-border/50 text-muted-foreground text-sm font-medium hover:text-foreground hover:border-primary/35 transition-colors">
+                <RotateCcw className="w-3.5 h-3.5" /> Reset look and layout
+              </button>
               <button onClick={() => { reset(); toast({ title: "Settings reset to defaults" }); }}
                 className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-destructive/25 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors">
                 <RotateCcw className="w-3.5 h-3.5" /> Reset to Defaults
               </button>
             </Section>
           </TabsContent>
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>

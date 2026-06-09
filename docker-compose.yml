@@ -26,7 +26,7 @@ services:
     image: screencrew
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:${PORT:-8080}"
     volumes:
       - screencrew-data:/data
       # Optional: mount a config file (see screencrew.config.example.json).
@@ -35,7 +35,11 @@ services:
       # Always set a real secret in production:
       #   SESSION_SECRET=$(openssl rand -hex 32) docker compose up -d
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
-      SERVER_NAME: ${SERVER_NAME:-ScreenCrew Server}
+      SERVER_NAME: ${SERVER_NAME:-LynxDock Server}
+      PORT: ${PORT:-8080}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      REGISTRATION: ${REGISTRATION:-invite}
+      MAX_USERS: ${MAX_USERS:-100}
       # --- SQLite (default) ---
       DB_DRIVER: sqlite
       SQLITE_PATH: /data/screencrew.db
